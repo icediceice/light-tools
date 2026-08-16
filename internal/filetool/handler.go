@@ -48,11 +48,15 @@ type Request struct {
 	StartLine       int     `json:"start_line,omitempty"`
 	EndLine         int     `json:"end_line,omitempty"`
 	StartGuard      string  `json:"start_guard,omitempty"`
-	EndGuard        string  `json:"end_guard,omitempty"`
 	Offset          int     `json:"offset,omitempty"`
 	Limit           int     `json:"limit,omitempty"`
+	Cursor          string  `json:"cursor,omitempty"`
 	Name            string  `json:"name,omitempty"`
 	Pattern         string  `json:"pattern,omitempty"`
+	Context         int     `json:"context,omitempty"`
+	A               string  `json:"a,omitempty"`
+	B               string  `json:"b,omitempty"`
+	DiffContext     int     `json:"diff_context,omitempty"`
 	All             bool    `json:"all,omitempty"`
 	Count           int     `json:"count,omitempty"`
 	Regex           bool    `json:"regex,omitempty"`
