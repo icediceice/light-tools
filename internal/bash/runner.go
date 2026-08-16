@@ -3,6 +3,7 @@ package bash
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -119,12 +120,15 @@ func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, 
 
 	err = command.Run()
 	exitCode := 0
-	if exit, ok := err.(*exec.ExitError); ok {
+	// The deadline check MUST precede the ExitError branch. A timeout kills the
+	// process group, so the kill surfaces as an ExitError first and the timeout
+	// would be silently reported as a bare exit_code -1 with empty output.
+	timedOut := errors.Is(runContext.Err(), context.DeadlineExceeded)
+	if timedOut {
+		exitCode = -1
+	} else if exit, ok := err.(*exec.ExitError); ok {
 		exitCode = exit.ExitCode()
 	} else if err != nil {
-		if runContext.Err() != nil {
-			return nil, fmt.Errorf("command timed out after %s", timeout)
-		}
 		return nil, err
 	}
 	rawStdout := scrub(stdout.String(), values)
@@ -143,6 +147,13 @@ func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, 
 		stderrText = filterOutput(stderrText, request.OutputMode, request.Lines, request.Filter)
 	}
 	result := map[string]any{"stdout": stdoutText, "stderr": stderrText, "exit_code": exitCode}
+	if timedOut {
+		// Partial stdout/stderr is kept deliberately: it is usually the only
+		// evidence of where the command hung.
+		result["timed_out"] = true
+		result["timeout_ms"] = timeout.Milliseconds()
+		result["error"] = fmt.Sprintf("command timed out after %s", timeout)
+	}
 	if spillID != "" {
 		result["spill_id"] = spillID
 		result["stdout"] = tail(stdoutText, 80)
@@ -151,6 +162,10 @@ func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, 
 	}
 	return result, nil
 }
+
+// Spills exposes the store so light_file can hand oversized reads to the SAME
+// spill the caller recovers through light_bash output_mode:read_block.
+func (r *Runner) Spills() *SpillStore { return r.spills }
 
 func (r *Runner) injectSecrets(command *exec.Cmd, request Request) ([]string, func(), error) {
 	var values []string

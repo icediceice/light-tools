@@ -55,6 +55,40 @@ shim and no post-call governance accounting.
 - Operations service discovery uses source-qualified IDs such as
   `systemd:api` and `docker:api`; a bare ambiguous name fails with the
   candidate IDs.
+- `light_ops` confines CALLER-SUPPLIED log paths (a `path` argument or a
+  `file:/absolute/path` service ID, plus `probe_file`) to `allowed_roots` +
+  `log_roots`, and deliberately does NOT confine registry-discovered service
+  logs. Service managers put logs where they like; confining that branch would
+  break the tool's main purpose. `grepPool` swallows per-service fetch errors
+  with a bare `continue`, so an accidental confinement of the registry branch
+  would surface as "no matches" rather than an error — there is a regression
+  test pinning this.
+- The caller-path root union is compiled ONCE at startup with absent roots
+  dropped. `security.ResolveBeneath` canonicalizes every root on each call and
+  errors on the first one that does not exist, so a single missing root would
+  otherwise disable every other root on every request.
+- Config authority is XDG-only. `LIGHT_TOOLS_LOG_ROOTS` is read from the
+  process environment and from `$XDG_CONFIG_HOME/light-tools/.env`, never from
+  a `.env` in the process working directory — that tree is writable by the
+  agent being served, so a repo-local file must not widen the boundary.
+- A single-path read is bounded by BOTH a 5000-line ceiling and the 128 KiB
+  response budget, and a supplied `limit` above that is clamped, not honoured.
+  A page always emits at least one line so progress is monotonic; an oversized
+  logical line goes to the shared spill store rather than being dropped or
+  returned unbounded. Files above 256 MiB are refused, because the file is read
+  whole in order to slice it.
+- A terminal newline is a line DELIMITER, not an extra logical line, in both
+  `readWindow` and `renderItem`; an empty file reports zero lines. The
+  read-dedup ledger keys on the whole-file hash PLUS the requested span, so a
+  continuation page of an unchanged file is not elided as an already-seen read.
+- Paging identity is opt-in via `expected_sha`: when supplied it must match the
+  file's current hash or the page is refused, so a file mutated between pages
+  cannot silently duplicate or drop lines.
+- A timed-out shell command is reported as a timeout (`timed_out`, `timeout_ms`,
+  `error`) with partial output preserved. The deadline check MUST precede the
+  `*exec.ExitError` branch: the timeout kills the process group, so the kill
+  matches as an ordinary exit first and the timeout would otherwise be reported
+  as a bare `exit_code: -1` with empty output.
 
 ## Mutation transaction invariant
 

@@ -77,17 +77,24 @@ func main() {
 }
 
 func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config) error {
-	fileHandler, err := filetool.New(filetool.Options{Roots: configuration.AllowedRoots, SnapshotRoot: layout.Snapshots})
-	if err != nil {
-		return err
-	}
 	secretVault := secret.New(layout.Secrets)
+	// The runner is built first so light_file can share its spill store: an
+	// oversized read then comes back as a spill_id readable via light_bash.
 	bashRunner, err := bash.NewRunner(configuration.AllowedRoots, layout.Spills, secretVault)
 	if err != nil {
 		return err
 	}
+	fileHandler, err := filetool.New(filetool.Options{
+		Roots: configuration.AllowedRoots, SnapshotRoot: layout.Snapshots, Spills: bashRunner.Spills(),
+	})
+	if err != nil {
+		return err
+	}
 	remoteTransport := remote.New(configuration.Remote, configuration.AllowedRoots, secretVault)
-	opsHandler := ops.New()
+	opsHandler, err := ops.New(configuration.AllowedRoots, configuration.LogRoots)
+	if err != nil {
+		return err
+	}
 	bashHandler := func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var request bash.Request
 		if err := json.Unmarshal(raw, &request); err != nil {

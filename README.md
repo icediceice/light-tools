@@ -122,6 +122,17 @@ an opaque `context_epoch` enables content-hash deduplication for that client
 context; it is disabled by default. A single image read emits a real MCP image
 block up to 9 MiB, while image items in a batch become text descriptions.
 
+A single-path `offset`/`limit` read is bounded the same way a batch is: at most
+5000 lines and one 128 KiB response budget, whichever binds first. A supplied
+`limit` above that is clamped rather than honoured, with `continued` and
+`next_offset` set so the caller can page. To page safely, echo the previous
+response's `sha256` back as `expected_sha` — if the file changed between pages
+the read is refused instead of silently duplicating or dropping lines. A single
+logical line larger than the budget is still returned as progress and its full
+page is written to the shared spill store; recover it verbatim with
+`light_bash` `output_mode:read_block` and the returned `spill_id`. A file above
+256 MiB is refused outright, since the file is read whole in order to slice it.
+
 Example batch:
 
 ```json
@@ -204,9 +215,17 @@ Commands run under the requested root-confined `cwd`, a minimal inherited
 environment, and a timeout that terminates the whole process group. Results
 preserve `stdout`, `stderr`, and `exit_code`.
 
+A command killed by its timeout says so: the result carries `timed_out: true`,
+the `timeout_ms` that applied, an `error` naming the timeout, and `exit_code`
+of `-1` — and it keeps whatever partial `stdout`/`stderr` the command produced
+before it was killed, which is usually the only evidence of where it hung. An
+ordinary non-zero exit is never relabelled as a timeout, and cancellation is
+reported as cancellation rather than as a deadline.
+
 Output modes are `auto`, `head`, `tail`, `grep`, and `read_block`.
 Large complete output is compressed behind a random opaque `spill_id`; use
-`read_block` plus `line_range` to recover exact ranges.
+`read_block` plus `line_range` to recover exact ranges. `light_file` shares
+this same spill store, so an oversized read's `spill_id` is recoverable here.
 
 Local async flow:
 
@@ -287,6 +306,20 @@ timestamp-ordered correlation, and identifier tracing. An explicit path is a
 file log; correlation also accepts `file:/absolute/path` service IDs.
 `light_ops` has no start/stop/restart verb.
 
+### Which log paths are confined
+
+`light_ops` reads two different kinds of path, and they are governed
+differently on purpose:
+
+- **Caller-supplied paths** — a `path` argument, or a `file:/absolute/path`
+  service ID — are **confined** to `allowed_roots` plus `log_roots`. A path
+  outside both is refused. `probe_file` is confined the same way and refuses
+  rather than returning stat metadata for an arbitrary path.
+- **Registry-discovered service logs** — whatever `journalctl`, `docker` or
+  `pm2` reports for a discovered service — are **not** confined. Those logs
+  live wherever the service manager puts them, and reading them is what the
+  tool is for. Confining them would break `light_ops` for its main purpose.
+
 ## Configuration and state
 
 No config file is required. The default allowed root is the server process
@@ -295,7 +328,33 @@ working directory. Optional overrides live at
 
 ```toml
 allowed_roots = ["/work/project"]
+log_roots     = ["/var/log", "/srv/myapp/logs"]
 ```
+
+`allowed_roots` is the filesystem boundary for `light_file` and `light_bash`.
+`log_roots` additionally widens caller-supplied `light_ops` log paths, and
+nothing else.
+
+### Log roots and the `.env` front door
+
+`log_roots` can also be set without editing `config.toml`. Precedence, highest
+first:
+
+1. `LIGHT_TOOLS_LOG_ROOTS` in the process environment
+2. `LIGHT_TOOLS_LOG_ROOTS` in `$XDG_CONFIG_HOME/light-tools/.env`
+3. `log_roots` in `config.toml`
+4. built-in defaults: `/var/log`, `~/.local/log`, `~/.pm2/logs`
+
+Entries are separated by the OS path list separator (`:` on Linux and macOS)
+and a leading `~` is expanded. See `.env.example` in the repository.
+
+The `.env` is read **only** from the XDG config directory, never from the
+process working directory. That tree is writable by the agent the server is
+serving, so a repo-local file must not be able to widen the boundary.
+
+Built-in defaults are optional: any that do not exist on the machine are
+dropped. Roots you configure yourself are not — a missing one fails at startup
+rather than silently narrowing what is readable.
 
 Configuration, encrypted secrets, snapshots, and runtime spills have separate
 XDG roots. Parent directories are mode 0700 and private files are mode 0600

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -22,7 +23,26 @@ import (
 const (
 	imageLimit = 9 * 1024 * 1024
 	readBudget = 128 * 1024
+	// maxReadLines caps a single-path read. Without it a caller-supplied limit
+	// was honoured verbatim: limit:999999 returned over a megabyte in one
+	// response, which is the defect this ceiling closes.
+	maxReadLines = 5000
+	// maxReadBytes refuses a file big enough to exhaust memory before any
+	// output bound can apply, because the whole file is read to slice it.
+	maxReadBytes = 256 * 1024 * 1024
 )
+
+// splitLines splits content into logical lines, treating a terminal newline as
+// a DELIMITER rather than an extra empty line. strings.Split leaves a phantom
+// trailing element, which overcounted total_lines by one and produced an empty
+// final page once next_offset became observable.
+func splitLines(data []byte) []string {
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if text == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+}
 
 type readCursor struct {
 	Item int `json:"item"`
@@ -65,7 +85,7 @@ func (h *Handler) read(_ context.Context, request Request) (any, error) {
 	if request.Offset == 0 && request.Limit == 0 {
 		return h.outline(request)
 	}
-	return h.readWindow(path, request.Offset, request.Limit, request.ContextEpoch, request.Force)
+	return h.readWindow(path, request.Offset, request.Limit, request.ContextEpoch, request.Force, request.ExpectedSHA)
 }
 
 func (h *Handler) readItems(request Request) (any, error) {
@@ -162,7 +182,7 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, error
 	if h.cache.ShouldElide(epoch, path, hash, force) {
 		return header + fmt.Sprintf("[dedup] sha256:%s\n", hash), nil
 	}
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	lines := splitLines(data)
 	offset, limit := item.Offset, item.Limit
 	if offset < 0 {
 		offset = 0
@@ -183,16 +203,29 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, error
 	return builder.String(), nil
 }
 
-func (h *Handler) readWindow(path string, offset, limit int, epoch string, force bool) (any, error) {
+func (h *Handler) readWindow(path string, offset, limit int, epoch string, force bool, expectedSHA string) (any, error) {
+	// Stat BEFORE reading: readWindow must hold the file to slice it, so
+	// without this a "bounded" read can exhaust memory before any output limit
+	// applies. Streaming would remove the exposure entirely (see todo).
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxReadBytes {
+		return nil, fmt.Errorf("file is %d bytes, above the %d byte single-read ceiling; use items with offset and limit to page it", info.Size(), maxReadBytes)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	hash := hashBytes(data)
-	if h.cache.ShouldElide(epoch, path, hash, force) {
-		return mcp.Result{Content: []mcp.Content{mcp.Text(fmt.Sprintf("[dedup] %s sha256:%s", path, hash))}}, nil
+	// Continuation identity: a caller paging through a file echoes the sha of
+	// the page it came from. Without this, a file edited between pages silently
+	// duplicates or drops lines instead of failing.
+	if expectedSHA != "" && expectedSHA != hash {
+		return nil, fmt.Errorf("file changed between pages (expected_sha %s, now %s) — re-read from offset 0", expectedSHA, hash)
 	}
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	lines := splitLines(data)
 	if offset < 0 {
 		offset = 0
 	}
@@ -202,15 +235,58 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 	if limit <= 0 {
 		limit = 120
 	}
+	if limit > maxReadLines {
+		limit = maxReadLines
+	}
 	end := min(len(lines), offset+limit)
+
+	// The first line is always emitted even if it alone exceeds the budget, so
+	// a page ALWAYS makes progress. Never advancing would loop the caller
+	// forever; advancing without emitting would lose bytes silently.
 	var builder strings.Builder
 	for index := offset; index < end; index++ {
-		fmt.Fprintf(&builder, "%6d\t%s\n", index+1, lines[index])
+		line := fmt.Sprintf("%6d\t%s\n", index+1, lines[index])
+		if builder.Len() > 0 && builder.Len()+len(line) > readBudget {
+			end = index
+			break
+		}
+		builder.WriteString(line)
+		if builder.Len() >= readBudget {
+			end = index + 1
+			break
+		}
 	}
-	return textJSON(map[string]any{
-		"path": path, "content": builder.String(), "total_lines": len(lines), "bytes": len(data),
+	content := builder.String()
+
+	// The dedup ledger keys on the whole-file hash, so paging an unchanged file
+	// would elide page 2 as an already-seen read. Fold the span into the key.
+	if h.cache.ShouldElide(epoch, path, fmt.Sprintf("%s#%d-%d", hash, offset, end), force) {
+		return mcp.Result{Content: []mcp.Content{mcp.Text(fmt.Sprintf("[dedup] %s sha256:%s lines %d-%d", path, hash, offset, end))}}, nil
+	}
+
+	result := map[string]any{
+		"path": path, "content": content, "total_lines": len(lines), "bytes": len(data),
 		"tokens": estimateTokens(data), "sha256": hash, "continued": end < len(lines), "next_offset": end,
-	})
+	}
+	// An oversized single line is handed to the SAME spill store light_bash
+	// uses, rather than a bespoke error: the caller recovers it verbatim with
+	// output_mode:read_block.
+	if len(content) > readBudget {
+		if h.spills != nil {
+			id, spillErr := h.spills.Store([]byte(content))
+			if spillErr == nil {
+				result["spill_id"] = id
+				result["truncated"] = true
+				result["content"] = content[:safeUTF8Boundary(content, readBudget)]
+				result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget; full page stored — recover it with light_bash output_mode:read_block spill:" + id
+				return textJSON(result)
+			}
+		}
+		result["truncated"] = true
+		result["content"] = content[:safeUTF8Boundary(content, readBudget)]
+		result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget and was truncated"
+	}
+	return textJSON(result)
 }
 
 func (h *Handler) list(request Request) (any, error) {

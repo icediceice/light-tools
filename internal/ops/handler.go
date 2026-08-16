@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/icediceice/light-tools/internal/security"
 )
 
 const (
@@ -44,9 +46,43 @@ type Request struct {
 type Handler struct {
 	registry *Registry
 	tasks    *taskStore
+	// roots is the pre-canonicalized caller-path boundary: allowed_roots plus
+	// log_roots, absent entries already dropped.
+	roots []string
 }
 
-func New() *Handler { return &Handler{registry: &Registry{}, tasks: newTaskStore()} }
+// New compiles the caller-path root union ONCE. security.ResolveBeneath
+// canonicalizes every root on each call and errors on the first one that does
+// not exist, so a single absent root would otherwise disable every other root
+// on every request. Absent roots are dropped here instead.
+func New(allowedRoots, logRoots []string) (*Handler, error) {
+	union := make([]string, 0, len(allowedRoots)+len(logRoots))
+	seen := make(map[string]bool)
+	for _, root := range append(append([]string{}, allowedRoots...), logRoots...) {
+		if root == "" || seen[root] {
+			continue
+		}
+		if _, err := os.Stat(root); err != nil {
+			continue
+		}
+		seen[root] = true
+		union = append(union, root)
+	}
+	if len(union) == 0 {
+		return nil, fmt.Errorf("light_ops needs at least one readable root; check allowed_roots and log_roots")
+	}
+	return &Handler{registry: &Registry{}, tasks: newTaskStore(), roots: union}, nil
+}
+
+// resolveCallerPath confines a path the CALLER supplied. Registry-discovered
+// service log paths never come through here.
+func (h *Handler) resolveCallerPath(path string) (string, error) {
+	resolved, err := security.ResolveBeneath(path, h.roots)
+	if err != nil {
+		return "", fmt.Errorf("path is outside the configured log roots: %w", err)
+	}
+	return resolved, nil
+}
 
 func (h *Handler) Handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	var request Request
@@ -81,7 +117,7 @@ func (h *Handler) handleSync(ctx context.Context, request Request) (any, error) 
 	case "probe_process":
 		return probeProcess(request.PID)
 	case "probe_file":
-		return probeFile(request.Path)
+		return h.probeFile(request.Path)
 	case "log_grep":
 		return h.grepPool(ctx, request)
 	case "log_correlate":
@@ -120,8 +156,15 @@ func probeProcess(pid int) (map[string]any, error) {
 	return map[string]any{"pid": pid, "alive": alive}, nil
 }
 
-func probeFile(path string) (map[string]any, error) {
-	info, err := os.Stat(path)
+// probeFile is caller-supplied by definition, so it is confined. A path outside
+// the roots is REFUSED rather than answered with exists:false — reporting stat
+// metadata for an arbitrary path is itself the leak.
+func (h *Handler) probeFile(path string) (map[string]any, error) {
+	resolved, err := h.resolveCallerPath(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return map[string]any{"path": path, "exists": false, "error": err.Error()}, nil
 	}
@@ -138,15 +181,29 @@ func (h *Handler) singleLogs(ctx context.Context, request Request) (map[string]a
 	return map[string]any{"service": id, "content": filtered, "capped": capped}, nil
 }
 
+// sourceLogs has three branches and only the FIRST TWO are confined. Those two
+// take a path straight from the caller, so without a root check light_ops is a
+// read-anything primitive (log_window path:/etc/shadow). The third branch
+// resolves a path from the service registry, and it stays UNCONFINED on
+// purpose: journalctl, docker and pm2 put logs wherever they put them, and
+// reading service logs is what this tool is for.
 func (h *Handler) sourceLogs(ctx context.Context, request Request) (string, string, error) {
 	if request.Path != "" && request.Service == "" {
-		data, err := os.ReadFile(request.Path)
+		path, err := h.resolveCallerPath(request.Path)
+		if err != nil {
+			return "", "", err
+		}
+		data, err := os.ReadFile(path)
 		return string(data), "file:" + request.Path, err
 	}
 	if strings.HasPrefix(request.Service, "file:") {
 		path := strings.TrimPrefix(request.Service, "file:")
 		if path == "" {
 			return "", "", fmt.Errorf("file service path is required")
+		}
+		path, err := h.resolveCallerPath(path)
+		if err != nil {
+			return "", "", err
 		}
 		data, err := os.ReadFile(path)
 		return string(data), request.Service, err

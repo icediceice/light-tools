@@ -107,13 +107,13 @@ behaviour, but easy to misread.
 | `log_window` / `log_search` / `log_trace` | filters and identifier tracing work; `service:"file:app.log"` | PASS |
 | `restart_service` | `unsupported read-only ops verb` — no mutation verbs exist | PASS |
 | `lines:3` on `log_window` | **ignored — returned all 5 lines, `capped:false`** | DIVERGE |
-| path outside allowed root | **`log_window path:/etc/hostname` returned the file contents** | **SECURITY GAP** |
+| path outside allowed root | `log_window path:/etc/hostname` → `path is outside the configured log roots`; `/var/log/dpkg.log` still reads | **FIXED** |
 
 ## Parity against the real Light tools
 
 | Behaviour | Real `light_*` | light-tools | Verdict |
 | --- | --- | --- | --- |
-| oversized single read | `[WARN: limit clamped to transport ceiling 5000]` + `[CONTINUE]` cursor | no clamp, 1.1 MB returned | DIVERGE (the gap above) |
+| oversized single read | `[WARN: limit clamped to transport ceiling 5000]` + `[CONTINUE]` cursor | clamped to 5000 lines / 128 KiB, `continued:true`, `next_offset:5000` | PASS |
 | batch item with `limit:0` | clamped to 1 with a warning | defaults to 120 lines | DIVERGE |
 | read dedup | UNVERIFIED — a byte-identical re-read this session returned full content, no dedup stub | opt-in, only when `context_epoch` is supplied; image reads never consult the ledger (read from source) | UNPROVEN |
 | write outside repo | refused (git checkpoint required) | allowed anywhere beneath an allowed root | DIVERGE (by design) |
@@ -134,14 +134,47 @@ code genuinely backs the claim.
 - Payload `@find`/`@replace` sections (see above). UNPROVEN.
 - Windows/macOS behaviour; everything here is Linux amd64.
 
-## Recommended fixes, in order
+## Fixes applied
 
-1. **Confine `light_ops`** — route `probe_file` and the `log_*` verbs through
-   `security.ResolveBeneath`. Today `--enable-ops` is an unrestricted file-read
-   primitive that contradicts the documented `allowed_roots` boundary.
-2. **Make the timeout observable** — check `runContext.Err()` before the
-   `*exec.ExitError` branch in `runner.go`, so a timeout stops being silent.
-3. **Bound the single-path read** — apply a line ceiling and the shared byte
-   budget in `readWindow`, emitting the `CONTINUE` cursor `readItems` already has.
-4. Drop the phantom trailing line from `total_lines`.
-5. Honour `lines` in `log_window`.
+All three defects are closed, re-verified against a freshly built binary over
+real stdio, and covered by tests.
+
+1. **`light_ops` caller paths confined** — the two caller-supplied branches of
+   `sourceLogs` and `probeFile` now resolve through `security.ResolveBeneath`
+   against `allowed_roots` + `log_roots`. The registry-discovered branch is
+   deliberately left unconfined; a regression test pins that, because
+   `grepPool` swallows fetch errors and an accidental confinement there would
+   look like "no matches" instead of an error. `log_roots` is configurable via
+   `config.toml`, an XDG-only `.env`, or `LIGHT_TOOLS_LOG_ROOTS`.
+2. **Timeout made observable** — the deadline check now precedes the
+   `*exec.ExitError` branch, and the result carries `timed_out`, `timeout_ms`
+   and `error` while preserving partial `stdout`/`stderr`.
+3. **Single-path read bounded** — 5000-line ceiling plus the shared 128 KiB
+   budget, with `continued`/`next_offset` set. An oversized logical line goes
+   to the shared spill store; a file above 256 MiB is refused before it is read.
+4. **Phantom trailing line dropped** in both `readWindow` and `renderItem`; an
+   empty file now reports zero lines.
+
+Two further hardening changes came out of peer review and are included:
+
+- **`expected_sha` continuation identity** — paging a file that changed between
+  pages is refused rather than silently duplicating or dropping lines.
+- **Span-aware read dedup** — the ledger keyed only on the whole-file hash, so
+  once clamping forced multi-page reads, page 2 of an unchanged file would have
+  returned a `[dedup]` stub and made the continuation contract unusable.
+
+Root resolution was also corrected: `~` now expands against the home directory
+(it was being joined to the working directory), and absent built-in default
+roots are dropped instead of failing — `ResolveBeneath` errors on the first
+missing root, so shipping `~/.local/log` as a default would have made every
+`light_ops` call fail on any machine without that directory.
+
+## Still open
+
+- `lines` is still ignored by `log_window` (row above), tracked separately.
+- Batch item `limit:0` defaults to 120 rather than clamping to 1.
+- `readWindow` still reads the whole file before slicing; the 256 MiB refusal
+  bounds it in practice, but streaming would remove the exposure. Logged as a
+  todo.
+- The vault has no cross-process write lock, and the write-only vault web UI is
+  split into its own plan. Both logged as todos.

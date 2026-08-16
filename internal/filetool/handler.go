@@ -16,9 +16,18 @@ import (
 	"github.com/icediceice/light-tools/internal/snapshot"
 )
 
+// spillStore is the subset of the shared spill store filetool needs. Declaring
+// it here (rather than importing the bash package) keeps the dependency
+// pointing inward, while main.go passes the SAME store both tools use — so a
+// spill_id from light_file is readable through light_bash read_block.
+type spillStore interface {
+	Store(data []byte) (string, error)
+}
+
 type Options struct {
 	Roots        []string
 	SnapshotRoot string
+	Spills       spillStore
 }
 
 type Handler struct {
@@ -26,6 +35,7 @@ type Handler struct {
 	vault     *snapshot.Vault
 	cache     *readcache.Ledger
 	assembler *payload.Assembler
+	spills    spillStore
 }
 
 type Item struct {
@@ -99,6 +109,7 @@ func New(options Options) (*Handler, error) {
 	return &Handler{
 		roots: options.Roots, vault: snapshot.New(options.SnapshotRoot),
 		cache: readcache.New(10*time.Minute, 512), assembler: payload.NewAssembler(),
+		spills: options.Spills,
 	}, nil
 }
 

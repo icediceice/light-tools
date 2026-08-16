@@ -19,13 +19,23 @@ type RemoteProfile struct {
 
 type Config struct {
 	AllowedRoots []string
-	Remote       map[string]RemoteProfile
+	// LogRoots widens light_ops beyond AllowedRoots for caller-supplied log
+	// paths only. Registry-discovered service logs are never checked against it.
+	LogRoots []string
+	Remote   map[string]RemoteProfile
 }
 
 func Load(path string, defaultRoot string) (Config, error) {
 	value := Config{AllowedRoots: []string{defaultRoot}, Remote: make(map[string]RemoteProfile)}
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
+		// No config file is a supported setup, but log roots still resolve from
+		// the environment, the sibling .env and the built-in defaults.
+		logRoots, resolveErr := resolveLogRoots(nil, filepath.Dir(path))
+		if resolveErr != nil {
+			return Config{}, resolveErr
+		}
+		value.LogRoots = logRoots
 		return value, nil
 	}
 	if err != nil {
@@ -57,18 +67,33 @@ func Load(path string, defaultRoot string) (Config, error) {
 		}
 		key, raw = strings.TrimSpace(key), strings.TrimSpace(raw)
 		if currentRemote == "" {
-			if key == "allowed_roots" {
+			switch key {
+			case "allowed_roots":
 				roots, err := parseArray(raw)
 				if err != nil {
 					return Config{}, fmt.Errorf("config line %d: %w", lineNumber, err)
 				}
 				value.AllowedRoots = make([]string, 0, len(roots))
 				for _, root := range roots {
+					if strings.HasPrefix(root, "~") {
+						expanded, err := expandRoot(root)
+						if err != nil {
+							return Config{}, fmt.Errorf("config line %d: %w", lineNumber, err)
+						}
+						value.AllowedRoots = append(value.AllowedRoots, expanded)
+						continue
+					}
 					if !filepath.IsAbs(root) {
 						root = filepath.Join(defaultRoot, root)
 					}
 					value.AllowedRoots = append(value.AllowedRoots, filepath.Clean(root))
 				}
+			case "log_roots":
+				roots, err := parseArray(raw)
+				if err != nil {
+					return Config{}, fmt.Errorf("config line %d: %w", lineNumber, err)
+				}
+				value.LogRoots = roots
 			}
 			continue
 		}
@@ -95,6 +120,11 @@ func Load(path string, defaultRoot string) (Config, error) {
 	if err := scanner.Err(); err != nil {
 		return Config{}, err
 	}
+	logRoots, err := resolveLogRoots(value.LogRoots, filepath.Dir(path))
+	if err != nil {
+		return Config{}, err
+	}
+	value.LogRoots = logRoots
 	return value, nil
 }
 
@@ -123,4 +153,126 @@ func parseArray(raw string) ([]string, error) {
 		values = append(values, value)
 	}
 	return values, nil
+}
+
+// LogRootsEnv overrides log roots from the process environment. It is the
+// highest-precedence source so a launcher can set it without touching disk.
+const LogRootsEnv = "LIGHT_TOOLS_LOG_ROOTS"
+
+// defaultLogRoots are OPTIONAL. An absent default is dropped rather than
+// failing, because security.ResolveBeneath canonicalizes every root up front
+// and errors on the first one that does not exist — so a missing default would
+// otherwise disable every other root too.
+var defaultLogRoots = []string{"/var/log", "~/.local/log", "~/.pm2/logs"}
+
+// resolveLogRoots applies precedence LogRootsEnv > .env > config.toml >
+// built-in defaults. Configured roots are explicit: a missing one is a startup
+// error, so a typo surfaces immediately instead of silently narrowing reads.
+func resolveLogRoots(configured []string, configDirectory string) ([]string, error) {
+	explicit, source := configured, "config.toml"
+	fromFile, found, err := logRootsFromEnvFile(filepath.Join(configDirectory, ".env"))
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		explicit, source = fromFile, filepath.Join(configDirectory, ".env")
+	}
+	if raw, ok := os.LookupEnv(LogRootsEnv); ok {
+		explicit, source = splitPathList(raw), LogRootsEnv
+	}
+	if len(explicit) > 0 {
+		roots := make([]string, 0, len(explicit))
+		for _, root := range explicit {
+			expanded, err := expandRoot(root)
+			if err != nil {
+				return nil, fmt.Errorf("log root %q from %s: %w", root, source, err)
+			}
+			if _, err := os.Stat(expanded); err != nil {
+				return nil, fmt.Errorf("log root %q from %s: %w", root, source, err)
+			}
+			roots = append(roots, expanded)
+		}
+		return roots, nil
+	}
+	roots := make([]string, 0, len(defaultLogRoots))
+	for _, root := range defaultLogRoots {
+		expanded, err := expandRoot(root)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(expanded); err != nil {
+			continue
+		}
+		roots = append(roots, expanded)
+	}
+	return roots, nil
+}
+
+// logRootsFromEnvFile reads the .env sitting beside config.toml in the XDG
+// config directory. It deliberately never looks at the process working
+// directory: that tree is agent-writable, so a repo-local file must not be
+// able to widen the filesystem boundary.
+func logRootsFromEnvFile(path string) ([]string, bool, error) {
+	file, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	defer file.Close()
+	var values []string
+	found := false
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, raw, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != LogRootsEnv {
+			continue
+		}
+		raw = strings.TrimSpace(raw)
+		if unquoted, err := strconv.Unquote(raw); err == nil {
+			raw = unquoted
+		}
+		values, found = splitPathList(raw), true
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, false, err
+	}
+	return values, found, nil
+}
+
+func splitPathList(raw string) []string {
+	var values []string
+	for _, part := range strings.Split(raw, string(os.PathListSeparator)) {
+		if part = strings.TrimSpace(part); part != "" {
+			values = append(values, part)
+		}
+	}
+	return values
+}
+
+// expandRoot turns a configured root into an absolute cleaned path, expanding a
+// leading ~ via the home directory. Without this a literal "~/.pm2/logs" is
+// joined to the process working directory and never matches anything.
+func expandRoot(root string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "", fmt.Errorf("empty root")
+	}
+	if root == "~" || strings.HasPrefix(root, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("expand %q: %w", root, err)
+		}
+		root = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(root, "~"), "/"))
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(absolute), nil
 }
