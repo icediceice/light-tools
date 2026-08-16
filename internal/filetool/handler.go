@@ -1,0 +1,154 @@
+package filetool
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	fileop "github.com/icediceice/light-tools/internal/file"
+	"github.com/icediceice/light-tools/internal/mcp"
+	"github.com/icediceice/light-tools/internal/payload"
+	"github.com/icediceice/light-tools/internal/portable"
+	"github.com/icediceice/light-tools/internal/readcache"
+	"github.com/icediceice/light-tools/internal/snapshot"
+)
+
+type Options struct {
+	Roots        []string
+	SnapshotRoot string
+}
+
+type Handler struct {
+	roots []string
+	vault *snapshot.Vault
+	cache *readcache.Ledger
+}
+
+type Item struct {
+	Path   string `json:"path"`
+	Offset int    `json:"offset,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Name   string `json:"name,omitempty"`
+}
+
+type Request struct {
+	Verb            string  `json:"verb"`
+	Path            string  `json:"path,omitempty"`
+	Target          string  `json:"target,omitempty"`
+	Payload         string  `json:"payload,omitempty"`
+	Content         *string `json:"content,omitempty"`
+	NewString       *string `json:"new_string,omitempty"`
+	Find            *string `json:"find,omitempty"`
+	Replace         *string `json:"replace,omitempty"`
+	StartLine       int     `json:"start_line,omitempty"`
+	EndLine         int     `json:"end_line,omitempty"`
+	StartGuard      string  `json:"start_guard,omitempty"`
+	EndGuard        string  `json:"end_guard,omitempty"`
+	Offset          int     `json:"offset,omitempty"`
+	Limit           int     `json:"limit,omitempty"`
+	Name            string  `json:"name,omitempty"`
+	Pattern         string  `json:"pattern,omitempty"`
+	All             bool    `json:"all,omitempty"`
+	Count           int     `json:"count,omitempty"`
+	Regex           bool    `json:"regex,omitempty"`
+	DryRun          bool    `json:"dry_run,omitempty"`
+	Overwrite       bool    `json:"overwrite,omitempty"`
+	AllowUnbalanced bool    `json:"allow_unbalanced,omitempty"`
+	ExpectedSHA     string  `json:"expected_sha,omitempty"`
+	Version         int     `json:"version,omitempty"`
+	Force           bool    `json:"force,omitempty"`
+	ContextEpoch    string  `json:"context_epoch,omitempty"`
+	Items           []Item  `json:"items,omitempty"`
+}
+
+func New(options Options) (*Handler, error) {
+	if len(options.Roots) == 0 {
+		workingDirectory, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		options.Roots = []string{workingDirectory}
+	}
+	for index, root := range options.Roots {
+		absolute, err := filepath.Abs(root)
+		if err != nil {
+			return nil, err
+		}
+		options.Roots[index] = filepath.Clean(absolute)
+	}
+	if options.SnapshotRoot == "" {
+		return nil, fmt.Errorf("snapshot root is required")
+	}
+	return &Handler{
+		roots: options.Roots,
+		vault: snapshot.New(options.SnapshotRoot),
+		cache: readcache.New(10*time.Minute, 512),
+	}, nil
+}
+
+func (h *Handler) Portable() portable.Handler {
+	return func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var request Request
+		if err := json.Unmarshal(raw, &request); err != nil {
+			return nil, &portable.DiagnosticError{Code: "E_SCHEMA", Message: err.Error()}
+		}
+		if request.Payload != "" {
+			mutations, err := payload.Parse(request.Payload)
+			if err != nil {
+				return nil, err
+			}
+			results := make([]any, 0, len(mutations))
+			for _, mutation := range mutations {
+				result, err := h.mutate(ctx, mutation)
+				if err != nil {
+					return nil, err
+				}
+				results = append(results, result)
+			}
+			return textJSON(map[string]any{"results": results})
+		}
+		switch request.Verb {
+		case "read":
+			return h.read(ctx, request)
+		case "list":
+			return h.list(request)
+		case "symbol":
+			return h.symbol(request)
+		case "outline":
+			return h.outline(request)
+		case "locate":
+			return h.locate(ctx, request)
+		case "diff":
+			return h.diff(request)
+		case "identity":
+			return h.identity(request)
+		case "vault_list":
+			return h.vaultList(request)
+		case "write", "edit", "sed", "rename", "rewrite", "vault_restore":
+			return h.mutate(ctx, request.mutation())
+		default:
+			return nil, fmt.Errorf("unsupported light_file verb %q", request.Verb)
+		}
+	}
+}
+
+func (r Request) mutation() fileop.Mutation {
+	return fileop.Mutation{
+		Verb: fileop.Verb(r.Verb), Path: r.Path, Target: r.Target,
+		Content: r.Content, NewString: r.NewString, Find: r.Find, Replace: r.Replace,
+		StartLine: r.StartLine, EndLine: r.EndLine, StartGuard: r.StartGuard, EndGuard: r.EndGuard,
+		All: r.All, Count: r.Count, Regex: r.Regex, DryRun: r.DryRun, Overwrite: r.Overwrite,
+		AllowUnbalanced: r.AllowUnbalanced, ExpectedSHA: r.ExpectedSHA, Version: r.Version, Force: r.Force,
+	}
+}
+
+func textJSON(value any) (mcp.Result, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return mcp.Result{}, err
+	}
+	return mcp.Result{Content: []mcp.Content{mcp.Text(string(data))}}, nil
+}
