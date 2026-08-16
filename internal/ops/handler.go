@@ -10,38 +10,67 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-const drillCap = 128 * 1024
+const (
+	normalDrillCap = 128 * 1024
+	largeDrillCap  = 512 * 1024
+)
 
 type Request struct {
-	Verb    string   `json:"verb"`
-	Service string   `json:"service,omitempty"`
-	Port    int      `json:"port,omitempty"`
-	PID     int      `json:"pid,omitempty"`
-	Path    string   `json:"path,omitempty"`
-	Pattern string   `json:"pattern,omitempty"`
-	Lines   int      `json:"lines,omitempty"`
-	Since   string   `json:"since,omitempty"`
-	Include []string `json:"include,omitempty"`
-	Exclude []string `json:"exclude,omitempty"`
-	Refresh bool     `json:"refresh,omitempty"`
+	Verb     string   `json:"verb"`
+	TaskID   string   `json:"task_id,omitempty"`
+	Async    bool     `json:"async,omitempty"`
+	Service  string   `json:"service,omitempty"`
+	Services []string `json:"services,omitempty"`
+	Port     int      `json:"port,omitempty"`
+	PID      int      `json:"pid,omitempty"`
+	Path     string   `json:"path,omitempty"`
+	Pattern  string   `json:"pattern,omitempty"`
+	Context  int      `json:"context,omitempty"`
+	Lines    int      `json:"lines,omitempty"`
+	Since    string   `json:"since,omitempty"`
+	SinceTS  string   `json:"since_ts,omitempty"`
+	Include  string   `json:"include,omitempty"`
+	Exclude  string   `json:"exclude,omitempty"`
+	Drill    bool     `json:"drill,omitempty"`
+	Refresh  bool     `json:"refresh,omitempty"`
 }
 
 type Handler struct {
 	registry *Registry
+	tasks    *taskStore
 }
 
-func New() *Handler { return &Handler{registry: &Registry{}} }
+func New() *Handler { return &Handler{registry: &Registry{}, tasks: newTaskStore()} }
 
 func (h *Handler) Handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	var request Request
 	if err := json.Unmarshal(raw, &request); err != nil {
 		return nil, err
 	}
+	switch request.Verb {
+	case "status", "collect", "cancel":
+		return h.tasks.action(request.Verb, request.TaskID)
+	}
+	if request.Async {
+		request.Async = false
+		id, err := h.tasks.start(func(taskContext context.Context) (any, error) {
+			return h.handleSync(taskContext, request)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"task_id": id, "status": "queued"}, nil
+	}
+	return h.handleSync(ctx, request)
+}
+
+func (h *Handler) handleSync(ctx context.Context, request Request) (any, error) {
 	switch request.Verb {
 	case "list_services":
 		return h.registry.Discover(ctx, request.Refresh)
@@ -53,8 +82,14 @@ func (h *Handler) Handle(ctx context.Context, raw json.RawMessage) (any, error) 
 		return probeProcess(request.PID)
 	case "probe_file":
 		return probeFile(request.Path)
-	case "log_window", "log_trace", "log_search", "log_grep", "log_errors", "log_since":
-		return h.logs(ctx, request)
+	case "log_grep":
+		return h.grepPool(ctx, request)
+	case "log_correlate":
+		return h.correlate(ctx, request)
+	case "log_investigate":
+		return h.investigate(ctx, request)
+	case "log_window", "log_trace", "log_search", "log_errors", "log_since":
+		return h.singleLogs(ctx, request)
 	default:
 		return nil, fmt.Errorf("unsupported read-only ops verb %q", request.Verb)
 	}
@@ -93,25 +128,43 @@ func probeFile(path string) (map[string]any, error) {
 	return map[string]any{"path": path, "exists": true, "size": info.Size(), "mode": info.Mode().String(), "modified": info.ModTime().UTC()}, nil
 }
 
-func (h *Handler) logs(ctx context.Context, request Request) (map[string]any, error) {
-	service, err := h.registry.Resolve(ctx, request.Service)
+func (h *Handler) singleLogs(ctx context.Context, request Request) (map[string]any, error) {
+	content, id, err := h.sourceLogs(ctx, request)
 	if err != nil {
 		return nil, err
 	}
+	filtered := filterLines(content, request)
+	filtered, capped := capOutput(filtered, request.Drill)
+	return map[string]any{"service": id, "content": filtered, "capped": capped}, nil
+}
+
+func (h *Handler) sourceLogs(ctx context.Context, request Request) (string, string, error) {
+	if request.Path != "" && request.Service == "" {
+		data, err := os.ReadFile(request.Path)
+		return string(data), "file:" + request.Path, err
+	}
+	service, err := h.registry.Resolve(ctx, request.Service)
+	if err != nil {
+		return "", "", err
+	}
 	if request.Lines <= 0 {
-		request.Lines = 200
+		request.Lines = 500
 	}
 	var content string
 	switch service.Source {
 	case "systemd":
 		args := []string{"--no-pager", "-u", service.Name, "-n", strconv.Itoa(request.Lines)}
-		if request.Since != "" {
+		if request.SinceTS != "" {
+			args = append(args, "--since", request.SinceTS)
+		} else if request.Since != "" {
 			args = append(args, "--since", request.Since)
 		}
 		content, err = commandOutput(ctx, "journalctl", args...)
 	case "docker":
-		args := []string{"logs", "--tail", strconv.Itoa(request.Lines)}
-		if request.Since != "" {
+		args := []string{"logs", "--tail", strconv.Itoa(request.Lines), "--timestamps"}
+		if request.SinceTS != "" {
+			args = append(args, "--since", request.SinceTS)
+		} else if request.Since != "" {
 			args = append(args, "--since", request.Since)
 		}
 		args = append(args, service.Name)
@@ -121,14 +174,79 @@ func (h *Handler) logs(ctx context.Context, request Request) (map[string]any, er
 	default:
 		err = fmt.Errorf("unsupported service source")
 	}
+	return content, service.ID, err
+}
+
+func (h *Handler) grepPool(ctx context.Context, request Request) (map[string]any, error) {
+	if request.Pattern == "" {
+		return nil, fmt.Errorf("pattern is required")
+	}
+	services, err := h.registry.Discover(ctx, request.Refresh)
 	if err != nil {
 		return nil, err
 	}
-	content = filterLines(content, request)
-	if len(content) > drillCap {
-		content = content[len(content)-drillCap:]
+	type row struct {
+		Service string `json:"service"`
+		Hits    int    `json:"hits"`
+		First   string `json:"first,omitempty"`
+		Last    string `json:"last,omitempty"`
+		Sample  string `json:"sample,omitempty"`
 	}
-	return map[string]any{"service": service.ID, "content": content, "capped": len(content) == drillCap}, nil
+	var rows []row
+	for _, service := range services {
+		local := request
+		local.Service, local.Lines = service.ID, max(request.Lines, 5000)
+		content, _, fetchErr := h.sourceLogs(ctx, local)
+		if fetchErr != nil {
+			continue
+		}
+		matches := matchingLines(content, request)
+		if len(matches) == 0 {
+			continue
+		}
+		rows = append(rows, row{Service: service.ID, Hits: len(matches), First: timestampOf(matches[0]), Last: timestampOf(matches[len(matches)-1]), Sample: matches[len(matches)-1]})
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Last > rows[j].Last })
+	return map[string]any{"pattern": request.Pattern, "services": rows}, nil
+}
+
+func (h *Handler) correlate(ctx context.Context, request Request) (map[string]any, error) {
+	if len(request.Services) == 0 {
+		return nil, fmt.Errorf("services is required")
+	}
+	var timeline []string
+	for _, name := range request.Services {
+		local := request
+		local.Service = name
+		content, id, err := h.sourceLogs(ctx, local)
+		if err != nil {
+			return nil, err
+		}
+		for _, line := range strings.Split(filterLines(content, local), "\n") {
+			if line != "" {
+				timeline = append(timeline, timestampOf(line)+" ["+id+"] "+line)
+			}
+		}
+	}
+	sort.Strings(timeline)
+	content, capped := capOutput(strings.Join(timeline, "\n"), request.Drill)
+	return map[string]any{"services": request.Services, "timeline": content, "capped": capped}, nil
+}
+
+func (h *Handler) investigate(ctx context.Context, request Request) (map[string]any, error) {
+	if request.Pattern == "" {
+		request.Pattern = "(?i)error|fatal|panic|exception"
+	}
+	grep, err := h.grepPool(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := grep["services"]
+	encoded, _ := json.Marshal(rows)
+	identifierPattern := regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9_.:-]{7,}`)
+	identifiers := identifierPattern.FindAllString(string(encoded), 12)
+	summary := fmt.Sprintf("local investigation matched %d candidate identifiers across registered services", len(identifiers))
+	return map[string]any{"summary": summary, "errors": rows, "identifiers": identifiers, "scope": "local-only"}, nil
 }
 
 func readPM2Logs(service Service, limit int) (string, error) {
@@ -156,44 +274,82 @@ func readPM2Logs(service Service, limit int) (string, error) {
 }
 
 func filterLines(content string, request Request) string {
-	var expression *regexp.Regexp
+	lines := strings.Split(content, "\n")
 	pattern := request.Pattern
 	if request.Verb == "log_errors" && pattern == "" {
 		pattern = "(?i)error|fatal|panic|exception"
 	}
-	if pattern != "" {
-		expression, _ = regexp.Compile(pattern)
-		if expression == nil {
-			expression = regexp.MustCompile(regexp.QuoteMeta(pattern))
+	signal := compileFilter(pattern)
+	include := compileFilter(request.Include)
+	exclude := compileFilter(request.Exclude)
+	selected := make(map[int]bool)
+	for index, line := range lines {
+		if signal != nil && !signal.MatchString(line) {
+			continue
+		}
+		if include != nil && !include.MatchString(line) {
+			continue
+		}
+		if exclude != nil && exclude.MatchString(line) {
+			continue
+		}
+		contextLines := request.Context
+		for cursor := max(0, index-contextLines); cursor <= min(len(lines)-1, index+contextLines); cursor++ {
+			selected[cursor] = true
 		}
 	}
+	if signal == nil && include == nil && exclude == nil {
+		return content
+	}
 	var output []string
-	for _, line := range strings.Split(content, "\n") {
-		if expression != nil && !expression.MatchString(line) {
-			continue
+	for index, line := range lines {
+		if selected[index] {
+			output = append(output, line)
 		}
-		if !matchesFilters(line, request.Include, request.Exclude) {
-			continue
-		}
-		output = append(output, line)
 	}
 	return strings.Join(output, "\n")
 }
 
-func matchesFilters(line string, include, exclude []string) bool {
-	lower := strings.ToLower(line)
-	for _, value := range exclude {
-		if strings.Contains(lower, strings.ToLower(value)) {
-			return false
-		}
+func matchingLines(content string, request Request) []string {
+	filtered := filterLines(content, Request{Verb: request.Verb, Pattern: request.Pattern, Include: request.Include, Exclude: request.Exclude})
+	if filtered == "" {
+		return nil
 	}
-	if len(include) == 0 {
-		return true
+	return strings.Split(filtered, "\n")
+}
+
+func compileFilter(pattern string) *regexp.Regexp {
+	if pattern == "" {
+		return nil
 	}
-	for _, value := range include {
-		if strings.Contains(lower, strings.ToLower(value)) {
-			return true
-		}
+	expression, err := regexp.Compile(pattern)
+	if err != nil {
+		return regexp.MustCompile(regexp.QuoteMeta(pattern))
 	}
-	return false
+	return expression
+}
+
+func capOutput(content string, drill bool) (string, bool) {
+	limit := normalDrillCap
+	if drill {
+		limit = largeDrillCap
+	}
+	if len(content) <= limit {
+		return content, false
+	}
+	return content[len(content)-limit:], true
+}
+
+func timestampOf(line string) string {
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return ""
+	}
+	if _, err := time.Parse(time.RFC3339Nano, fields[0]); err == nil {
+		return fields[0]
+	}
+	if len(line) > 32 {
+		return line[:32]
+	}
+	return line
 }
