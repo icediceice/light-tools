@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,5 +85,41 @@ func TestCapabilityProfilesRegisterExpectedTools(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestInitNeedsNoConfigAndPrintsMCPCommand(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(root, "runtime"))
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStdout := os.Stdout
+	os.Stdout = writer
+	defer func() { os.Stdout = oldStdout }()
+	if err := runInit(); err != nil {
+		t.Fatal(err)
+	}
+	writer.Close()
+	os.Stdout = oldStdout
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), "claude mcp add light-tools -- ") {
+		t.Fatalf("init output missing MCP command: %s", output)
+	}
+	for _, path := range []string{
+		filepath.Join(root, "config", "light-tools"),
+		filepath.Join(root, "data", "light-tools-secrets"),
+		filepath.Join(root, "data", "light-tools-snapshots"),
+		filepath.Join(root, "runtime", "light-tools-spills"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("init did not create %s: %v", path, err)
+		}
 	}
 }
