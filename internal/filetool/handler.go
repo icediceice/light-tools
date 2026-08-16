@@ -22,9 +22,10 @@ type Options struct {
 }
 
 type Handler struct {
-	roots []string
-	vault *snapshot.Vault
-	cache *readcache.Ledger
+	roots     []string
+	vault     *snapshot.Vault
+	cache     *readcache.Ledger
+	assembler *payload.Assembler
 }
 
 type Item struct {
@@ -38,8 +39,9 @@ type Request struct {
 	Verb            string  `json:"verb"`
 	Path            string  `json:"path,omitempty"`
 	Target          string  `json:"target,omitempty"`
-	Payload         string  `json:"payload,omitempty"`
-	Content         *string `json:"content,omitempty"`
+	Payload         string            `json:"payload,omitempty"`
+	Spans           []fileop.EditSpan `json:"spans,omitempty"`
+	Content         *string           `json:"content,omitempty"`
 	NewString       *string `json:"new_string,omitempty"`
 	Find            *string `json:"find,omitempty"`
 	Replace         *string `json:"replace,omitempty"`
@@ -83,9 +85,8 @@ func New(options Options) (*Handler, error) {
 		return nil, fmt.Errorf("snapshot root is required")
 	}
 	return &Handler{
-		roots: options.Roots,
-		vault: snapshot.New(options.SnapshotRoot),
-		cache: readcache.New(10*time.Minute, 512),
+		roots: options.Roots, vault: snapshot.New(options.SnapshotRoot),
+		cache: readcache.New(10*time.Minute, 512), assembler: payload.NewAssembler(),
 	}, nil
 }
 
@@ -96,19 +97,14 @@ func (h *Handler) Portable() portable.Handler {
 			return nil, &portable.DiagnosticError{Code: "E_SCHEMA", Message: err.Error()}
 		}
 		if request.Payload != "" {
-			mutations, err := payload.Parse(request.Payload)
+			mutations, partial, err := h.assembler.Assemble(request.Payload)
 			if err != nil {
 				return nil, err
 			}
-			results := make([]any, 0, len(mutations))
-			for _, mutation := range mutations {
-				result, err := h.mutate(ctx, mutation)
-				if err != nil {
-					return nil, err
-				}
-				results = append(results, result)
+			if partial != nil {
+				return textJSON(partial)
 			}
-			return textJSON(map[string]any{"results": results})
+			return h.mutateBatch(ctx, mutations)
 		}
 		switch request.Verb {
 		case "read":
@@ -137,10 +133,8 @@ func (h *Handler) Portable() portable.Handler {
 
 func (r Request) mutation() fileop.Mutation {
 	return fileop.Mutation{
-		Verb: fileop.Verb(r.Verb), Path: r.Path, Target: r.Target,
+		Verb: fileop.Verb(r.Verb), Path: r.Path, Target: r.Target, Spans: r.Spans,
 		Content: r.Content, NewString: r.NewString, Find: r.Find, Replace: r.Replace,
-		StartLine: r.StartLine, EndLine: r.EndLine, StartGuard: r.StartGuard, EndGuard: r.EndGuard,
-		All: r.All, Count: r.Count, Regex: r.Regex, DryRun: r.DryRun, Overwrite: r.Overwrite,
 		AllowUnbalanced: r.AllowUnbalanced, ExpectedSHA: r.ExpectedSHA, Version: r.Version, Force: r.Force,
 	}
 }
