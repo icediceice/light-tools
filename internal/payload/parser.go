@@ -2,6 +2,7 @@
 package payload
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,14 @@ type parsedMutation struct {
 	value fileop.Mutation
 	seen  map[string]bool
 }
+
+type PartialError struct {
+	Diagnostic *portable.DiagnosticError
+	GotLines   int
+}
+
+func (e *PartialError) Error() string { return e.Diagnostic.Error() }
+func (e *PartialError) Unwrap() error { return e.Diagnostic }
 
 func Parse(input string) ([]fileop.Mutation, error) {
 	normalized := strings.ReplaceAll(input, "\r\n", "\n")
@@ -50,7 +59,7 @@ func Parse(input string) ([]fileop.Mutation, error) {
 		}
 		return current
 	}
-	assignBody := func() {
+	assignBody := func() error {
 		value := strings.Join(body, "\n")
 		target := ensure()
 		switch bodyField {
@@ -62,11 +71,19 @@ func Parse(input string) ([]fileop.Mutation, error) {
 			target.value.Find = &value
 		case "replace":
 			target.value.Replace = &value
+		case "spans":
+			if err := json.Unmarshal([]byte(value), &target.value.Spans); err != nil {
+				return fmt.Errorf("@spans requires a JSON array: %w", err)
+			}
+			if len(target.value.Spans) == 0 {
+				return fmt.Errorf("@spans cannot be empty")
+			}
 		}
 		target.seen[bodyField] = true
 		bodyField = ""
 		body = nil
 		terminator = "<<LF-END>>"
+		return nil
 	}
 
 	for index, line := range lines {
@@ -74,7 +91,9 @@ func Parse(input string) ([]fileop.Mutation, error) {
 		offset += len(line) + 1
 		if bodyField != "" {
 			if line == terminator {
-				assignBody()
+				if err := assignBody(); err != nil {
+					return nil, diagnostic(lineOffset, err.Error())
+				}
 			} else {
 				body = append(body, line)
 			}
@@ -114,7 +133,7 @@ func Parse(input string) ([]fileop.Mutation, error) {
 			terminator = value
 			continue
 		}
-		if key == "content" || key == "new_string" || key == "find" || key == "replace" {
+		if key == "content" || key == "new_string" || key == "find" || key == "replace" || key == "spans" {
 			if hasValue {
 				return nil, diagnostic(lineOffset, "@"+key+" must be a bare body header")
 			}
@@ -134,10 +153,14 @@ func Parse(input string) ([]fileop.Mutation, error) {
 		}
 	}
 	if bodyField != "" {
-		return nil, diagnostic(len(input), "unterminated @"+bodyField+" body; expected exact "+terminator)
+		caret := len(normalized)
+		return nil, &PartialError{
+			Diagnostic: portable.NewCaretError("E_PAYLOAD", "unterminated @"+bodyField+" body; expected exact "+terminator, normalized, caret),
+			GotLines: len(lines),
+		}
 	}
 	if err := flush(); err != nil {
-		return nil, diagnostic(len(input), err.Error())
+		return nil, diagnostic(len(normalized), err.Error())
 	}
 	if len(result) == 0 {
 		return nil, diagnostic(0, "payload contains no mutation")
@@ -243,8 +266,4 @@ func assignScalar(m *fileop.Mutation, key, value string, hasValue bool) error {
 		return fmt.Errorf("unknown header @%s", key)
 	}
 	return nil
-}
-
-func diagnostic(caret int, message string) error {
-	return &portable.DiagnosticError{Code: "E_PAYLOAD", Message: message, Caret: caret}
 }
