@@ -28,7 +28,6 @@ func New(root string) *Vault { return &Vault{root: filepath.Clean(root)} }
 func (v *Vault) Set(name, value string) error {
 	if err := validateName(name); err != nil {
 		return err
-	v.mu.Lock()
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
