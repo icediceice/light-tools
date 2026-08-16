@@ -97,7 +97,7 @@ func registerTools(server *mcp.Server, opts options) error {
 }
 
 func runInit() error {
-	layout, err := state.Resolve()
+	_, err := state.Resolve()
 	if err != nil {
 		return err
 	}
