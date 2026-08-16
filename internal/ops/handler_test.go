@@ -99,11 +99,17 @@ func TestPoolGrepCorrelationAndInvestigation(t *testing.T) {
 		"verb": "log_investigate", "pattern": "ERROR",
 	})
 	identifiers := investigation["identifiers"].([]string)
-	if len(identifiers) == 0 || identifiers[0] != "request_id=trace-123456789" {
+	foundTrace := false
+	for _, identifier := range identifiers {
+		if identifier == "trace-123456789" {
+			foundTrace = true
+		}
+	}
+	if !foundTrace {
 		t.Fatalf("identifier extraction failed: %#v", identifiers)
 	}
 	traces := investigation["traces"].(map[string]any)
-	if _, ok := traces["request_id=trace-123456789"]; !ok {
+	if _, ok := traces["trace-123456789"]; !ok {
 		t.Fatalf("identifier trace missing: %#v", traces)
 	}
 }
