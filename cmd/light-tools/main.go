@@ -86,7 +86,7 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	if err != nil {
 		return err
 	}
-	remoteTransport := remote.New(configuration.Remote, configuration.AllowedRoots)
+	remoteTransport := remote.New(configuration.Remote, configuration.AllowedRoots, secretVault)
 	opsHandler := ops.New()
 	bashHandler := func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var request bash.Request
