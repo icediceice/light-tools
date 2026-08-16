@@ -34,7 +34,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "init":
-			if err := runInit(); err != nil {
+			if err := runInit(os.Args[2:]); err != nil {
 				fatal(err)
 			}
 			return
@@ -216,9 +216,35 @@ func runVault(args []string) error {
 	}
 }
 
-func runInit() error {
-	_, err := state.Resolve()
-	if err != nil {
+// stringList collects a repeatable string flag.
+type stringList []string
+
+func (list *stringList) String() string { return strings.Join(*list, ",") }
+
+func (list *stringList) Set(value string) error {
+	if value == "" {
+		return fmt.Errorf("empty value")
+	}
+	*list = append(*list, value)
+	return nil
+}
+
+func runInit(args []string) error {
+	set := flag.NewFlagSet("init", flag.ContinueOnError)
+	set.SetOutput(os.Stderr)
+	client := set.String("client", "claude", "target MCP client: claude|antigravity|print")
+	workspace := set.String("workspace", "", "write the Antigravity configuration into this workspace instead of the global location")
+	dryRun := set.Bool("dry-run", false, "print what would be written without touching disk")
+	var caps options
+	set.BoolVar(&caps.enableShell, "enable-shell", false, "launch the server with light_bash registered")
+	set.BoolVar(&caps.enableRemote, "enable-remote", false, "launch the server with light_ssh and light_scp registered")
+	set.BoolVar(&caps.enableOps, "enable-ops", false, "launch the server with light_ops registered")
+	var disabledTools stringList
+	set.Var(&disabledTools, "disable-tool", "withhold one light-tools tool from the model (repeatable, Antigravity only)")
+	if err := set.Parse(args); err != nil {
+		return err
+	}
+	if _, err := state.Resolve(); err != nil {
 		return err
 	}
 	executable, err := os.Executable()
@@ -226,7 +252,54 @@ func runInit() error {
 		executable = "light-tools"
 	}
 	executable, _ = filepath.Abs(executable)
-	fmt.Printf("State initialized.\nclaude mcp add light-tools -- %s\n", executable)
+
+	switch *client {
+	case "claude":
+		command := append([]string{"claude", "mcp", "add", "light-tools", "--", executable}, capabilityArgs(caps)...)
+		fmt.Printf("State initialized.\n%s\n", strings.Join(command, " "))
+		return nil
+	case "antigravity", "print":
+		return initAntigravity(executable, caps, disabledTools, *workspace, *client == "print" || *dryRun)
+	default:
+		return fmt.Errorf("unknown --client %q (want claude, antigravity, or print)", *client)
+	}
+}
+
+// initAntigravity writes, or previews, both halves of the Antigravity setup:
+// the mcpServers entry and the native-tool suppression profile.
+func initAntigravity(executable string, caps options, disabledTools []string, workspace string, preview bool) error {
+	if workspace != "" {
+		absolute, err := filepath.Abs(workspace)
+		if err != nil {
+			return err
+		}
+		workspace = absolute
+	}
+	home := ""
+	if workspace == "" {
+		resolved, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		home = resolved
+	}
+	configPath, skillPath := antigravityPaths(home, workspace)
+	entry := antigravityServer(executable, caps, disabledTools)
+	snippet, err := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{antigravityServerName: entry}}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if preview {
+		fmt.Printf("# %s\n%s\n\n# %s\n%s\n# permissions\n%s\n", configPath, snippet, skillPath, antigravitySkill(), antigravityPermissions())
+		return nil
+	}
+	if err := mergeAntigravityConfig(configPath, antigravityServerName, entry); err != nil {
+		return err
+	}
+	if err := writePrivateFile(skillPath, []byte(antigravitySkill())); err != nil {
+		return err
+	}
+	fmt.Printf("State initialized.\nwrote %s\nwrote %s\n\nApply these permissions in Antigravity:\n%s\n", configPath, skillPath, antigravityPermissions())
 	return nil
 }
 

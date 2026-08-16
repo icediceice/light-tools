@@ -88,28 +88,43 @@ func TestCapabilityProfilesRegisterExpectedTools(t *testing.T) {
 	}
 }
 
-func TestInitNeedsNoConfigAndPrintsMCPCommand(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
-	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(root, "runtime"))
+func captureStdout(t *testing.T, run func() error) string {
+	t.Helper()
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	oldStdout := os.Stdout
 	os.Stdout = writer
-	defer func() { os.Stdout = oldStdout }()
-	if err := runInit(); err != nil {
-		t.Fatal(err)
-	}
-	writer.Close()
+	runErr := run()
 	os.Stdout = oldStdout
-	output, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatal(err)
+	writer.Close()
+	output, readErr := io.ReadAll(reader)
+	if runErr != nil {
+		t.Fatal(runErr)
 	}
-	if !strings.Contains(string(output), "claude mcp add light-tools -- ") {
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	return string(output)
+}
+
+// isolateHome points both the XDG state roots and $HOME at a scratch tree so
+// init writes nothing into the developer's real configuration.
+func isolateHome(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(root, "runtime"))
+	return root
+}
+
+func TestInitNeedsNoConfigAndPrintsMCPCommand(t *testing.T) {
+	root := isolateHome(t)
+	output := captureStdout(t, func() error { return runInit(nil) })
+	if !strings.Contains(output, "claude mcp add light-tools -- ") {
 		t.Fatalf("init output missing MCP command: %s", output)
 	}
 	for _, path := range []string{
@@ -121,5 +136,160 @@ func TestInitNeedsNoConfigAndPrintsMCPCommand(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("init did not create %s: %v", path, err)
 		}
+	}
+}
+
+func TestInitClaudeCarriesCapabilityFlags(t *testing.T) {
+	isolateHome(t)
+	output := captureStdout(t, func() error {
+		return runInit([]string{"--client", "claude", "--enable-shell", "--enable-ops"})
+	})
+	if !strings.Contains(output, " -- ") || !strings.Contains(output, "--enable-shell --enable-ops") {
+		t.Fatalf("claude command lost capability flags: %s", output)
+	}
+}
+
+func TestInitAntigravityMergesConfigAndWritesSkill(t *testing.T) {
+	root := isolateHome(t)
+	configPath := filepath.Join(root, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	existing := `{"someOtherKey":{"keep":true},"mcpServers":{"foreign":{"command":"other","args":["--x"]}}}`
+	if err := os.WriteFile(configPath, []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	captureStdout(t, func() error {
+		return runInit([]string{"--client", "antigravity", "--enable-shell", "--disable-tool", "light_scp"})
+	})
+
+	first, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		SomeOtherKey map[string]any            `json:"someOtherKey"`
+		MCPServers   map[string]map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(first, &document); err != nil {
+		t.Fatalf("generated config is not valid JSON: %v\n%s", err, first)
+	}
+	if document.SomeOtherKey == nil || document.SomeOtherKey["keep"] != true {
+		t.Errorf("merge dropped an unrelated top-level key: %s", first)
+	}
+	foreign, ok := document.MCPServers["foreign"]
+	if !ok || foreign["command"] != "other" {
+		t.Errorf("merge dropped a foreign server: %s", first)
+	}
+	entry, ok := document.MCPServers["light-tools"]
+	if !ok {
+		t.Fatalf("merge did not add light-tools: %s", first)
+	}
+	if entry["command"] == "" || entry["command"] == nil {
+		t.Errorf("light-tools entry has no command: %s", first)
+	}
+	args, _ := entry["args"].([]any)
+	if len(args) != 1 || args[0] != "--enable-shell" {
+		t.Errorf("light-tools entry lost its capability args: %v", entry["args"])
+	}
+	disabled, _ := entry["disabledTools"].([]any)
+	if len(disabled) != 1 || disabled[0] != "light_scp" {
+		t.Errorf("light-tools entry lost disabledTools: %v", entry["disabledTools"])
+	}
+	documented := map[string]bool{"command": true, "args": true, "env": true, "cwd": true, "disabled": true, "disabledTools": true}
+	for field := range entry {
+		if !documented[field] {
+			t.Errorf("entry carries undocumented property %q", field)
+		}
+	}
+
+	skillPath := filepath.Join(root, ".gemini", "config", "skills", "light-tools", "SKILL.md")
+	skill, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatalf("init did not write the skill: %v", err)
+	}
+	text := string(skill)
+	if !strings.HasPrefix(text, "---\nname: light-tools\ndescription: ") {
+		t.Errorf("skill frontmatter does not match the documented fields:\n%s", text)
+	}
+	for _, tool := range []string{"light_file", "light_bash", "light_ssh", "light_scp", "light_ops"} {
+		if !strings.Contains(text, tool) {
+			t.Errorf("skill never mentions %s", tool)
+		}
+	}
+
+	captureStdout(t, func() error {
+		return runInit([]string{"--client", "antigravity", "--enable-shell", "--disable-tool", "light_scp"})
+	})
+	second, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("re-init was not idempotent:\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}
+
+func TestInitAntigravityWorkspaceTargetsAgentsDirectory(t *testing.T) {
+	root := isolateHome(t)
+	workspace := filepath.Join(root, "project")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captureStdout(t, func() error {
+		return runInit([]string{"--client", "antigravity", "--workspace", workspace})
+	})
+	for _, path := range []string{
+		filepath.Join(workspace, ".agents", "mcp_config.json"),
+		filepath.Join(workspace, ".agents", "skills", "light-tools", "SKILL.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("workspace init did not create %s: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, ".gemini")); !os.IsNotExist(err) {
+		t.Errorf("workspace init touched the global location: %v", err)
+	}
+}
+
+func TestInitPrintWritesNothing(t *testing.T) {
+	root := isolateHome(t)
+	output := captureStdout(t, func() error { return runInit([]string{"--client", "print"}) })
+	for _, want := range []string{"mcp_config.json", "\"mcpServers\"", "SKILL.md", "read_file(*)", "write_file(*)", "command(*)", "mcp(light-tools/*)"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("print output missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "httpUrl") || strings.Contains(output, "\"timeout\"") {
+		t.Errorf("print output emits retired Antigravity properties:\n%s", output)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".gemini")); !os.IsNotExist(err) {
+		t.Errorf("print mode wrote to disk: %v", err)
+	}
+}
+
+func TestInitRejectsUnknownClient(t *testing.T) {
+	isolateHome(t)
+	if err := runInit([]string{"--client", "cursor"}); err == nil {
+		t.Fatal("expected an error for an unknown client")
+	}
+}
+
+func TestMergeAntigravityConfigRefusesMalformedJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp_config.json")
+	if err := os.WriteFile(path, []byte("{ // a comment\n}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := mergeAntigravityConfig(path, "light-tools", map[string]any{"command": "x"})
+	if err == nil {
+		t.Fatal("expected malformed JSON to be refused, not overwritten")
+	}
+	preserved, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(preserved), "// a comment") {
+		t.Errorf("refused merge still modified the file: %s", preserved)
 	}
 }

@@ -18,12 +18,74 @@ claude mcp add light-tools -- light-tools
 
 `init` creates private XDG state directories and prints the exact MCP command.
 It is optional because the server initializes those directories on first run.
+For a client other than Claude Code, pass `--client` — see
+[MCP clients](#mcp-clients).
 
 Build from source with Go 1.23+ and a C toolchain:
 
 ```sh
 go install -tags treesitter github.com/icediceice/light-tools/cmd/light-tools@latest
 ```
+
+## MCP clients
+
+`light-tools init --client <name>` writes the configuration each client expects.
+`--dry-run` prints it instead, and `--client print` always prints and never
+writes. Capability flags passed to `init` are recorded as the server's launch
+arguments, so the client starts the same surface you asked for.
+
+| Client | What `init` does |
+| --- | --- |
+| `claude` (default) | Prints the exact `claude mcp add` line |
+| `antigravity` | Merges `mcpServers["light-tools"]` into Antigravity's config and writes the suppression skill |
+| `print` | Prints the Antigravity config, skill, and permission block; writes nothing |
+
+### Google Antigravity
+
+```sh
+light-tools init --client antigravity --enable-shell --enable-ops
+```
+
+This writes the global pair shared by Antigravity CLI, IDE, and 2.0:
+
+- `~/.gemini/config/mcp_config.json` — the `mcpServers` entry, merged in place.
+  Foreign servers and unrelated top-level keys are preserved, a malformed
+  existing file is refused rather than overwritten, and only the documented
+  properties (`command`, `args`, `env`, `cwd`, `disabled`, `disabledTools`) are
+  emitted. The retired `httpUrl` and the top-level `timeout` are never written,
+  and Antigravity does not accept comments in this file.
+- `~/.gemini/config/skills/light-tools/SKILL.md` — a skill telling the agent to
+  route every file, shell, remote, and log action through the light-tools tools.
+
+Pass `--workspace <dir>` to write the workspace pair instead:
+`<dir>/.agents/mcp_config.json` and `<dir>/.agents/skills/light-tools/SKILL.md`.
+
+Use `--disable-tool <name>` (repeatable) to withhold one of light-tools' own
+tools from the model through `disabledTools`. Capability flags are the blunter
+control: a tool the server never registers cannot be called at all.
+
+#### Suppressing the native tools
+
+Antigravity exposes **no documented switch that hides its built-in tools from
+the model**. What it does expose is a permission engine, so the honest mechanism
+is deny plus steer, and it needs both halves:
+
+1. **Deny** the native action families in Settings → Global Permissions (or the
+   project-level Permissions):
+
+   ```
+   Deny:   read_file(*)    write_file(*)    command(*)
+   Allow:  mcp(light-tools/*)
+   ```
+
+   In Project Settings → Agent Settings, also set *Outside of Folder File Access
+   Policy* to **Always Deny**.
+
+2. **Steer** with the skill `init` wrote, which tells the agent to treat the
+   native file and terminal tools as unavailable.
+
+The native tools stay visible in the model's tool list. Denying them makes the
+calls fail; the skill is what stops the agent from spending turns on them.
 
 ## Capability profiles
 
