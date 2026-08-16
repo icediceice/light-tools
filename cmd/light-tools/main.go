@@ -114,20 +114,63 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 		}
 		err := server.Register(mcp.Tool{
 			Name: definition.name, Description: definition.description, Handler: definition.handler,
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"verb": map[string]any{"type": "string"}, "path": map[string]any{"type": "string"},
-					"payload": map[string]any{"type": "string"},
-				},
-				"additionalProperties": true,
-			},
+			InputSchema: toolSchema(definition.name),
 		})
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func toolSchema(name string) map[string]any {
+	stringType := func() map[string]any { return map[string]any{"type": "string"} }
+	integerType := func() map[string]any { return map[string]any{"type": "integer"} }
+	booleanType := func() map[string]any { return map[string]any{"type": "boolean"} }
+	stringMap := func() map[string]any { return map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}} }
+	properties := map[string]any{}
+	switch name {
+	case "light_file":
+		for _, field := range []string{"verb", "path", "target", "payload", "content", "new_string", "find", "replace", "start_guard", "end_guard", "cursor", "name", "pattern", "a", "b", "expected_sha", "context_epoch"} {
+			properties[field] = stringType()
+		}
+		for _, field := range []string{"start_line", "end_line", "offset", "limit", "context", "diff_context", "count", "version"} {
+			properties[field] = integerType()
+		}
+		for _, field := range []string{"all", "regex", "dry_run", "overwrite", "allow_unbalanced", "force"} {
+			properties[field] = booleanType()
+		}
+		properties["items"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"path": stringType(), "offset": integerType(), "limit": integerType(), "name": stringType()}, "required": []string{"path"}, "additionalProperties": false}}
+		properties["spans"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"start_line": integerType(), "end_line": integerType(), "start_guard": stringType(), "end_guard": stringType(), "new_string": stringType()}, "required": []string{"start_line", "new_string"}, "additionalProperties": false}}
+	case "light_bash":
+		for _, field := range []string{"verb", "task_id", "command", "cwd", "output_mode", "filter", "spill_id", "spill", "line_range"} {
+			properties[field] = stringType()
+		}
+		properties["async"], properties["timeout_ms"], properties["lines"] = booleanType(), integerType(), integerType()
+		properties["env_refs"], properties["file_refs"] = stringMap(), stringMap()
+	case "light_ssh":
+		for _, field := range []string{"profile", "remote", "command", "key", "key_ref", "cert_ref", "proxy_jump"} {
+			properties[field] = stringType()
+		}
+		properties["port"], properties["timeout_ms"] = integerType(), integerType()
+	case "light_scp":
+		for _, field := range []string{"profile", "src", "dst", "key", "key_ref", "cert_ref", "proxy_jump"} {
+			properties[field] = stringType()
+		}
+		properties["port"], properties["timeout_ms"] = integerType(), integerType()
+	case "light_ops":
+		for _, field := range []string{"verb", "task_id", "service", "path", "pattern", "since", "since_ts", "include", "exclude"} {
+			properties[field] = stringType()
+		}
+		for _, field := range []string{"context", "lines", "port", "pid"} {
+			properties[field] = integerType()
+		}
+		for _, field := range []string{"async", "drill", "refresh"} {
+			properties[field] = booleanType()
+		}
+		properties["services"] = map[string]any{"type": "array", "items": stringType()}
+	}
+	return map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
 }
 
 func runVault(args []string) error {
