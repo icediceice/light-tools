@@ -131,16 +131,18 @@ func toolSchema(name string) map[string]any {
 	properties := map[string]any{}
 	switch name {
 	case "light_file":
-		for _, field := range []string{"verb", "path", "target", "payload", "content", "new_string", "find", "replace", "start_guard", "end_guard", "cursor", "name", "pattern", "a", "b", "expected_sha", "context_epoch"} {
+		for _, field := range []string{"verb", "path", "target", "from", "to", "payload", "patch", "patch_path", "content", "new_string", "find", "replace", "start_guard", "end_guard", "cursor", "name", "symbol", "pattern", "a", "b", "expected_sha", "context_epoch"} {
 			properties[field] = stringType()
 		}
-		for _, field := range []string{"start_line", "end_line", "offset", "limit", "context", "diff_context", "count", "version"} {
+		for _, field := range []string{"start_line", "end_line", "offset", "limit", "context", "diff_context", "fuzz", "count", "version"} {
 			properties[field] = integerType()
 		}
 		for _, field := range []string{"all", "regex", "dry_run", "overwrite", "allow_unbalanced", "force"} {
 			properties[field] = booleanType()
 		}
-		properties["items"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"path": stringType(), "offset": integerType(), "limit": integerType(), "name": stringType()}, "required": []string{"path"}, "additionalProperties": false}}
+		readItem := map[string]any{"type": "object", "properties": map[string]any{"path": stringType(), "offset": integerType(), "limit": integerType(), "name": stringType()}, "required": []string{"path"}, "additionalProperties": false}
+		properties["items"] = map[string]any{"type": "array", "items": readItem}
+		properties["reads"] = map[string]any{"type": "array", "items": readItem}
 		properties["spans"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"start_line": integerType(), "end_line": integerType(), "start_guard": stringType(), "end_guard": stringType(), "new_string": stringType()}, "required": []string{"start_line", "new_string"}, "additionalProperties": false}}
 	case "light_bash":
 		for _, field := range []string{"verb", "task_id", "command", "cwd", "output_mode", "filter", "spill_id", "spill", "line_range"} {
