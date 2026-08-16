@@ -60,7 +60,15 @@ func TestProtocolHandshakeAndDeterministicToolList(t *testing.T) {
 	if len(listed.Result.Tools) != 2 || listed.Result.Tools[0].Name != "alpha" || listed.Result.Tools[1].Name != "zeta" {
 		t.Fatalf("tools are not deterministic: %s", lines[1])
 	}
-	if !strings.Contains(lines[2], `"ok":true`) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(lines[2]), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var called Result
+	if err := json.Unmarshal(envelope["result"], &called); err != nil {
+		t.Fatal(err)
+	}
+	if len(called.Content) != 1 || called.Content[0].Text != "{\"ok\":true}" {
 		t.Fatalf("tool result was not shaped: %s", lines[2])
 	}
 }
