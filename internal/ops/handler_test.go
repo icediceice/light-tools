@@ -75,7 +75,11 @@ func TestPoolGrepCorrelationAndInvestigation(t *testing.T) {
 	grep := callOps(t, handler, map[string]any{
 		"verb": "log_grep", "pattern": "trace-123456789",
 	})
-	rows := grep["services"].([]row)
+	encodedRows, _ := json.Marshal(grep["services"])
+	var rows []map[string]any
+	if err := json.Unmarshal(encodedRows, &rows); err != nil {
+		t.Fatal(err)
+	}
 	if len(rows) != 2 {
 		t.Fatalf("pool grep returned %#v", rows)
 	}
