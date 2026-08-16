@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            os: linux
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+          - runner: macos-13
+            os: darwin
+            arch: amd64
+          - runner: macos-14
+            os: darwin
+            arch: arm64
+          - runner: windows-2022
+            os: windows
+            arch: amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: egor-tensin/setup-mingw@v2
+        if: runner.os == 'Windows'
+      - name: Build
+        run: go build -tags treesitter ./...
+      - name: Test
+        run: go test -tags treesitter ./...
+
+  inspector:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install artifact into a clean PATH directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          go build -tags treesitter -o "$RUNNER_TEMP/bin/light-tools" ./cmd/light-tools
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: MCP Inspector tools/list smoke
+        run: |
+          npx --yes @modelcontextprotocol/inspector --cli light-tools --method tools/list --format json > inspector.json
+          node -e "const x=require('./inspector.json'); const n=x.result.tools.map(t=>t.name); if(n.length!==1||n[0]!=='light_file') process.exit(1)"
