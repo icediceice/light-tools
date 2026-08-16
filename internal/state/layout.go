@@ -31,7 +31,7 @@ func Resolve() (Layout, error) {
 	dataBase := envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	runtimeBase := os.Getenv("XDG_RUNTIME_DIR")
 	if runtimeBase == "" {
-		runtimeBase = filepath.Join(os.TempDir(), fmt.Sprintf("light-tools-%d", os.Getuid()))
+		runtimeBase = filepath.Join(os.TempDir(), fmt.Sprintf("light-tools-%d", os.Getpid()))
 	}
 
 	layout := Layout{
