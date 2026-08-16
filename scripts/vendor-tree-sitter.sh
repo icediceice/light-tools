@@ -16,6 +16,7 @@ copy_tree() {
   rm -rf "$destination"
   mkdir -p "$(dirname -- "$destination")"
   cp -R "$module_root/$source_dir" "$destination"
+  chmod -R u+w "$destination"
 }
 
 copy_tree github.com/tree-sitter/go-tree-sitter include vendor/github.com/tree-sitter/go-tree-sitter/include
