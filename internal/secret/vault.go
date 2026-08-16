@@ -7,11 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 )
 
@@ -29,9 +27,7 @@ func New(root string) *Vault { return &Vault{root: filepath.Clean(root)} }
 func (v *Vault) Set(name, value string) error {
 	if err := validateName(name); err != nil {
 		return err
-	}
-	if strings.Contains(value, "PRIVATE KEY") {
-		return fmt.Errorf("private keys are not accepted; use SSH_AUTH_SOCK or a referenced key path")
+	v.mu.Lock()
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
