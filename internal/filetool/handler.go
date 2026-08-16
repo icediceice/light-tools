@@ -48,6 +48,7 @@ type Request struct {
 	StartLine       int     `json:"start_line,omitempty"`
 	EndLine         int     `json:"end_line,omitempty"`
 	StartGuard      string  `json:"start_guard,omitempty"`
+	EndGuard        string  `json:"end_guard,omitempty"`
 	Offset          int     `json:"offset,omitempty"`
 	Limit           int     `json:"limit,omitempty"`
 	Cursor          string  `json:"cursor,omitempty"`
