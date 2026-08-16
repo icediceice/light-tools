@@ -44,3 +44,16 @@ func TestParseUnterminatedWritesNothing(t *testing.T) {
 		t.Fatalf("expected unterminated error, got %v", err)
 	}
 }
+
+func TestParseRendersCaretEnvelope(t *testing.T) {
+	_, err := Parse("@verb write\nnot-a-header")
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+	rendered := err.Error()
+	for _, expected := range []string{"error[E_PAYLOAD]", "line 2, column 1", "2 | not-a-header", "| ^"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("caret envelope missing %q:\n%s", expected, rendered)
+		}
+	}
+}
