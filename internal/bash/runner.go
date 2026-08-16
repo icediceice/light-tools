@@ -30,6 +30,7 @@ type Request struct {
 	Lines      int               `json:"lines,omitempty"`
 	Filter     string            `json:"filter,omitempty"`
 	SpillID    string            `json:"spill_id,omitempty"`
+	Spill      string            `json:"spill,omitempty"`
 	LineRange  string            `json:"line_range,omitempty"`
 	EnvRefs    map[string]string `json:"env_refs,omitempty"`
 	FileRefs   map[string]string `json:"file_refs,omitempty"`
@@ -74,7 +75,11 @@ func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, erro
 
 func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, error) {
 	if request.OutputMode == "read_block" {
-		value, err := r.spills.Read(request.SpillID, request.LineRange)
+		spillID := request.SpillID
+		if spillID == "" {
+			spillID = request.Spill
+		}
+		value, err := r.spills.Read(spillID, request.LineRange)
 		return map[string]any{"content": value}, err
 	}
 	if request.Command == "" {
