@@ -32,11 +32,17 @@ func invokeRequest(t *testing.T, handler *Handler, request any) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, ok := value.(mcp.Result)
-	if !ok || len(result.Content) != 1 {
-		t.Fatalf("unexpected result %#v", value)
+	if result, ok := value.(mcp.Result); ok {
+		if len(result.Content) != 1 {
+			t.Fatalf("unexpected result %#v", value)
+		}
+		return result.Content[0].Text
 	}
-	return result.Content[0].Text
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
 }
 
 func TestJSONMutationFieldsReachSharedIR(t *testing.T) {
