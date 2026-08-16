@@ -36,39 +36,46 @@ type Item struct {
 }
 
 type Request struct {
-	Verb            string  `json:"verb"`
-	Path            string  `json:"path,omitempty"`
-	Target          string  `json:"target,omitempty"`
+	Verb            string            `json:"verb"`
+	Path            string            `json:"path,omitempty"`
+	Target          string            `json:"target,omitempty"`
+	From            string            `json:"from,omitempty"`
+	To              string            `json:"to,omitempty"`
 	Payload         string            `json:"payload,omitempty"`
+	Patch           string            `json:"patch,omitempty"`
+	PatchPath       string            `json:"patch_path,omitempty"`
+	Fuzz            int               `json:"fuzz,omitempty"`
 	Spans           []fileop.EditSpan `json:"spans,omitempty"`
 	Content         *string           `json:"content,omitempty"`
-	NewString       *string `json:"new_string,omitempty"`
-	Find            *string `json:"find,omitempty"`
-	Replace         *string `json:"replace,omitempty"`
-	StartLine       int     `json:"start_line,omitempty"`
-	EndLine         int     `json:"end_line,omitempty"`
-	StartGuard      string  `json:"start_guard,omitempty"`
-	EndGuard        string  `json:"end_guard,omitempty"`
-	Offset          int     `json:"offset,omitempty"`
-	Limit           int     `json:"limit,omitempty"`
-	Cursor          string  `json:"cursor,omitempty"`
-	Name            string  `json:"name,omitempty"`
-	Pattern         string  `json:"pattern,omitempty"`
-	Context         int     `json:"context,omitempty"`
-	A               string  `json:"a,omitempty"`
-	B               string  `json:"b,omitempty"`
-	DiffContext     int     `json:"diff_context,omitempty"`
-	All             bool    `json:"all,omitempty"`
-	Count           int     `json:"count,omitempty"`
-	Regex           bool    `json:"regex,omitempty"`
-	DryRun          bool    `json:"dry_run,omitempty"`
-	Overwrite       bool    `json:"overwrite,omitempty"`
-	AllowUnbalanced bool    `json:"allow_unbalanced,omitempty"`
-	ExpectedSHA     string  `json:"expected_sha,omitempty"`
-	Version         int     `json:"version,omitempty"`
-	Force           bool    `json:"force,omitempty"`
-	ContextEpoch    string  `json:"context_epoch,omitempty"`
-	Items           []Item  `json:"items,omitempty"`
+	NewString       *string           `json:"new_string,omitempty"`
+	Find            *string           `json:"find,omitempty"`
+	Replace         *string           `json:"replace,omitempty"`
+	StartLine       int               `json:"start_line,omitempty"`
+	EndLine         int               `json:"end_line,omitempty"`
+	StartGuard      string            `json:"start_guard,omitempty"`
+	EndGuard        string            `json:"end_guard,omitempty"`
+	Offset          int               `json:"offset,omitempty"`
+	Limit           int               `json:"limit,omitempty"`
+	Cursor          string            `json:"cursor,omitempty"`
+	Name            string            `json:"name,omitempty"`
+	Symbol          string            `json:"symbol,omitempty"`
+	Pattern         string            `json:"pattern,omitempty"`
+	Context         int               `json:"context,omitempty"`
+	A               string            `json:"a,omitempty"`
+	B               string            `json:"b,omitempty"`
+	DiffContext     int               `json:"diff_context,omitempty"`
+	All             bool              `json:"all,omitempty"`
+	Count           int               `json:"count,omitempty"`
+	Regex           bool              `json:"regex,omitempty"`
+	DryRun          bool              `json:"dry_run,omitempty"`
+	Overwrite       bool              `json:"overwrite,omitempty"`
+	AllowUnbalanced bool              `json:"allow_unbalanced,omitempty"`
+	ExpectedSHA     string            `json:"expected_sha,omitempty"`
+	Version         int               `json:"version,omitempty"`
+	Force           bool              `json:"force,omitempty"`
+	ContextEpoch    string            `json:"context_epoch,omitempty"`
+	Items           []Item            `json:"items,omitempty"`
+	Reads           []Item            `json:"reads,omitempty"`
 }
 
 func New(options Options) (*Handler, error) {
@@ -97,10 +104,11 @@ func New(options Options) (*Handler, error) {
 
 func (h *Handler) Portable() portable.Handler {
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-		var request Request
-		if err := json.Unmarshal(raw, &request); err != nil {
-			return nil, &portable.DiagnosticError{Code: "E_SCHEMA", Message: err.Error()}
-		}
+			var request Request
+			if err := json.Unmarshal(raw, &request); err != nil {
+				return nil, &portable.DiagnosticError{Code: "E_SCHEMA", Message: err.Error()}
+			}
+			request.normalize()
 		if request.Payload != "" {
 			mutations, partial, err := h.assembler.Assemble(request.Payload)
 			if err != nil {
@@ -136,10 +144,27 @@ func (h *Handler) Portable() portable.Handler {
 	}
 }
 
+func (r *Request) normalize() {
+	if r.Path == "" {
+		r.Path = r.From
+	}
+	if r.Target == "" {
+		r.Target = r.To
+	}
+	if r.Name == "" {
+		r.Name = r.Symbol
+	}
+	if len(r.Items) == 0 {
+		r.Items = r.Reads
+	}
+}
+
 func (r Request) mutation() fileop.Mutation {
 	return fileop.Mutation{
 		Verb: fileop.Verb(r.Verb), Path: r.Path, Target: r.Target, Spans: r.Spans,
 		Content: r.Content, NewString: r.NewString, Find: r.Find, Replace: r.Replace,
+		StartLine: r.StartLine, EndLine: r.EndLine, StartGuard: r.StartGuard, EndGuard: r.EndGuard,
+		All: r.All, Count: r.Count, Regex: r.Regex, DryRun: r.DryRun, Overwrite: r.Overwrite,
 		AllowUnbalanced: r.AllowUnbalanced, ExpectedSHA: r.ExpectedSHA, Version: r.Version, Force: r.Force,
 	}
 }
