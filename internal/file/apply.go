@@ -4,18 +4,39 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
+type SpanResult struct {
+	RequestedStart int `json:"requested_start"`
+	RequestedEnd   int `json:"requested_end"`
+	AppliedStart   int `json:"applied_start"`
+	AppliedEnd     int `json:"applied_end"`
+	Relocated      bool `json:"relocated,omitempty"`
+	Adjusted       bool `json:"adjusted,omitempty"`
+}
+
 type TransformResult struct {
-	Data         []byte
-	Replacements int
-	Diff         string
+	Data         []byte       `json:"-"`
+	Replacements int          `json:"replacements,omitempty"`
+	Diff         string       `json:"diff,omitempty"`
+	Spans        []SpanResult `json:"spans,omitempty"`
+}
+
+type resolvedEdit struct {
+	start       int
+	end         int
+	replacement []string
+	result      SpanResult
 }
 
 func Transform(m Mutation, preimage []byte) (TransformResult, error) {
 	if err := m.Validate(); err != nil {
 		return TransformResult{}, err
+	}
+	if m.Verb == VerbEdit || m.Verb == VerbRewrite {
+		return TransformEdits([]Mutation{m}, preimage)
 	}
 	crlf := bytes.Contains(preimage, []byte("\r\n"))
 	normalized := strings.ReplaceAll(string(preimage), "\r\n", "\n")
@@ -27,8 +48,6 @@ func Transform(m Mutation, preimage []byte) (TransformResult, error) {
 	switch m.Verb {
 	case VerbWrite:
 		candidate = normalizeInput(*m.Content)
-	case VerbEdit, VerbRewrite:
-		candidate, err = editText(normalized, m)
 	case VerbSed:
 		candidate, replaced, err = sedText(normalized, m)
 	default:
@@ -36,9 +55,6 @@ func Transform(m Mutation, preimage []byte) (TransformResult, error) {
 	}
 	if err != nil {
 		return TransformResult{}, err
-	}
-	if !m.AllowUnbalanced && (m.Verb == VerbEdit || m.Verb == VerbRewrite) && !balanced(candidate) {
-		return TransformResult{}, fmt.Errorf("replacement leaves brackets unbalanced; pass allow_unbalanced:true to override")
 	}
 	if crlf {
 		candidate = strings.ReplaceAll(candidate, "\n", "\r\n")
@@ -50,37 +66,206 @@ func Transform(m Mutation, preimage []byte) (TransformResult, error) {
 	return result, nil
 }
 
-func editText(preimage string, m Mutation) (string, error) {
-	lines := strings.Split(preimage, "\n")
-	start := m.StartLine - 1
-	end := m.EndLine
+// TransformEdits resolves every span against one preimage and applies the
+// non-overlapping set bottom-up, so line numbers never drift.
+func TransformEdits(mutations []Mutation, preimage []byte) (TransformResult, error) {
+	if len(mutations) == 0 {
+		return TransformResult{}, fmt.Errorf("no edits")
+	}
+	crlf := bytes.Contains(preimage, []byte("\r\n"))
+	normalized := strings.ReplaceAll(string(preimage), "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	var edits []resolvedEdit
+	allowUnbalanced := true
+	dryRun := true
+	path := mutations[0].Path
+	for _, mutation := range mutations {
+		if mutation.Verb != VerbEdit && mutation.Verb != VerbRewrite {
+			return TransformResult{}, fmt.Errorf("mixed non-edit mutation in edit batch")
+		}
+		if err := mutation.Validate(); err != nil {
+			return TransformResult{}, err
+		}
+		if !mutation.AllowUnbalanced {
+			allowUnbalanced = false
+		}
+		if !mutation.DryRun {
+			dryRun = false
+		}
+		spans := mutation.Spans
+		if len(spans) == 0 {
+			spans = []EditSpan{{
+				StartLine: mutation.StartLine, EndLine: mutation.EndLine,
+				StartGuard: mutation.StartGuard, EndGuard: mutation.EndGuard, NewString: *mutation.NewString,
+			}}
+		}
+		for _, span := range spans {
+			edit, err := resolveEdit(lines, span)
+			if err != nil {
+				return TransformResult{}, err
+			}
+			edits = append(edits, edit)
+		}
+	}
+	sort.SliceStable(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
+	for index := 1; index < len(edits); index++ {
+		if edits[index].start < edits[index-1].end {
+			return TransformResult{}, fmt.Errorf("edit spans overlap at lines %d..%d", edits[index].start+1, edits[index-1].end)
+		}
+	}
+	candidateLines := append([]string(nil), lines...)
+	for index := len(edits) - 1; index >= 0; index-- {
+		edit := edits[index]
+		candidateLines = replaceLines(candidateLines, edit.start, edit.end, edit.replacement)
+	}
+	candidate := strings.Join(candidateLines, "\n")
+	if !allowUnbalanced && !balanced(candidate) {
+		if len(edits) != 1 || !balanced(strings.Join(edits[0].replacement, "\n")) {
+			return TransformResult{}, fmt.Errorf("replacement leaves brackets unbalanced; pass allow_unbalanced:true to override")
+		}
+		adjusted, ok, err := autoSnap(lines, edits[0])
+		if err != nil {
+			return TransformResult{}, err
+		}
+		if !ok {
+			return TransformResult{}, fmt.Errorf("replacement leaves brackets unbalanced near end_line %d; check up to ±3 closer-only lines or pass allow_unbalanced:true", edits[0].end)
+		}
+		edits[0] = adjusted
+		candidate = strings.Join(replaceLines(lines, adjusted.start, adjusted.end, adjusted.replacement), "\n")
+	}
+	if crlf {
+		candidate = strings.ReplaceAll(candidate, "\n", "\r\n")
+	}
+	results := make([]SpanResult, len(edits))
+	for index := range edits {
+		results[index] = edits[index].result
+	}
+	result := TransformResult{Data: []byte(candidate), Spans: results}
+	if dryRun {
+		result.Diff = UnifiedDiff(path, string(preimage), candidate)
+	}
+	return result, nil
+}
+
+func resolveEdit(lines []string, span EditSpan) (resolvedEdit, error) {
+	if span.StartLine < 1 {
+		return resolvedEdit{}, fmt.Errorf("start_line must be >= 1")
+	}
+	start := span.StartLine - 1
+	if start >= len(lines) {
+		return resolvedEdit{}, fmt.Errorf("start_line %d outside 1..%d", span.StartLine, len(lines))
+	}
+	relocated := false
+	if span.StartGuard != "" && lines[start] != span.StartGuard {
+		found := locateGuard(lines, span.StartGuard, span.EndGuard)
+		if found < 0 {
+			return resolvedEdit{}, fmt.Errorf("start_guard no longer matches uniquely")
+		}
+		start, relocated = found, true
+	}
+	end := span.EndLine
 	if end == 0 {
-		end = m.StartLine
-	}
-	if start < 0 || start >= len(lines) || end < m.StartLine || end > len(lines) {
-		return "", fmt.Errorf("edit span %d..%d outside 1..%d", m.StartLine, end, len(lines))
-	}
-	if m.StartGuard != "" && lines[start] != m.StartGuard {
-		relocated := locateGuard(lines, m.StartGuard, m.EndGuard)
-		if relocated < 0 {
-			return "", fmt.Errorf("start_guard no longer matches")
+		if span.EndGuard == "" {
+			end = start + 1
+		} else {
+			found := -1
+			for index := start; index < len(lines); index++ {
+				if lines[index] == span.EndGuard {
+					found = index + 1
+					break
+				}
+			}
+			if found < 0 {
+				return resolvedEdit{}, fmt.Errorf("end_guard not found after start_guard")
+			}
+			end = found
 		}
-		width := end - start
-		start = relocated
-		end = relocated + width
-		if end > len(lines) {
-			return "", fmt.Errorf("relocated edit span exceeds file")
+	} else if relocated {
+		width := span.EndLine - (span.StartLine - 1)
+		end = start + width
+	}
+	if end < start+1 || end > len(lines) {
+		return resolvedEdit{}, fmt.Errorf("edit span %d..%d outside 1..%d", start+1, end, len(lines))
+	}
+	if span.EndGuard != "" && lines[end-1] != span.EndGuard {
+		found := -1
+		for index := start; index < len(lines); index++ {
+			if lines[index] == span.EndGuard {
+				found = index + 1
+				break
+			}
+		}
+		if found < 0 {
+			return resolvedEdit{}, fmt.Errorf("end_guard no longer matches")
+		}
+		end = found
+		relocated = true
+	}
+	return resolvedEdit{
+		start: start, end: end, replacement: strings.Split(normalizeInput(span.NewString), "\n"),
+		result: SpanResult{
+			RequestedStart: span.StartLine, RequestedEnd: span.EndLine,
+			AppliedStart: start + 1, AppliedEnd: end, Relocated: relocated,
+		},
+	}, nil
+}
+
+func autoSnap(lines []string, edit resolvedEdit) (resolvedEdit, bool, error) {
+	var candidates []resolvedEdit
+	for delta := -3; delta <= 3; delta++ {
+		if delta == 0 {
+			continue
+		}
+		end := edit.end + delta
+		if end <= edit.start || end > len(lines) || !closerRange(lines, edit.end, end) {
+			continue
+		}
+		candidate := strings.Join(replaceLines(lines, edit.start, end, edit.replacement), "\n")
+		if balanced(candidate) {
+			adjusted := edit
+			adjusted.end = end
+			adjusted.result.AppliedEnd = end
+			adjusted.result.Adjusted = true
+			candidates = append(candidates, adjusted)
 		}
 	}
-	if m.EndGuard != "" && lines[end-1] != m.EndGuard {
-		return "", fmt.Errorf("end_guard no longer matches")
+	if len(candidates) > 1 {
+		return resolvedEdit{}, false, fmt.Errorf("auto-snap is ambiguous across %d closer-only candidates", len(candidates))
 	}
-	replacement := strings.Split(normalizeInput(*m.NewString), "\n")
+	if len(candidates) == 1 {
+		return candidates[0], true, nil
+	}
+	return resolvedEdit{}, false, nil
+}
+
+func closerRange(lines []string, from, to int) bool {
+	start, end := from, to
+	if start > end {
+		start, end = end, start
+	}
+	for index := start; index < end; index++ {
+		if index < 0 || index >= len(lines) || !closerOnly(lines[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func closerOnly(line string) bool {
+	value := strings.TrimSpace(line)
+	if value == "" {
+		return true
+	}
+	value = strings.Trim(value, "}]);,")
+	return strings.TrimSpace(value) == ""
+}
+
+func replaceLines(lines []string, start, end int, replacement []string) []string {
 	updated := make([]string, 0, len(lines)-(end-start)+len(replacement))
 	updated = append(updated, lines[:start]...)
 	updated = append(updated, replacement...)
 	updated = append(updated, lines[end:]...)
-	return strings.Join(updated, "\n"), nil
+	return updated
 }
 
 func sedText(preimage string, m Mutation) (string, int, error) {
