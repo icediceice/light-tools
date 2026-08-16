@@ -20,6 +20,9 @@ import (
 const outputLimit = 128 * 1024
 
 type Request struct {
+	Verb       string            `json:"verb,omitempty"`
+	TaskID     string            `json:"task_id,omitempty"`
+	Async      bool              `json:"async,omitempty"`
 	Command    string            `json:"command,omitempty"`
 	Cwd        string            `json:"cwd,omitempty"`
 	TimeoutMS  int               `json:"timeout_ms,omitempty"`
@@ -36,6 +39,7 @@ type Runner struct {
 	roots   []string
 	spills  *SpillStore
 	secrets *secret.Vault
+	tasks   *TaskManager
 }
 
 func NewRunner(roots []string, spillRoot string, secrets *secret.Vault) (*Runner, error) {
@@ -43,10 +47,32 @@ func NewRunner(roots []string, spillRoot string, secrets *secret.Vault) (*Runner
 	if err != nil {
 		return nil, err
 	}
-	return &Runner{roots: roots, spills: spills, secrets: secrets}, nil
+	return &Runner{roots: roots, spills: spills, secrets: secrets, tasks: NewTaskManager()}, nil
 }
 
 func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, error) {
+	switch request.Verb {
+	case "status":
+		return r.tasks.Status(request.TaskID)
+	case "collect":
+		return r.tasks.Collect(request.TaskID)
+	case "cancel":
+		return r.tasks.Cancel(request.TaskID)
+	}
+	if request.Async {
+		request.Async = false
+		id, err := r.tasks.Start(func(taskContext context.Context) (map[string]any, error) {
+			return r.runSync(taskContext, request)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"task_id": id, "status": "queued"}, nil
+	}
+	return r.runSync(ctx, request)
+}
+
+func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, error) {
 	if request.OutputMode == "read_block" {
 		value, err := r.spills.Read(request.SpillID, request.LineRange)
 		return map[string]any{"content": value}, err
@@ -96,22 +122,24 @@ func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, erro
 		}
 		return nil, err
 	}
-	stdoutText := scrub(stdout.String(), values)
-	stderrText := scrub(stderr.String(), values)
-	stderrText = annotateGoModuleError(stderrText)
-
+	rawStdout := scrub(stdout.String(), values)
+	rawStderr := annotateGoModuleError(scrub(stderr.String(), values))
+	var spillID string
+	if len(rawStdout)+len(rawStderr) > outputLimit {
+		full := "STDOUT\n" + rawStdout + "\nSTDERR\n" + rawStderr
+		spillID, err = r.spills.Store([]byte(full))
+		if err != nil {
+			return nil, err
+		}
+	}
+	stdoutText, stderrText := rawStdout, rawStderr
 	if request.OutputMode != "" && request.OutputMode != "auto" {
 		stdoutText = filterOutput(stdoutText, request.OutputMode, request.Lines, request.Filter)
 		stderrText = filterOutput(stderrText, request.OutputMode, request.Lines, request.Filter)
 	}
 	result := map[string]any{"stdout": stdoutText, "stderr": stderrText, "exit_code": exitCode}
-	if len(stdoutText)+len(stderrText) > outputLimit {
-		full := "STDOUT\n" + stdoutText + "\nSTDERR\n" + stderrText
-		id, err := r.spills.Store([]byte(full))
-		if err != nil {
-			return nil, err
-		}
-		result["spill_id"] = id
+	if spillID != "" {
+		result["spill_id"] = spillID
 		result["stdout"] = tail(stdoutText, 80)
 		result["stderr"] = tail(stderrText, 80)
 		result["truncated"] = true
