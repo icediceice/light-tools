@@ -22,7 +22,7 @@ import (
 	"github.com/icediceice/light-tools/internal/state"
 )
 
-const version = "0.1.0-dev"
+var version = "0.1.0-dev"
 
 type options struct {
 	enableShell  bool
