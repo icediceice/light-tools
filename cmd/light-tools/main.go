@@ -5,13 +5,20 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
+	"github.com/icediceice/light-tools/internal/bash"
+	"github.com/icediceice/light-tools/internal/config"
 	"github.com/icediceice/light-tools/internal/filetool"
 	"github.com/icediceice/light-tools/internal/mcp"
+	"github.com/icediceice/light-tools/internal/ops"
 	"github.com/icediceice/light-tools/internal/portable"
+	"github.com/icediceice/light-tools/internal/remote"
+	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/state"
 )
 
@@ -32,7 +39,10 @@ func main() {
 			}
 			return
 		case "vault":
-			fatal(fmt.Errorf("vault command is not available in this build yet"))
+			if err := runVault(os.Args[2:]); err != nil {
+				fatal(err)
+			}
+			return
 		case "version", "--version", "-version":
 			fmt.Println(version)
 			return
@@ -49,8 +59,16 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		fatal(err)
+	}
+	configuration, err := config.Load(filepath.Join(layout.Config, "config.toml"), workingDirectory)
+	if err != nil {
+		fatal(err)
+	}
 	server := mcp.New("light-tools", version)
-	if err := registerTools(server, opts, layout); err != nil {
+	if err := registerTools(server, opts, layout, configuration); err != nil {
 		fatal(err)
 	}
 	if err := server.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
@@ -58,14 +76,24 @@ func main() {
 	}
 }
 
-func registerTools(server *mcp.Server, opts options, layout state.Layout) error {
-	workingDirectory, err := os.Getwd()
+func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config) error {
+	fileHandler, err := filetool.New(filetool.Options{Roots: configuration.AllowedRoots, SnapshotRoot: layout.Snapshots})
 	if err != nil {
 		return err
 	}
-	fileHandler, err := filetool.New(filetool.Options{Roots: []string{workingDirectory}, SnapshotRoot: layout.Snapshots})
+	secretVault := secret.New(layout.Secrets)
+	bashRunner, err := bash.NewRunner(configuration.AllowedRoots, layout.Spills, secretVault)
 	if err != nil {
 		return err
+	}
+	remoteTransport := remote.New(configuration.Remote, configuration.AllowedRoots)
+	opsHandler := ops.New()
+	bashHandler := func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var request bash.Request
+		if err := json.Unmarshal(raw, &request); err != nil {
+			return nil, err
+		}
+		return bashRunner.Run(ctx, request)
 	}
 	definitions := []struct {
 		enabled     bool
@@ -74,10 +102,10 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout) error 
 		handler     portable.Handler
 	}{
 		{true, "light_file", "Bounded filesystem reads, searches, symbols, diffs, and transactional mutations.", fileHandler.Portable()},
-		{opts.enableShell, "light_bash", "Opt-in local shell execution with bounded output and secret references.", unavailable("light_bash")},
-		{opts.enableRemote, "light_ssh", "Opt-in SSH execution through explicit profiles.", unavailable("light_ssh")},
-		{opts.enableRemote, "light_scp", "Opt-in SCP transfer through explicit profiles.", unavailable("light_scp")},
-		{opts.enableOps, "light_ops", "Opt-in read-only service discovery, probes, and log inspection.", unavailable("light_ops")},
+		{opts.enableShell, "light_bash", "Opt-in local shell execution with bounded output and secret references.", bashHandler},
+		{opts.enableRemote, "light_ssh", "Opt-in SSH execution through explicit profiles.", remoteTransport.SSH},
+		{opts.enableRemote, "light_scp", "Opt-in SCP transfer through explicit profiles.", remoteTransport.SCP},
+		{opts.enableOps, "light_ops", "Opt-in read-only service discovery, probes, and log inspection.", opsHandler.Handle},
 	}
 	sort.SliceStable(definitions, func(i, j int) bool { return definitions[i].name < definitions[j].name })
 	for _, definition := range definitions {
@@ -102,9 +130,42 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout) error 
 	return nil
 }
 
-func unavailable(name string) portable.Handler {
-	return func(context.Context, json.RawMessage) (any, error) {
-		return nil, &portable.DiagnosticError{Code: "E_NOT_IMPLEMENTED", Message: name + " handler is not wired"}
+func runVault(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: light-tools vault set|rm|list [name]")
+	}
+	layout, err := state.Resolve()
+	if err != nil {
+		return err
+	}
+	vault := secret.New(layout.Secrets)
+	switch args[0] {
+	case "set":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: light-tools vault set NAME (value is read from stdin)")
+		}
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return err
+		}
+		value := strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
+		return vault.Set(args[1], value)
+	case "rm":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: light-tools vault rm NAME")
+		}
+		return vault.Remove(args[1])
+	case "list":
+		names, err := vault.List()
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			fmt.Println(name)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown vault command %q", args[0])
 	}
 }
 
