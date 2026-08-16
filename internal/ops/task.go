@@ -75,4 +75,3 @@ func (s *taskStore) action(verb, id string) (map[string]any, error) {
 	return response, nil
 }
 
-var _ = time.Second
