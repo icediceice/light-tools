@@ -39,6 +39,11 @@ func Commit(ctx context.Context, request CommitRequest) (CommitResult, error) {
 	if err := ctx.Err(); err != nil {
 		return CommitResult{}, err
 	}
+	if info, err := os.Lstat(request.Path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return CommitResult{}, errors.New("refusing symlink target")
+	} else if err != nil && !os.IsNotExist(err) {
+		return CommitResult{}, err
+	}
 	resolved, err := security.ResolveBeneath(request.Path, request.AllowedRoots)
 	if err != nil {
 		return CommitResult{}, err
