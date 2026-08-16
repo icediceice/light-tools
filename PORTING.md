@@ -50,7 +50,8 @@ shim and no post-call governance accounting.
   spill paths and symlinks are rejected.
 - Secret values enter commands only through named environment or temporary-file
   references. They never appear in tool arguments or normal results; output
-  scrubbing is best-effort. SSH private keys are not stored in this vault.
+  scrubbing is best-effort. SSH key_ref and cert_ref values are materialized
+  only as mode-0600 temporary files and removed after use.
 - Operations service discovery uses source-qualified IDs such as
   `systemd:api` and `docker:api`; a bare ambiguous name fails with the
   candidate IDs.
