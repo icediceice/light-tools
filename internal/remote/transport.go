@@ -7,36 +7,56 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/icediceice/light-tools/internal/config"
+	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
 )
 
 type SSHRequest struct {
-	Profile   string `json:"profile"`
+	Profile   string `json:"profile,omitempty"`
+	Remote    string `json:"remote,omitempty"`
 	Command   string `json:"command"`
+	Key       string `json:"key,omitempty"`
+	KeyRef    string `json:"key_ref,omitempty"`
+	CertRef   string `json:"cert_ref,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	ProxyJump string `json:"proxy_jump,omitempty"`
 	TimeoutMS int    `json:"timeout_ms,omitempty"`
 }
 
 type SCPRequest struct {
-	Profile   string `json:"profile"`
-	Source    string `json:"source"`
-	Target    string `json:"target"`
-	Direction string `json:"direction,omitempty"`
-	Recursive bool   `json:"recursive,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Src       string `json:"src"`
+	Dst       string `json:"dst"`
+	Key       string `json:"key,omitempty"`
+	KeyRef    string `json:"key_ref,omitempty"`
+	CertRef   string `json:"cert_ref,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	ProxyJump string `json:"proxy_jump,omitempty"`
 	TimeoutMS int    `json:"timeout_ms,omitempty"`
+}
+
+type connection struct {
+	remote    string
+	key       string
+	cert      string
+	port      int
+	proxyJump string
 }
 
 type Transport struct {
 	profiles map[string]config.RemoteProfile
 	roots    []string
+	secrets  *secret.Vault
 }
 
-func New(profiles map[string]config.RemoteProfile, roots []string) *Transport {
-	return &Transport{profiles: profiles, roots: roots}
+func New(profiles map[string]config.RemoteProfile, roots []string, secrets *secret.Vault) *Transport {
+	return &Transport{profiles: profiles, roots: roots, secrets: secrets}
 }
 
 func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -47,12 +67,32 @@ func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
 	if request.Command == "" {
 		return nil, fmt.Errorf("command is required")
 	}
-	profile, err := t.profile(request.Profile)
+	settings, err := t.connection(request.Profile)
 	if err != nil {
 		return nil, err
 	}
-	args := sshArgs(profile)
-	args = append(args, destination(profile), request.Command)
+	if request.Remote != "" {
+		settings.remote = request.Remote
+	}
+	if request.Key != "" {
+		settings.key = request.Key
+	}
+	if request.Port > 0 {
+		settings.port = request.Port
+	}
+	if request.ProxyJump != "" {
+		settings.proxyJump = request.ProxyJump
+	}
+	cleanup, err := t.materializeRefs(&settings, request.KeyRef, request.CertRef)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	if settings.remote == "" {
+		return nil, fmt.Errorf("remote or profile is required")
+	}
+	args := sshOptions(settings, false)
+	args = append(args, settings.remote, request.Command)
 	stdout, stderr, exitCode, err := runRetryTimeout(ctx, "ssh", args, request.TimeoutMS)
 	if err != nil {
 		return nil, err
@@ -65,70 +105,158 @@ func (t *Transport) SCP(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err := json.Unmarshal(raw, &request); err != nil {
 		return nil, err
 	}
-	profile, err := t.profile(request.Profile)
+	if request.Src == "" || request.Dst == "" {
+		return nil, fmt.Errorf("src and dst are required")
+	}
+	settings, err := t.connection(request.Profile)
 	if err != nil {
 		return nil, err
 	}
-	args := sshOptions(profile)
-	if request.Recursive {
-		args = append(args, "-r")
+	if request.Key != "" {
+		settings.key = request.Key
 	}
-	source, target := request.Source, request.Target
-	if request.Direction == "download" {
-		target, err = security.ResolveBeneath(target, t.roots)
-		if err != nil {
-			return nil, err
-		}
-		source = destination(profile) + ":" + source
-	} else {
+	if request.Port > 0 {
+		settings.port = request.Port
+	}
+	if request.ProxyJump != "" {
+		settings.proxyJump = request.ProxyJump
+	}
+	cleanup, err := t.materializeRefs(&settings, request.KeyRef, request.CertRef)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	sourceRemote, targetRemote := isRemotePath(request.Src), isRemotePath(request.Dst)
+	if sourceRemote == targetRemote {
+		return nil, fmt.Errorf("exactly one of src and dst must be remote")
+	}
+	source, target := request.Src, request.Dst
+	if !sourceRemote {
 		source, err = security.ResolveBeneath(source, t.roots)
-		if err != nil {
-			return nil, err
-		}
-		target = destination(profile) + ":" + target
+	} else {
+		target, err = security.ResolveBeneath(target, t.roots)
 	}
+	if err != nil {
+		return nil, err
+	}
+	args := sshOptions(settings, true)
 	args = append(args, source, target)
 	stdout, stderr, exitCode, err := runRetryTimeout(ctx, "scp", args, request.TimeoutMS)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"stdout": stdout, "stderr": stderr, "exit_code": exitCode}, nil
+	if exitCode != 0 {
+		return map[string]any{"ok": false, "stdout": stdout, "stderr": stderr, "exit_code": exitCode}, nil
+	}
+	localPath := source
+	if sourceRemote {
+		localPath = target
+	}
+	var bytesTransferred int64
+	if info, statErr := os.Stat(localPath); statErr == nil && info.Mode().IsRegular() {
+		bytesTransferred = info.Size()
+	}
+	return map[string]any{"ok": true, "bytes": bytesTransferred, "stdout": stdout, "stderr": stderr, "exit_code": exitCode}, nil
 }
 
-func (t *Transport) profile(name string) (config.RemoteProfile, error) {
+func (t *Transport) connection(name string) (connection, error) {
+	if name == "" {
+		return connection{}, nil
+	}
 	profile, ok := t.profiles[name]
 	if !ok {
-		return config.RemoteProfile{}, fmt.Errorf("unknown remote profile %q", name)
+		return connection{}, fmt.Errorf("unknown remote profile %q", name)
 	}
-	if profile.Host == "" {
-		return config.RemoteProfile{}, fmt.Errorf("remote profile %q has no host", name)
+	remoteName := profile.Host
+	if profile.User != "" {
+		remoteName = profile.User + "@" + profile.Host
 	}
-	return profile, nil
+	return connection{remote: remoteName, key: profile.KeyPath, port: profile.Port, proxyJump: profile.ProxyJump}, nil
 }
 
-func sshArgs(profile config.RemoteProfile) []string {
-	return sshOptions(profile)
+func (t *Transport) materializeRefs(settings *connection, keyRef, certRef string) (func(), error) {
+	var paths []string
+	cleanup := func() {
+		for _, path := range paths {
+			if info, err := os.Stat(path); err == nil {
+				_ = os.WriteFile(path, make([]byte, info.Size()), 0o600)
+			}
+			_ = os.Remove(path)
+		}
+	}
+	materialize := func(name, suffix string) (string, error) {
+		if name == "" {
+			return "", nil
+		}
+		value, err := t.secrets.Resolve(name)
+		if err != nil {
+			return "", err
+		}
+		file, err := os.CreateTemp("", "light-tools-ssh-*"+suffix)
+		if err != nil {
+			return "", err
+		}
+		if err := file.Chmod(0o600); err != nil {
+			file.Close()
+			return "", err
+		}
+		if _, err := file.WriteString(value); err != nil {
+			file.Close()
+			return "", err
+		}
+		if err := file.Close(); err != nil {
+			return "", err
+		}
+		paths = append(paths, file.Name())
+		return file.Name(), nil
+	}
+	var err error
+	if keyRef != "" {
+		settings.key, err = materialize(keyRef, ".key")
+		if err != nil {
+			cleanup()
+			return cleanup, err
+		}
+	}
+	if certRef != "" {
+		settings.cert, err = materialize(certRef, ".pub")
+		if err != nil {
+			cleanup()
+			return cleanup, err
+		}
+	}
+	return cleanup, nil
 }
 
-func sshOptions(profile config.RemoteProfile) []string {
+func sshOptions(settings connection, scp bool) []string {
 	args := []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes"}
-	if profile.Port > 0 {
-		args = append(args, "-p", strconv.Itoa(profile.Port))
+	if settings.port > 0 {
+		flag := "-p"
+		if scp {
+			flag = "-P"
+		}
+		args = append(args, flag, strconv.Itoa(settings.port))
 	}
-	if profile.ProxyJump != "" {
-		args = append(args, "-J", profile.ProxyJump)
+	if settings.proxyJump != "" {
+		args = append(args, "-J", settings.proxyJump)
 	}
-	if profile.KeyPath != "" {
-		args = append(args, "-i", profile.KeyPath)
+	if settings.key != "" {
+		args = append(args, "-i", settings.key)
+	}
+	if settings.cert != "" {
+		args = append(args, "-o", "CertificateFile="+settings.cert)
 	}
 	return args
 }
 
-func destination(profile config.RemoteProfile) string {
-	if profile.User == "" {
-		return profile.Host
+func isRemotePath(path string) bool {
+	volume := filepath.VolumeName(path)
+	if volume != "" && strings.HasPrefix(strings.TrimPrefix(path, volume), string(filepath.Separator)) {
+		return false
 	}
-	return profile.User + "@" + profile.Host
+	colon := strings.IndexByte(path, ':')
+	return colon > 0 && !strings.Contains(path[:colon], string(filepath.Separator))
 }
 
 func runRetryTimeout(ctx context.Context, executable string, args []string, timeoutMS int) (string, string, int, error) {
