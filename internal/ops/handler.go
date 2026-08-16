@@ -143,6 +143,14 @@ func (h *Handler) sourceLogs(ctx context.Context, request Request) (string, stri
 		data, err := os.ReadFile(request.Path)
 		return string(data), "file:" + request.Path, err
 	}
+	if strings.HasPrefix(request.Service, "file:") {
+		path := strings.TrimPrefix(request.Service, "file:")
+		if path == "" {
+			return "", "", fmt.Errorf("file service path is required")
+		}
+		data, err := os.ReadFile(path)
+		return string(data), request.Service, err
+	}
 	service, err := h.registry.Resolve(ctx, request.Service)
 	if err != nil {
 		return "", "", err
@@ -241,12 +249,43 @@ func (h *Handler) investigate(ctx context.Context, request Request) (map[string]
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := grep["services"]
+	rows := grep["services"]
+	var samples []struct {
+		Service string `json:"service"`
+		Sample  string `json:"sample"`
+	}
 	encoded, _ := json.Marshal(rows)
+	_ = json.Unmarshal(encoded, &samples)
 	identifierPattern := regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9_.:-]{7,}`)
-	identifiers := identifierPattern.FindAllString(string(encoded), 12)
-	summary := fmt.Sprintf("local investigation matched %d candidate identifiers across registered services", len(identifiers))
-	return map[string]any{"summary": summary, "errors": rows, "identifiers": identifiers, "scope": "local-only"}, nil
+	seen := make(map[string]bool)
+	var identifiers []string
+	for _, sample := range samples {
+		for _, identifier := range identifierPattern.FindAllString(sample.Sample, -1) {
+			if seen[identifier] {
+				continue
+			}
+			seen[identifier] = true
+			identifiers = append(identifiers, identifier)
+			if len(identifiers) == 12 {
+				break
+			}
+		}
+		if len(identifiers) == 12 {
+			break
+		}
+	}
+	traces := make(map[string]any, len(identifiers))
+	for _, identifier := range identifiers {
+		traceRequest := request
+		traceRequest.Pattern = regexp.QuoteMeta(identifier)
+		traceRequest.Include, traceRequest.Exclude = "", ""
+		trace, traceErr := h.grepPool(ctx, traceRequest)
+		if traceErr == nil {
+			traces[identifier] = trace["services"]
+		}
+	}
+	summary := fmt.Sprintf("local investigation traced %d identifiers across registered services", len(identifiers))
+	return map[string]any{"summary": summary, "errors": rows, "identifiers": identifiers, "traces": traces, "scope": "local-only"}, nil
 }
 
 func readPM2Logs(service Service, limit int) (string, error) {
@@ -282,8 +321,19 @@ func filterLines(content string, request Request) string {
 	signal := compileFilter(pattern)
 	include := compileFilter(request.Include)
 	exclude := compileFilter(request.Exclude)
+	cutoff := logCutoff(request)
 	selected := make(map[int]bool)
 	for index, line := range lines {
+		if !cutoff.IsZero() {
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			stamp, err := time.Parse(time.RFC3339Nano, fields[0])
+			if err != nil || stamp.Before(cutoff) {
+				continue
+			}
+		}
 		if signal != nil && !signal.MatchString(line) {
 			continue
 		}
@@ -298,7 +348,7 @@ func filterLines(content string, request Request) string {
 			selected[cursor] = true
 		}
 	}
-	if signal == nil && include == nil && exclude == nil {
+	if signal == nil && include == nil && exclude == nil && cutoff.IsZero() {
 		return content
 	}
 	var output []string
@@ -316,6 +366,21 @@ func matchingLines(content string, request Request) []string {
 		return nil
 	}
 	return strings.Split(filtered, "\n")
+}
+
+func logCutoff(request Request) time.Time {
+	if request.SinceTS != "" {
+		stamp, _ := time.Parse(time.RFC3339Nano, request.SinceTS)
+		return stamp
+	}
+	if request.Since == "" {
+		return time.Time{}
+	}
+	if duration, err := time.ParseDuration(request.Since); err == nil {
+		return time.Now().Add(-duration)
+	}
+	stamp, _ := time.Parse(time.RFC3339Nano, request.Since)
+	return stamp
 }
 
 func compileFilter(pattern string) *regexp.Regexp {
