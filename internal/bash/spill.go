@@ -14,16 +14,24 @@ import (
 	"time"
 )
 
+const (
+	defaultMaximumSpills = 64
+	defaultMaximumBytes  = 64 * 1024 * 1024
+)
+
 type spillRecord struct {
 	path    string
+	created time.Time
 	expires time.Time
 }
 
 type SpillStore struct {
-	root    string
-	ttl     time.Duration
-	mu      sync.Mutex
-	records map[string]spillRecord
+	root     string
+	ttl      time.Duration
+	maximum  int
+	maxBytes int
+	mu       sync.Mutex
+	records  map[string]spillRecord
 }
 
 func NewSpillStore(root string, ttl time.Duration) (*SpillStore, error) {
@@ -34,10 +42,24 @@ func NewSpillStore(root string, ttl time.Duration) (*SpillStore, error) {
 	if err := os.MkdirAll(processRoot, 0o700); err != nil {
 		return nil, err
 	}
-	return &SpillStore{root: processRoot, ttl: ttl, records: make(map[string]spillRecord)}, nil
+	return &SpillStore{
+		root: processRoot, ttl: ttl, maximum: defaultMaximumSpills,
+		maxBytes: defaultMaximumBytes, records: make(map[string]spillRecord),
+	}, nil
 }
 
 func (s *SpillStore) Store(data []byte) (string, error) {
+	if len(data) > s.maxBytes {
+		return "", fmt.Errorf("spill exceeds %d byte limit", s.maxBytes)
+	}
+	s.mu.Lock()
+	s.reapLocked()
+	if len(s.records) >= s.maximum {
+		s.mu.Unlock()
+		return "", fmt.Errorf("spill limit reached")
+	}
+	s.mu.Unlock()
+
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
 		return "", err
@@ -53,17 +75,26 @@ func (s *SpillStore) Store(data []byte) (string, error) {
 	closeErr := writer.Close()
 	fileErr := file.Close()
 	if writeErr != nil {
+		_ = os.Remove(path)
 		return "", writeErr
 	}
 	if closeErr != nil {
+		_ = os.Remove(path)
 		return "", closeErr
 	}
 	if fileErr != nil {
+		_ = os.Remove(path)
 		return "", fileErr
 	}
+	now := time.Now()
 	s.mu.Lock()
-	s.records[id] = spillRecord{path: path, expires: time.Now().Add(s.ttl)}
 	s.reapLocked()
+	if len(s.records) >= s.maximum {
+		s.mu.Unlock()
+		_ = os.Remove(path)
+		return "", fmt.Errorf("spill limit reached")
+	}
+	s.records[id] = spillRecord{path: path, created: now, expires: now.Add(s.ttl)}
 	s.mu.Unlock()
 	return id, nil
 }
