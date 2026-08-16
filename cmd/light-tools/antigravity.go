@@ -57,7 +57,10 @@ func capabilityArgs(caps options) []string {
 // every other server and every unrelated top-level key. A malformed existing
 // file is an error, never something to overwrite.
 func mergeAntigravityConfig(path string, name string, entry map[string]any) error {
-	root := map[string]any{}
+	// Every value except our own entry is carried through as raw JSON: decoding
+	// into map[string]any would round-trip numbers via float64 and silently
+	// rewrite an operator's large integer literals.
+	root := map[string]json.RawMessage{}
 	existing, err := os.ReadFile(path)
 	switch {
 	case err == nil && len(strings.TrimSpace(string(existing))) > 0:
@@ -67,12 +70,22 @@ func mergeAntigravityConfig(path string, name string, entry map[string]any) erro
 	case err != nil && !os.IsNotExist(err):
 		return err
 	}
-	servers, _ := root["mcpServers"].(map[string]any)
-	if servers == nil {
-		servers = map[string]any{}
+	servers := map[string]json.RawMessage{}
+	if raw, ok := root["mcpServers"]; ok && len(strings.TrimSpace(string(raw))) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &servers); err != nil {
+			return fmt.Errorf("%s has a non-object mcpServers value; refusing to replace it: %w", path, err)
+		}
 	}
-	servers[name] = entry
-	root["mcpServers"] = servers
+	encodedEntry, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	servers[name] = encodedEntry
+	encodedServers, err := json.Marshal(servers)
+	if err != nil {
+		return err
+	}
+	root["mcpServers"] = encodedServers
 	encoded, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err

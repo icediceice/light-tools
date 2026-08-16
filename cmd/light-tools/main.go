@@ -244,8 +244,18 @@ func runInit(args []string) error {
 	if err := set.Parse(args); err != nil {
 		return err
 	}
-	if _, err := state.Resolve(); err != nil {
-		return err
+	switch *client {
+	case "claude", "antigravity", "print":
+	default:
+		return fmt.Errorf("unknown --client %q (want claude, antigravity, or print)", *client)
+	}
+	// A preview must not touch the disk, so the state layout is created only
+	// once the run is known to be a real init for a known client.
+	preview := *dryRun || *client == "print"
+	if !preview {
+		if _, err := state.Resolve(); err != nil {
+			return err
+		}
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -253,16 +263,16 @@ func runInit(args []string) error {
 	}
 	executable, _ = filepath.Abs(executable)
 
-	switch *client {
-	case "claude":
+	if *client == "claude" {
 		command := append([]string{"claude", "mcp", "add", "light-tools", "--", executable}, capabilityArgs(caps)...)
+		if preview {
+			fmt.Printf("%s\n", strings.Join(command, " "))
+			return nil
+		}
 		fmt.Printf("State initialized.\n%s\n", strings.Join(command, " "))
 		return nil
-	case "antigravity", "print":
-		return initAntigravity(executable, caps, disabledTools, *workspace, *client == "print" || *dryRun)
-	default:
-		return fmt.Errorf("unknown --client %q (want claude, antigravity, or print)", *client)
 	}
+	return initAntigravity(executable, caps, disabledTools, *workspace, preview)
 }
 
 // initAntigravity writes, or previews, both halves of the Antigravity setup:

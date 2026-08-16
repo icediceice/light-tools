@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -291,5 +292,138 @@ func TestMergeAntigravityConfigRefusesMalformedJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(preserved), "// a comment") {
 		t.Errorf("refused merge still modified the file: %s", preserved)
+	}
+}
+
+func TestMergeAntigravityConfigRefusesNonObjectServers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp_config.json")
+	original := []byte(`{"mcpServers":"broken"}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := mergeAntigravityConfig(path, "light-tools", map[string]any{"command": "x"}); err == nil {
+		t.Fatal("expected a non-object mcpServers value to be refused, not replaced")
+	}
+	preserved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(preserved) != string(original) {
+		t.Errorf("refused merge modified the file: %s", preserved)
+	}
+}
+
+// goldenExecutable mirrors the path runInit resolves so a golden string can
+// carry the same absolute binary path the emitted command line will.
+func goldenExecutable(t *testing.T) string {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		executable = "light-tools"
+	}
+	absolute, err := filepath.Abs(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return absolute
+}
+
+// assertStateRoots asserts the four XDG state roots either all exist or none
+// do — a preview must leave the whole layout uncreated.
+func assertStateRoots(t *testing.T, root string, want bool) {
+	t.Helper()
+	for _, path := range []string{
+		filepath.Join(root, "config", "light-tools"),
+		filepath.Join(root, "data", "light-tools-secrets"),
+		filepath.Join(root, "data", "light-tools-snapshots"),
+		filepath.Join(root, "runtime", "light-tools-spills"),
+	} {
+		_, err := os.Stat(path)
+		if want && err != nil {
+			t.Errorf("init did not create state root %s: %v", path, err)
+		}
+		if !want && !os.IsNotExist(err) {
+			t.Errorf("preview created state root %s: %v", path, err)
+		}
+	}
+}
+
+func TestInitClaudeOutputGolden(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		args  []string
+		want  string
+		state bool
+	}{
+		{
+			name:  "default",
+			args:  nil,
+			want:  "State initialized.\nclaude mcp add light-tools -- %s\n",
+			state: true,
+		},
+		{
+			name:  "capabilities",
+			args:  []string{"--client", "claude", "--enable-shell", "--enable-remote", "--enable-ops"},
+			want:  "State initialized.\nclaude mcp add light-tools -- %s --enable-shell --enable-remote --enable-ops\n",
+			state: true,
+		},
+		{
+			name:  "dry-run",
+			args:  []string{"--client", "claude", "--dry-run"},
+			want:  "claude mcp add light-tools -- %s\n",
+			state: false,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := isolateHome(t)
+			args := testCase.args
+			output := captureStdout(t, func() error { return runInit(args) })
+			if want := fmt.Sprintf(testCase.want, goldenExecutable(t)); output != want {
+				t.Errorf("claude output\n got: %q\nwant: %q", output, want)
+			}
+			assertStateRoots(t, root, testCase.state)
+		})
+	}
+}
+
+func TestInitAntigravityPreviewGolden(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		args []string
+	}{
+		{name: "print", args: []string{"--client", "print"}},
+		{name: "dry-run", args: []string{"--client", "antigravity", "--dry-run"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := isolateHome(t)
+			args := testCase.args
+			output := captureStdout(t, func() error { return runInit(args) })
+
+			command, err := json.Marshal(goldenExecutable(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			snippet := fmt.Sprintf("{\n  \"mcpServers\": {\n    \"light-tools\": {\n      \"command\": %s\n    }\n  }\n}", command)
+			want := fmt.Sprintf(
+				"# %s\n%s\n\n# %s\n%s\n# permissions\n%s\n",
+				filepath.Join(root, ".gemini", "config", "mcp_config.json"),
+				snippet,
+				filepath.Join(root, ".gemini", "config", "skills", "light-tools", "SKILL.md"),
+				antigravitySkill(),
+				antigravityPermissions(),
+			)
+			if output != want {
+				t.Errorf("preview output\n got: %q\nwant: %q", output, want)
+			}
+			for _, line := range []string{"read_file(*)", "write_file(*)", "command(*)", "mcp(light-tools/*)", "deny plus steer"} {
+				if !strings.Contains(output, line) {
+					t.Errorf("preview lost %q from the permission block:\n%s", line, output)
+				}
+			}
+			assertStateRoots(t, root, false)
+			if _, err := os.Stat(filepath.Join(root, ".gemini")); !os.IsNotExist(err) {
+				t.Errorf("preview wrote the Antigravity configuration: %v", err)
+			}
+		})
 	}
 }
