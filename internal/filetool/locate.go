@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -15,10 +17,11 @@ import (
 const locateCap = 501
 
 type locateMatch struct {
-	Line   int    `json:"line"`
-	Text   string `json:"text"`
-	Start  int    `json:"start,omitempty"`
-	End    int    `json:"end,omitempty"`
+	Path  string `json:"path,omitempty"`
+	Line  int    `json:"line"`
+	Text  string `json:"text"`
+	Start int    `json:"start,omitempty"`
+	End   int    `json:"end,omitempty"`
 }
 
 func (h *Handler) locate(ctx context.Context, request Request) (any, error) {
@@ -32,29 +35,40 @@ func (h *Handler) locate(ctx context.Context, request Request) (any, error) {
 	if request.Pattern == "" {
 		return nil, fmt.Errorf("pattern is required")
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
 	fixed := false
 	expression, compileErr := regexp.Compile(request.Pattern)
 	warning := ""
-	if compileErr != nil {
+	if info.IsDir() {
+		fixed = true
+		expression = regexp.MustCompile(regexp.QuoteMeta(request.Pattern))
+		warning = "directory locate uses bounded fixed-string repository search"
+	} else if compileErr != nil {
 		fixed = true
 		warning = "invalid regex retried once as fixed string"
 		expression = regexp.MustCompile(regexp.QuoteMeta(request.Pattern))
 	}
 	if _, err := exec.LookPath("rg"); err == nil {
-		matches, rgErr := locateRG(ctx, path, request.Pattern, fixed)
+		matches, rgErr := locateRG(ctx, path, request.Pattern, fixed, request.Context)
 		if rgErr == nil {
-			return textJSON(map[string]any{"path": path, "matches": matches, "capped": len(matches) == locateCap, "warning": warning})
+			return textJSON(map[string]any{"path": path, "matches": matches, "capped": len(matches) == locateCap, "warning": warning, "engine": "rg"})
 		}
 	}
-	matches, err := locateGo(path, expression)
+	matches, err := locateGo(path, expression, request.Context)
 	if err != nil {
 		return nil, err
 	}
 	return textJSON(map[string]any{"path": path, "matches": matches, "capped": len(matches) == locateCap, "warning": warning, "engine": "go"})
 }
 
-func locateRG(ctx context.Context, path, pattern string, fixed bool) ([]locateMatch, error) {
+func locateRG(ctx context.Context, path, pattern string, fixed bool, contextLines int) ([]locateMatch, error) {
 	args := []string{"--json", "--line-number", "--max-count", fmt.Sprint(locateCap)}
+	if contextLines > 0 {
+		args = append(args, "--context", fmt.Sprint(contextLines))
+	}
 	if fixed {
 		args = append(args, "--fixed-strings")
 	}
@@ -73,6 +87,7 @@ func locateRG(ctx context.Context, path, pattern string, fixed bool) ([]locateMa
 		var event struct {
 			Type string `json:"type"`
 			Data struct {
+				Path struct{ Text string `json:"text"` } `json:"path"`
 				Lines struct{ Text string `json:"text"` } `json:"lines"`
 				LineNumber int `json:"line_number"`
 				Submatches []struct {
@@ -84,7 +99,7 @@ func locateRG(ctx context.Context, path, pattern string, fixed bool) ([]locateMa
 		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "match" {
 			continue
 		}
-		match := locateMatch{Line: event.Data.LineNumber, Text: strings.TrimSuffix(event.Data.Lines.Text, "\n")}
+		match := locateMatch{Path: event.Data.Path.Text, Line: event.Data.LineNumber, Text: strings.TrimSuffix(event.Data.Lines.Text, "\n")}
 		if len(event.Data.Submatches) > 0 {
 			match.Start, match.End = event.Data.Submatches[0].Start, event.Data.Submatches[0].End
 		}
@@ -93,20 +108,68 @@ func locateRG(ctx context.Context, path, pattern string, fixed bool) ([]locateMa
 	return matches, scanner.Err()
 }
 
-func locateGo(path string, expression *regexp.Regexp) ([]locateMatch, error) {
+func locateGo(path string, expression *regexp.Regexp, contextLines int) ([]locateMatch, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return locateGoFile(path, expression, contextLines, locateCap)
+	}
+	var matches []locateMatch
+	err = filepath.WalkDir(path, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(matches) >= locateCap {
+			return fs.SkipAll
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 8*1024*1024 {
+			return nil
+		}
+		found, err := locateGoFile(current, expression, contextLines, locateCap-len(matches))
+		if err == nil {
+			matches = append(matches, found...)
+		}
+		return nil
+	})
+	return matches, err
+}
+
+func locateGoFile(path string, expression *regexp.Regexp, contextLines, remaining int) ([]locateMatch, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
-	var matches []locateMatch
+	var lines []string
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for line := 1; scanner.Scan() && len(matches) < locateCap; line++ {
-		indices := expression.FindStringIndex(scanner.Text())
-		if indices != nil {
-			matches = append(matches, locateMatch{Line: line, Text: scanner.Text(), Start: indices[0], End: indices[1]})
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	var matches []locateMatch
+	for index, line := range lines {
+		indices := expression.FindStringIndex(line)
+		if indices == nil {
+			continue
+		}
+		startLine, endLine := max(0, index-contextLines), min(len(lines)-1, index+contextLines)
+		text := strings.Join(lines[startLine:endLine+1], "\n")
+		matches = append(matches, locateMatch{Path: path, Line: index + 1, Text: text, Start: indices[0], End: indices[1]})
+		if len(matches) >= remaining {
+			break
 		}
 	}
-	return matches, scanner.Err()
+	return matches, nil
 }
