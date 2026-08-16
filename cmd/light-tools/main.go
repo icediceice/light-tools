@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/icediceice/light-tools/internal/filetool"
 	"github.com/icediceice/light-tools/internal/mcp"
 	"github.com/icediceice/light-tools/internal/portable"
 	"github.com/icediceice/light-tools/internal/state"
@@ -44,11 +45,12 @@ func main() {
 	flag.BoolVar(&opts.enableOps, "enable-ops", false, "register read-only light_ops")
 	flag.Parse()
 
-	if _, err := state.Resolve(); err != nil {
+	layout, err := state.Resolve()
+	if err != nil {
 		fatal(err)
 	}
 	server := mcp.New("light-tools", version)
-	if err := registerTools(server, opts); err != nil {
+	if err := registerTools(server, opts, layout); err != nil {
 		fatal(err)
 	}
 	if err := server.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
@@ -56,37 +58,41 @@ func main() {
 	}
 }
 
-func registerTools(server *mcp.Server, opts options) error {
+func registerTools(server *mcp.Server, opts options, layout state.Layout) error {
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	fileHandler, err := filetool.New(filetool.Options{Roots: []string{workingDirectory}, SnapshotRoot: layout.Snapshots})
+	if err != nil {
+		return err
+	}
 	definitions := []struct {
 		enabled     bool
 		name        string
 		description string
+		handler     portable.Handler
 	}{
-		{true, "light_file", "Bounded filesystem reads, searches, symbols, diffs, and transactional mutations."},
-		{opts.enableShell, "light_bash", "Opt-in local shell execution with bounded output and secret references."},
-		{opts.enableRemote, "light_ssh", "Opt-in SSH execution through explicit profiles."},
-		{opts.enableRemote, "light_scp", "Opt-in SCP transfer through explicit profiles."},
-		{opts.enableOps, "light_ops", "Opt-in read-only service discovery, probes, and log inspection."},
+		{true, "light_file", "Bounded filesystem reads, searches, symbols, diffs, and transactional mutations.", fileHandler.Portable()},
+		{opts.enableShell, "light_bash", "Opt-in local shell execution with bounded output and secret references.", unavailable("light_bash")},
+		{opts.enableRemote, "light_ssh", "Opt-in SSH execution through explicit profiles.", unavailable("light_ssh")},
+		{opts.enableRemote, "light_scp", "Opt-in SCP transfer through explicit profiles.", unavailable("light_scp")},
+		{opts.enableOps, "light_ops", "Opt-in read-only service discovery, probes, and log inspection.", unavailable("light_ops")},
 	}
 	sort.SliceStable(definitions, func(i, j int) bool { return definitions[i].name < definitions[j].name })
 	for _, definition := range definitions {
 		if !definition.enabled {
 			continue
 		}
-		name := definition.name
 		err := server.Register(mcp.Tool{
-			Name: name, Description: definition.description,
+			Name: definition.name, Description: definition.description, Handler: definition.handler,
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"verb":    map[string]any{"type": "string"},
-					"path":    map[string]any{"type": "string"},
+					"verb": map[string]any{"type": "string"}, "path": map[string]any{"type": "string"},
 					"payload": map[string]any{"type": "string"},
 				},
 				"additionalProperties": true,
-			},
-			Handler: func(context.Context, json.RawMessage) (any, error) {
-				return nil, &portable.DiagnosticError{Code: "E_NOT_IMPLEMENTED", Message: name + " handler is not wired"}
 			},
 		})
 		if err != nil {
@@ -94,6 +100,12 @@ func registerTools(server *mcp.Server, opts options) error {
 		}
 	}
 	return nil
+}
+
+func unavailable(name string) portable.Handler {
+	return func(context.Context, json.RawMessage) (any, error) {
+		return nil, &portable.DiagnosticError{Code: "E_NOT_IMPLEMENTED", Message: name + " handler is not wired"}
+	}
 }
 
 func runInit() error {
