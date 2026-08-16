@@ -16,7 +16,11 @@ type parsedMutation struct {
 }
 
 func Parse(input string) ([]fileop.Mutation, error) {
-	lines := strings.Split(strings.ReplaceAll(input, "\r\n", "\n"), "\n")
+	normalized := strings.ReplaceAll(input, "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	diagnostic := func(caret int, message string) error {
+		return portable.NewCaretError("E_PAYLOAD", message, normalized, caret)
+	}
 	var (
 		result     []fileop.Mutation
 		current    *parsedMutation
