@@ -320,15 +320,7 @@ func (h *Handler) diff(request Request) (any, error) {
 	if left == "" {
 		left = request.A
 	}
-	right := request.Target
-	if right == "" {
-		right = request.B
-	}
 	path, err := h.resolve(left)
-	if err != nil {
-		return nil, err
-	}
-	target, err := h.resolve(right)
 	if err != nil {
 		return nil, err
 	}
@@ -336,11 +328,47 @@ func (h *Handler) diff(request Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	contextLines := request.DiffContext
+	if contextLines <= 0 {
+		contextLines = 3
+	}
+
+	if request.Patch != "" || request.PatchPath != "" {
+		patch := request.Patch
+		if request.PatchPath != "" {
+			patchPath, err := h.resolve(request.PatchPath)
+			if err != nil {
+				return nil, err
+			}
+			data, err := os.ReadFile(patchPath)
+			if err != nil {
+				return nil, err
+			}
+			patch = string(data)
+		}
+		after, applied, err := applyUnifiedPatch(string(before), patch, request.Fuzz)
+		if err != nil {
+			return nil, err
+		}
+		return textJSON(map[string]any{"path": path, "applied_hunks": applied, "diff": unifiedDiff(path, path, string(before), after, contextLines)})
+	}
+
+	right := request.Target
+	if right == "" {
+		right = request.B
+	}
+	if right == "" {
+		return nil, fmt.Errorf("diff requires target/b or patch/patch_path")
+	}
+	target, err := h.resolve(right)
+	if err != nil {
+		return nil, err
+	}
 	after, err := os.ReadFile(target)
 	if err != nil {
 		return nil, err
 	}
-	return textJSON(map[string]any{"diff": simpleDiff(path, target, string(before), string(after))})
+	return textJSON(map[string]any{"diff": unifiedDiff(path, target, string(before), string(after), contextLines)})
 }
 
 func (h *Handler) resolve(path string) (string, error) {
@@ -378,9 +406,3 @@ func safeUTF8Boundary(value string, maximum int) int {
 	return maximum
 }
 
-func simpleDiff(a, b, before, after string) string {
-	if before == after {
-		return ""
-	}
-	return fmt.Sprintf("--- %s\n+++ %s\n-%s\n+%s\n", a, b, before, after)
-}
