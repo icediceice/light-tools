@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"io"
 	"runtime/debug"
+	"sort"
 	"sync"
-
 	"github.com/icediceice/light-tools/internal/portable"
 )
 
@@ -140,6 +140,7 @@ func (s *Server) dispatch(ctx context.Context, req request) (resp response) {
 			})
 		}
 		s.mu.RUnlock()
+		sort.Slice(tools, func(i, j int) bool { return tools[i]["name"].(string) < tools[j]["name"].(string) })
 		resp.Result = map[string]any{"tools": tools}
 	case "tools/call":
 		var params struct {
