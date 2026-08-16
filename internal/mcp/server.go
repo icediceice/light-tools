@@ -7,11 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/icediceice/light-tools/internal/portable"
 	"io"
 	"runtime/debug"
 	"sort"
 	"sync"
-	"github.com/icediceice/light-tools/internal/portable"
 )
 
 const ProtocolVersion = "2025-06-18"

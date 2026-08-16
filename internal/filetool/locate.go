@@ -87,8 +87,12 @@ func locateRG(ctx context.Context, path, pattern string, fixed bool, contextLine
 		var event struct {
 			Type string `json:"type"`
 			Data struct {
-				Path struct{ Text string `json:"text"` } `json:"path"`
-				Lines struct{ Text string `json:"text"` } `json:"lines"`
+				Path struct {
+					Text string `json:"text"`
+				} `json:"path"`
+				Lines struct {
+					Text string `json:"text"`
+				} `json:"lines"`
 				LineNumber int `json:"line_number"`
 				Submatches []struct {
 					Start int `json:"start"`

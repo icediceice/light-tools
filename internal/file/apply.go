@@ -9,10 +9,10 @@ import (
 )
 
 type SpanResult struct {
-	RequestedStart int `json:"requested_start"`
-	RequestedEnd   int `json:"requested_end"`
-	AppliedStart   int `json:"applied_start"`
-	AppliedEnd     int `json:"applied_end"`
+	RequestedStart int  `json:"requested_start"`
+	RequestedEnd   int  `json:"requested_end"`
+	AppliedStart   int  `json:"applied_start"`
+	AppliedEnd     int  `json:"applied_end"`
 	Relocated      bool `json:"relocated,omitempty"`
 	Adjusted       bool `json:"adjusted,omitempty"`
 }

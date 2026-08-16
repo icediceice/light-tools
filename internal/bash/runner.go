@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/icediceice/light-tools/internal/security"
 	"github.com/icediceice/light-tools/internal/secret"
+	"github.com/icediceice/light-tools/internal/security"
 )
 
 const outputLimit = 128 * 1024

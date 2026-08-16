@@ -127,7 +127,9 @@ func toolSchema(name string) map[string]any {
 	stringType := func() map[string]any { return map[string]any{"type": "string"} }
 	integerType := func() map[string]any { return map[string]any{"type": "integer"} }
 	booleanType := func() map[string]any { return map[string]any{"type": "boolean"} }
-	stringMap := func() map[string]any { return map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}} }
+	stringMap := func() map[string]any {
+		return map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}}
+	}
 	properties := map[string]any{}
 	switch name {
 	case "light_file":

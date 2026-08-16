@@ -80,10 +80,10 @@ func TestConnectionProfileAndSecureRefs(t *testing.T) {
 
 func TestRemotePathDirectionInference(t *testing.T) {
 	cases := map[string]bool{
-		"host:/tmp/a": true,
+		"host:/tmp/a":        true,
 		"user@host:relative": true,
-		"/tmp/a:b": false,
-		"relative/path": false,
+		"/tmp/a:b":           false,
+		"relative/path":      false,
 	}
 	if runtime.GOOS == "windows" {
 		cases[`C:\tmp\a`] = false

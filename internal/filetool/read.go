@@ -405,4 +405,3 @@ func safeUTF8Boundary(value string, maximum int) int {
 	}
 	return maximum
 }
-

@@ -97,9 +97,9 @@ func discoverPM2(ctx context.Context) []Service {
 	var rows []struct {
 		Name string `json:"name"`
 		PM2  struct {
-			Status    string `json:"status"`
-			OutLog    string `json:"pm_out_log_path"`
-			ErrorLog  string `json:"pm_err_log_path"`
+			Status   string `json:"status"`
+			OutLog   string `json:"pm_out_log_path"`
+			ErrorLog string `json:"pm_err_log_path"`
 		} `json:"pm2_env"`
 	}
 	if json.Unmarshal([]byte(output), &rows) != nil {

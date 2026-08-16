@@ -19,12 +19,12 @@ type Snapshotter interface {
 }
 
 type CommitRequest struct {
-	Path        string
-	Data        []byte
-	ExpectedSHA string
+	Path         string
+	Data         []byte
+	ExpectedSHA  string
 	AllowedRoots []string
-	Snapshotter Snapshotter
-	Mode        os.FileMode
+	Snapshotter  Snapshotter
+	Mode         os.FileMode
 }
 
 type CommitResult struct {

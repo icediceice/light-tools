@@ -104,11 +104,11 @@ func New(options Options) (*Handler, error) {
 
 func (h *Handler) Portable() portable.Handler {
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
-			var request Request
-			if err := json.Unmarshal(raw, &request); err != nil {
-				return nil, &portable.DiagnosticError{Code: "E_SCHEMA", Message: err.Error()}
-			}
-			request.normalize()
+		var request Request
+		if err := json.Unmarshal(raw, &request); err != nil {
+			return nil, &portable.DiagnosticError{Code: "E_SCHEMA", Message: err.Error()}
+		}
+		request.normalize()
 		if request.Payload != "" {
 			mutations, partial, err := h.assembler.Assemble(request.Payload)
 			if err != nil {

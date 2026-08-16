@@ -10,14 +10,14 @@ import (
 )
 
 type task struct {
-	id        string
-	status    string
-	created   time.Time
-	updated   time.Time
-	expires   time.Time
-	result    map[string]any
-	err       string
-	cancel    context.CancelFunc
+	id      string
+	status  string
+	created time.Time
+	updated time.Time
+	expires time.Time
+	result  map[string]any
+	err     string
+	cancel  context.CancelFunc
 }
 
 type TaskManager struct {

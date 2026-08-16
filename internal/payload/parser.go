@@ -33,7 +33,7 @@ func Parse(input string) ([]fileop.Mutation, error) {
 	var (
 		result     []fileop.Mutation
 		current    *parsedMutation
-		bodyField string
+		bodyField  string
 		body       []string
 		terminator = "<<LF-END>>"
 		offset     int
@@ -156,7 +156,7 @@ func Parse(input string) ([]fileop.Mutation, error) {
 		caret := len(normalized)
 		return nil, &PartialError{
 			Diagnostic: portable.NewCaretError("E_PAYLOAD", "unterminated @"+bodyField+" body; expected exact "+terminator, normalized, caret),
-			GotLines: len(lines),
+			GotLines:   len(lines),
 		}
 	}
 	if err := flush(); err != nil {
