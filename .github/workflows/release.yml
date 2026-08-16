@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            os: linux
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+          - runner: macos-13
+            os: darwin
+            arch: amd64
+          - runner: macos-14
+            os: darwin
+            arch: arm64
+          - runner: windows-2022
+            os: windows
+            arch: amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: egor-tensin/setup-mingw@v2
+        if: runner.os == 'Windows'
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: build --clean --single-target --snapshot
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}_${{ matrix.arch }}
+          path: dist/light-tools_*/light-tools*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package native artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir release
+          for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+            binary="$(find "artifacts/$platform" -type f -name light-tools | head -n 1)"
+            os="${platform%_*}"
+            arch="${platform#*_}"
+            tar -C "$(dirname "$binary")" -czf "release/light-tools_${version}_${os}_${arch}.tar.gz" "$(basename "$binary")"
+          done
+          binary="$(find artifacts/windows_amd64 -type f -name light-tools.exe | head -n 1)"
+          (cd "$(dirname "$binary")" && zip "$GITHUB_WORKSPACE/release/light-tools_${version}_windows_amd64.zip" light-tools.exe)
+          (cd release && sha256sum * > checksums.txt)
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag
