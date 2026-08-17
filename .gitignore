@@ -4,3 +4,4 @@ node_modules/
 /dist/
 /light-tools
 /inspector.json
+.env
