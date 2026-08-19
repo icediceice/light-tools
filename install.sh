@@ -7,6 +7,7 @@ version="${LIGHT_TOOLS_VERSION:-}"
 
 if [ -z "$version" ]; then
   tag="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+  [ -n "$tag" ] || { echo "could not resolve latest release" >&2; exit 1; }
   version="${tag#v}"
 fi
 
@@ -23,11 +24,6 @@ case "$(uname -m)" in
   *) echo "unsupported architecture" >&2; exit 1 ;;
 esac
 
-if [ "$os" = windows ] && [ "$arch" = arm64 ]; then
-  echo "windows/arm64 is not published" >&2
-  exit 1
-fi
-
 extension=tar.gz
 [ "$os" = windows ] && extension=zip
 asset="light-tools_${version}_${os}_${arch}.${extension}"
@@ -39,17 +35,23 @@ curl -fsSL "$base/$asset" -o "$temp_dir/$asset"
 curl -fsSL "$base/checksums.txt" -o "$temp_dir/checksums.txt"
 (
   cd "$temp_dir"
+  checksum_line="$(awk -v name="$asset" '$2 == name { print; exit }' checksums.txt)"
+  [ -n "$checksum_line" ] || { echo "checksum missing for $asset" >&2; exit 1; }
   if command -v sha256sum >/dev/null 2>&1; then
-    grep "  $asset\$" checksums.txt | sha256sum -c -
-  else
-    expected="$(grep "  $asset\$" checksums.txt | awk '{print $1}')"
+    printf '%s\n' "$checksum_line" | sha256sum -c -
+  elif command -v shasum >/dev/null 2>&1; then
+    expected="$(printf '%s\n' "$checksum_line" | awk '{print $1}')"
     actual="$(shasum -a 256 "$asset" | awk '{print $1}')"
-    [ "$expected" = "$actual" ]
+    [ "$expected" = "$actual" ] || { echo "checksum mismatch for $asset" >&2; exit 1; }
+  else
+    echo "sha256sum or shasum is required" >&2
+    exit 1
   fi
 )
 
 mkdir -p "$install_dir"
 if [ "$extension" = zip ]; then
+  command -v unzip >/dev/null 2>&1 || { echo "unzip is required" >&2; exit 1; }
   unzip -q "$temp_dir/$asset" -d "$temp_dir/unpacked"
   install -m 0755 "$temp_dir/unpacked/light-tools.exe" "$install_dir/light-tools.exe"
   installed="$install_dir/light-tools.exe"
