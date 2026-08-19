@@ -59,7 +59,10 @@ func NewRunner(roots []string, spillRoot string, secrets *secret.Vault) (*Runner
 	if err != nil {
 		return nil, err
 	}
-	return &Runner{roots: roots, spills: spills, secrets: secrets, tasks: NewTaskManager()}, nil
+	return &Runner{
+		roots: roots, spills: spills, secrets: secrets, tasks: NewTaskManager(),
+		wildcardReceipts: make(map[[sha256.Size]byte]time.Time),
+	}, nil
 }
 
 func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, error) {
