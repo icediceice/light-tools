@@ -133,6 +133,25 @@ light-tools --enable-shell --enable-remote --enable-ops
 | Ops | Local systemd/PM2/Docker discovery, probes, file logs, search/correlation/investigation, local async scans | Cross-host joins, shared telemetry/database state, service mutation |
 | Runtime | Direct stdio MCP, deterministic schemas, `E_*` caret diagnostics | Hub, WebSocket routing, RBAC, board/Discord, deploy orchestration |
 
+## Runtime argument contract
+
+Every registered tool carries the same JSON schema returned by `tools/list`
+into the invocation adapter. Validation is recursive: unknown top-level and
+nested fields, non-nullable `null`, wrong containers, missing nested required
+fields, enum misses, and range violations return `E_SCHEMA` before a handler
+runs. Schema-valid JSON is passed through byte-for-byte, including integers
+above 2^53.
+
+Coercion is conservative and schema-directed: strings may become integers,
+numbers, or booleans only when they parse exactly; numbers and booleans may
+become strings. Arrays and objects are never invented from scalars. Coerced
+numbers remain `json.Number` rather than passing through `float64`. Handler
+errors and schema errors retain the normal MCP `isError` tool-result envelope.
+
+The five request structs and schemas are checked field-for-field in tests, so a
+tool cannot be advertised without its documented arguments reaching the
+registered handler.
+
 ## `light_file`
 
 Supported verbs are `read`, `list`, `symbol`, `outline`, `locate`,
