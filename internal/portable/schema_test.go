@@ -87,6 +87,16 @@ func TestNormalizeRejectsSchemaViolations(t *testing.T) {
 	}
 }
 
+func TestNormalizeDropsNullOptionalMembers(t *testing.T) {
+	got, err := Normalize(testSchema(), json.RawMessage("{\"label\":null,\"offset\":1}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "{\"offset\":1}" {
+		t.Fatalf("got %s, want optional null member omitted", got)
+	}
+}
+
 func TestInvokeNormalizesBeforeHandlerWithoutChangingErrorChannel(t *testing.T) {
 	var received json.RawMessage
 	tool := Tool{
