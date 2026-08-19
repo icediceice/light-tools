@@ -53,6 +53,14 @@ one-slot channel shim and no post-call governance accounting.
   applies the correction in one hash-guarded commit.
 - Shell spill files are selected only by opaque in-memory IDs. Caller-supplied
   spill paths and symlinks are rejected.
+- The shell wildcard guard is intentionally narrow and process-local. An active
+  filename `*` or `?` previews without execution, and one byte-equivalent
+  full request retry consumes the receipt. Receipts expire after ten minutes
+  and the map is capped at 64; expiry and eviction re-arm the preview. Explicit
+  filename lists and file-tool batches are not fenced. POSIX quoting/escaping
+  suppresses shell expansion; PowerShell provider wildcards remain active even
+  when quoted and are guarded. Variables, substitutions, scripts, and
+  program-internal pattern languages are outside this lexical guard.
 - Secret values enter commands only through named environment or temporary-file
   references. They never appear in tool arguments or normal results; output
   scrubbing is best-effort. SSH key_ref and cert_ref values are materialized
