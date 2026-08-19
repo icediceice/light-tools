@@ -158,7 +158,7 @@ func (s *Server) dispatch(ctx context.Context, req request) (resp response) {
 			resp.Error = &rpcError{Code: -32602, Message: "unknown tool: " + params.Name}
 			return resp
 		}
-		value, err := portable.Invoke(ctx, portable.Tool{Name: tool.Name, Handler: tool.Handler}, params.Arguments)
+		value, err := portable.Invoke(ctx, portable.Tool{Name: tool.Name, InputSchema: tool.InputSchema, Handler: tool.Handler}, params.Arguments)
 		if err != nil {
 			resp.Result = Result{Content: []Content{Text(err.Error())}, IsError: true}
 			return resp
