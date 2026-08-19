@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	outputLimit       = 128 * 1024
+	outputLimit        = 128 * 1024
 	wildcardReceiptTTL = 10 * time.Minute
 	wildcardReceiptCap = 64
 )
