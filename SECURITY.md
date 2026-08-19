@@ -31,5 +31,18 @@ accidental path escape, not a substitute for OS isolation. `light_ops` is
 read-only but may read explicitly requested local log paths. There is no vault
 web UI or value-reading MCP endpoint.
 
+The opt-in shell wildcard guard prevents a first lexical filename-glob request
+from executing and requires one identical retry. It does not classify command
+danger, inspect scripts, expand variables, or understand a program's internal
+pattern syntax. A wildcard introduced by `$VAR`, command substitution, or a
+tool such as `find` is outside its view. The receipt is process-local, expires,
+and is not an authorization token. Explicit filenames are intentionally not
+fenced.
+
+This is a single-user server. It does not include Light's EDCR approval,
+multi-file surface confirmation, RBAC, fleet dispatch, or audit machinery.
+Those omissions must not be interpreted as isolation from the account running
+the process.
+
 Report vulnerabilities privately through GitHub's security-advisory feature.
 Do not include live credentials, private keys, or sensitive logs.
