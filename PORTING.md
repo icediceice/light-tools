@@ -7,10 +7,15 @@ router databases, telemetry, board/Discord integration, or multi-host routing.
 
 ## Registration seam
 
-Every tool is registered through one direct-return adapter. JSON schema failures
-use an `E_SCHEMA` diagnostic, parser failures include a byte caret where one is
-known, and handler failures are shaped as `E_TOOL`. There is no one-slot channel
-shim and no post-call governance accounting.
+Every tool is registered through one direct-return adapter. The schema
+advertised by `tools/list` travels with the handler into that adapter. It
+recursively rejects unknown fields and invalid shapes and performs only
+schema-directed scalar coercion. Valid payload bytes are retained unchanged;
+coerced numbers use `json.Number`, so integers above 2^53 never round-trip
+through `float64`. JSON schema failures use an `E_SCHEMA` diagnostic, parser
+failures include a byte caret where one is known, and handler failures are
+shaped as `E_TOOL`. All remain ordinary MCP tool-result errors. There is no
+one-slot channel shim and no post-call governance accounting.
 
 ## Sealed mutation payload (format 1)
 
