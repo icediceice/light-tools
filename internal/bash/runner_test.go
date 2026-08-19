@@ -149,6 +149,10 @@ func TestWildcardReceiptKeysWholeRequestAndFailsSafe(t *testing.T) {
 			t.Fatalf("cap fill %d: guarded=%v err=%v", index, guarded, err)
 		}
 	}
+	overflow := Request{Command: "printf %s file-overflow-*", Cwd: root}
+	if _, guarded, err := runner.guardWildcardRequest(overflow, "linux", now.Add(wildcardReceiptCap*time.Second)); err != nil || !guarded {
+		t.Fatalf("overflow request: guarded=%v err=%v", guarded, err)
+	}
 	evicted := Request{Command: "printf %s file-0-*", Cwd: root}
 	if _, guarded, err := runner.guardWildcardRequest(evicted, "linux", now); err != nil || !guarded {
 		t.Fatalf("evicted receipt did not fail safe: guarded=%v err=%v", guarded, err)
