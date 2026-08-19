@@ -68,6 +68,22 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Assert published version matches the tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${GITHUB_REF_NAME#v}"
+          binary="$(find artifacts/linux_amd64 -type f -name light-tools | head -n 1)"
+          if [ -z "$binary" ]; then
+            echo "linux_amd64 binary is missing" >&2
+            exit 1
+          fi
+          chmod +x "$binary"
+          got="$("$binary" version)"
+          if [ "$got" != "$expected" ]; then
+            echo "binary reports '$got', tag is '$expected'" >&2
+            exit 1
+          fi
       - name: Package native artifacts
         shell: bash
         run: |
