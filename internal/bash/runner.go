@@ -74,6 +74,11 @@ func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, erro
 	case "cancel":
 		return r.tasks.Cancel(request.TaskID)
 	}
+	if preview, guarded, err := r.guardWildcardRequest(request, runtime.GOOS, time.Now()); err != nil {
+		return nil, err
+	} else if guarded {
+		return preview, nil
+	}
 	if request.Async {
 		request.Async = false
 		id, err := r.tasks.Start(func(taskContext context.Context) (map[string]any, error) {
