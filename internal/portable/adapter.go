@@ -101,7 +101,11 @@ func Invoke(ctx context.Context, tool Tool, input json.RawMessage) (any, error) 
 	if !json.Valid(input) {
 		return nil, &DiagnosticError{Code: "E_SCHEMA", Message: "arguments must be valid JSON"}
 	}
-	result, err := tool.Handler(ctx, input)
+	normalized, err := Normalize(tool.InputSchema, input)
+	if err != nil {
+		return nil, err
+	}
+	result, err := tool.Handler(ctx, normalized)
 	if err == nil {
 		return result, nil
 	}
