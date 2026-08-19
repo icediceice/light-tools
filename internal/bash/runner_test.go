@@ -2,9 +2,12 @@ package bash
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/icediceice/light-tools/internal/secret"
 )
