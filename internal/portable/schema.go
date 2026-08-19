@@ -80,6 +80,14 @@ func normalizeValue(schema map[string]any, value any, path string) (any, bool, e
 					continue
 				}
 			}
+			if child == nil && declared {
+				if _, required := requiredProperties[key]; required {
+					return nil, false, schemaError(childPath(path, key), "must not be null")
+				}
+				delete(object, key)
+				changed = true
+				continue
+			}
 			next, childChanged, err := normalizeValue(propertySchema, child, childPath(path, key))
 			if err != nil {
 				return nil, false, err
