@@ -49,6 +49,8 @@ jobs:
       - uses: egor-tensin/setup-mingw@v2
         if: runner.os == 'Windows' && matrix.arch == 'amd64'
       - uses: goreleaser/goreleaser-action@v6
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
         with:
           distribution: goreleaser
           version: "~> v2"
