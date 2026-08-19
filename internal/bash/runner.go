@@ -92,6 +92,105 @@ func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, erro
 	return r.runSync(ctx, request)
 }
 
+func (r *Runner) guardWildcardRequest(request Request, goos string, now time.Time) (map[string]any, bool, error) {
+	if request.Command == "" || !containsFilenameWildcard(request.Command, goos) {
+		return nil, false, nil
+	}
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return nil, false, fmt.Errorf("encode wildcard guard request: %w", err)
+	}
+	key := sha256.Sum256(encoded)
+
+	r.wildcardMu.Lock()
+	defer r.wildcardMu.Unlock()
+	for receipt, expiresAt := range r.wildcardReceipts {
+		if !expiresAt.After(now) {
+			delete(r.wildcardReceipts, receipt)
+		}
+	}
+	if _, exists := r.wildcardReceipts[key]; exists {
+		delete(r.wildcardReceipts, key)
+		return nil, false, nil
+	}
+	if len(r.wildcardReceipts) >= wildcardReceiptCap {
+		var oldestKey [sha256.Size]byte
+		var oldestExpiry time.Time
+		for receipt, expiresAt := range r.wildcardReceipts {
+			if oldestExpiry.IsZero() || expiresAt.Before(oldestExpiry) {
+				oldestKey, oldestExpiry = receipt, expiresAt
+			}
+		}
+		delete(r.wildcardReceipts, oldestKey)
+	}
+	r.wildcardReceipts[key] = now.Add(wildcardReceiptTTL)
+	return map[string]any{
+		"dry_run":          true,
+		"wildcard_preview": true,
+		"command":          request.Command,
+		"hint":             "retry the identical request once to execute, or name files explicitly",
+	}, true, nil
+}
+
+func containsFilenameWildcard(command, goos string) bool {
+	var token strings.Builder
+	var singleQuoted, doubleQuoted, escaped, wildcard bool
+	flush := func() bool {
+		text := token.String()
+		isURL := strings.Contains(text, "://")
+		isAssignment := false
+		if equals := strings.IndexByte(text, '='); equals > 0 {
+			isAssignment = true
+			for _, character := range text[:equals] {
+				if !(character == '_' || character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9') {
+					isAssignment = false
+					break
+				}
+			}
+		}
+		match := wildcard && !isURL && !isAssignment
+		token.Reset()
+		wildcard = false
+		return match
+	}
+	for _, character := range command {
+		if escaped {
+			token.WriteRune(character)
+			escaped = false
+			continue
+		}
+		if character == '\\' && !singleQuoted {
+			escaped = true
+			token.WriteRune(character)
+			continue
+		}
+		if character == '\'' && !doubleQuoted {
+			singleQuoted = !singleQuoted
+			token.WriteRune(character)
+			continue
+		}
+		if character == '"' && !singleQuoted {
+			doubleQuoted = !doubleQuoted
+			token.WriteRune(character)
+			continue
+		}
+		if !singleQuoted && !doubleQuoted && (character == '*' || character == '?') {
+			wildcard = true
+		}
+		if goos == "windows" && (character == '*' || character == '?') {
+			wildcard = true
+		}
+		if !singleQuoted && !doubleQuoted && (character == ' ' || character == '\t' || character == '\n' || strings.ContainsRune("|&;()<>", character)) {
+			if flush() {
+				return true
+			}
+			continue
+		}
+		token.WriteRune(character)
+	}
+	return flush()
+}
+
 func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, error) {
 	if request.OutputMode == "read_block" {
 		spillID := request.SpillID
