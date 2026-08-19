@@ -7,11 +7,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/icediceice/light-tools/internal/bash"
 	"github.com/icediceice/light-tools/internal/config"
+	"github.com/icediceice/light-tools/internal/filetool"
 	"github.com/icediceice/light-tools/internal/mcp"
+	"github.com/icediceice/light-tools/internal/ops"
+	"github.com/icediceice/light-tools/internal/remote"
 	"github.com/icediceice/light-tools/internal/state"
 )
 
