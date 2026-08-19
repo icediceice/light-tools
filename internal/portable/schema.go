@@ -20,12 +20,12 @@ func Normalize(schema map[string]any, raw json.RawMessage) (json.RawMessage, err
 	if err := decoder.Decode(&value); err != nil {
 		return nil, &DiagnosticError{Code: "E_SCHEMA", Message: "arguments must be valid JSON: " + err.Error()}
 	}
-	if decoder.More() {
-		return nil, &DiagnosticError{Code: "E_SCHEMA", Message: "arguments must contain one JSON value"}
-	}
 	var trailing any
-	if err := decoder.Decode(&trailing); err == nil {
-		return nil, &DiagnosticError{Code: "E_SCHEMA", Message: "arguments must contain one JSON value"}
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, &DiagnosticError{Code: "E_SCHEMA", Message: "arguments must contain one JSON value"}
+		}
+		return nil, &DiagnosticError{Code: "E_SCHEMA", Message: "arguments must be valid JSON: " + err.Error()}
 	}
 	normalized, changed, err := normalizeValue(schema, value, "$")
 	if err != nil {
