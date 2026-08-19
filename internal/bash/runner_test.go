@@ -139,9 +139,13 @@ func TestWildcardReceiptKeysWholeRequestAndFailsSafe(t *testing.T) {
 		t.Fatalf("expired receipt did not re-preview: guarded=%v err=%v", guarded, err)
 	}
 
+	runner.wildcardMu.Lock()
+	runner.wildcardReceipts = make(map[[32]byte]time.Time)
+	runner.wildcardMu.Unlock()
 	for index := 0; index < wildcardReceiptCap; index++ {
 		request := Request{Command: fmt.Sprintf("printf %%s file-%d-*", index), Cwd: root}
-		if _, guarded, err := runner.guardWildcardRequest(request, "linux", now); err != nil || !guarded {
+		insertedAt := now.Add(time.Duration(index) * time.Second)
+		if _, guarded, err := runner.guardWildcardRequest(request, "linux", insertedAt); err != nil || !guarded {
 			t.Fatalf("cap fill %d: guarded=%v err=%v", index, guarded, err)
 		}
 	}
