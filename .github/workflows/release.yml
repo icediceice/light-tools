@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: "1.24.x"
           cache: true
       - uses: egor-tensin/setup-mingw@v2
         if: runner.os == 'Windows' && matrix.arch == 'amd64'
