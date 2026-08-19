@@ -20,7 +20,7 @@ builds:
       - goos: windows
         goarch: arm64
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w -X main.version={{ trimprefix .Env.RELEASE_VERSION "v" }}
 
   - id: light-tools-windows-arm64
     main: ./cmd/light-tools
@@ -32,4 +32,4 @@ builds:
     goarch:
       - arm64
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w -X main.version={{ trimprefix .Env.RELEASE_VERSION "v" }}
