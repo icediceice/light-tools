@@ -21,6 +21,31 @@ It is optional because the server initializes those directories on first run.
 For a client other than Claude Code, pass `--client` — see
 [MCP clients](#mcp-clients).
 
+Windows PowerShell installs the same signed-by-checksum release assets:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/icediceice/light-tools/main/install.ps1 -OutFile install.ps1
+./install.ps1
+light-tools init
+```
+
+Pass `-Version 1.2.3` or `-Destination C:\Tools` to pin or relocate the
+PowerShell install. The POSIX equivalents are `LIGHT_TOOLS_VERSION` and
+`LIGHT_TOOLS_INSTALL_DIR`. Both installers refuse an asset that has no exact
+entry in `checksums.txt`.
+
+Published binaries cover:
+
+| OS | amd64 | arm64 | Symbol extraction |
+| --- | --- | --- | --- |
+| Linux | native | native | tree-sitter |
+| macOS | native | native | tree-sitter |
+| Windows | native | native | tree-sitter on amd64; graceful no-symbol fallback on arm64 |
+
+Windows ARM64 is deliberately built without CGo or the `treesitter` tag. All
+five MCP tools remain available; only `light_file symbol`/outline extraction
+degrades to its documented no-symbol response.
+
 Build from source with Go 1.23+ and a C toolchain:
 
 ```sh
