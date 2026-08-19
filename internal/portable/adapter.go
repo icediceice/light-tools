@@ -99,6 +99,9 @@ func Invoke(ctx context.Context, tool Tool, input json.RawMessage) (any, error) 
 	if len(input) == 0 {
 		input = json.RawMessage("{}")
 	}
+	if bytes.Equal(bytes.TrimSpace(input), []byte("null")) {
+		input = json.RawMessage("{}")
+	}
 	if !json.Valid(input) {
 		return nil, &DiagnosticError{Code: "E_SCHEMA", Message: "arguments must be valid JSON"}
 	}
