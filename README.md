@@ -259,6 +259,25 @@ Commands run under the requested root-confined `cwd`, a minimal inherited
 environment, and a timeout that terminates the whole process group. Results
 preserve `stdout`, `stderr`, and `exit_code`.
 
+A narrow filename-wildcard guard catches shell arguments containing an active
+`*` or `?`. The first request returns `dry_run:true` and
+`wildcard_preview:true` without starting a process. Retrying the identical
+full request once consumes its receipt and may execute; changing the command,
+`cwd`, timeout, async mode, or secret-reference names previews again. Explicit
+lists such as `rm a.tmp b.tmp` execute immediately and `light_file`
+multi-file payloads are unrelated to this guard.
+
+Receipts are process-local, one-shot, capped at 64, and expire after ten
+minutes; expiry or eviction safely causes another preview. POSIX quoted or
+backslash-escaped wildcards are literals and bypass. PowerShell provider
+cmdlets still expand quoted wildcards, so Windows guards those patterns too.
+Obvious URL query strings and shell assignments are excluded.
+
+This is lexical accident protection, not a destructive-command parser or an OS
+sandbox. It cannot see a wildcard introduced later through a variable, command
+substitution, script, or a program's own pattern language (for example,
+`find -name '*.tmp' -delete`).
+
 A command killed by its timeout says so: the result carries `timed_out: true`,
 the `timeout_ms` that applied, an `error` naming the timeout, and `exit_code`
 of `-1` — and it keeps whatever partial `stdout`/`stderr` the command produced
