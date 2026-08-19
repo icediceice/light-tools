@@ -15,8 +15,9 @@ type Handler func(context.Context, json.RawMessage) (any, error)
 
 // Tool is a named MCP method and its implementation.
 type Tool struct {
-	Name    string
-	Handler Handler
+	Name        string
+	InputSchema map[string]any
+	Handler     Handler
 }
 
 // DiagnosticError is a stable, model-readable error envelope.
