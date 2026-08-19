@@ -73,6 +73,49 @@ func TestProtocolHandshakeAndDeterministicToolList(t *testing.T) {
 	}
 }
 
+func TestToolCallCoercesAndReportsSchemaErrorsAsToolResults(t *testing.T) {
+	server := New("test", "1")
+	var received string
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"limit": map[string]any{"type": "integer"},
+		},
+		"additionalProperties": false,
+	}
+	handler := func(_ context.Context, raw json.RawMessage) (any, error) {
+		received = string(raw)
+		return map[string]any{"ok": true}, nil
+	}
+	if err := server.Register(Tool{Name: "sample", InputSchema: schema, Handler: handler}); err != nil {
+		t.Fatal(err)
+	}
+
+	call := request{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage("1"),
+		Method:  "tools/call",
+		Params:  json.RawMessage("{\"name\":\"sample\",\"arguments\":{\"limit\":\"12\"}}"),
+	}
+	response := server.dispatch(context.Background(), call)
+	if response.Error != nil {
+		t.Fatalf("coercion became a protocol error: %#v", response.Error)
+	}
+	if received != "{\"limit\":12}" {
+		t.Fatalf("handler received %s", received)
+	}
+
+	call.Params = json.RawMessage("{\"name\":\"sample\",\"arguments\":{\"unknown\":true}}")
+	response = server.dispatch(context.Background(), call)
+	if response.Error != nil {
+		t.Fatalf("schema failure became a protocol error: %#v", response.Error)
+	}
+	result, ok := response.Result.(Result)
+	if !ok || !result.IsError || len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, "error[E_SCHEMA]") {
+		t.Fatalf("schema failure lost tool-result envelope: %#v", response.Result)
+	}
+}
+
 func TestDuplicateRegistrationRejected(t *testing.T) {
 	server := New("test", "1")
 	handler := func(context.Context, json.RawMessage) (any, error) { return nil, nil }
