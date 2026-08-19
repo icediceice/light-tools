@@ -49,6 +49,9 @@ type Runner struct {
 	spills  *SpillStore
 	secrets *secret.Vault
 	tasks   *TaskManager
+
+	wildcardMu       sync.Mutex
+	wildcardReceipts map[[sha256.Size]byte]time.Time
 }
 
 func NewRunner(roots []string, spillRoot string, secrets *secret.Vault) (*Runner, error) {
