@@ -103,6 +103,19 @@ one-slot channel shim and no post-call governance accounting.
   matches as an ordinary exit first and the timeout would otherwise be reported
   as a bare `exit_code: -1` with empty output.
 
+## Release portability
+
+The release matrix is Linux, macOS, and Windows on amd64 and arm64. Five lanes
+use CGo plus tree-sitter. Windows ARM64 is a separate CGo-free build and keeps
+the complete MCP/tool surface while returning the graceful no-symbol response.
+Each native CI lane executes an `initialize` plus `tools/list` transcript
+against its built binary. Release packaging remains workflow-owned; both
+installers verify an exact checksum row before extraction.
+
+This standalone server deliberately omits fleet routing, EDCR plans, RBAC,
+telemetry, shared databases, and multi-operator file-surface fences. Those are
+control-plane concerns, not dependencies of the five local tools.
+
 ## Mutation transaction invariant
 
 Every write goes through one typed mutation IR and one commit primitive:
