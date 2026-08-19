@@ -43,6 +43,40 @@ func TestToolSchemasContainRetainedSingleOperatorFields(t *testing.T) {
 	}
 }
 
+func TestToolSchemaFieldsMatchHandlerRequests(t *testing.T) {
+	requests := map[string]any{
+		"light_file": filetool.Request{},
+		"light_bash": bash.Request{},
+		"light_ssh":  remote.SSHRequest{},
+		"light_scp":  remote.SCPRequest{},
+		"light_ops":  ops.Request{},
+	}
+	for name, request := range requests {
+		properties := toolSchema(name)["properties"].(map[string]any)
+		got := make([]string, 0, len(properties))
+		for field := range properties {
+			got = append(got, field)
+		}
+		sort.Strings(got)
+		want := jsonFieldNames(reflect.TypeOf(request))
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("%s schema fields mismatch\n got: %v\nwant: %v", name, got, want)
+		}
+	}
+}
+
+func jsonFieldNames(request reflect.Type) []string {
+	var names []string
+	for index := 0; index < request.NumField(); index++ {
+		tag := strings.Split(request.Field(index).Tag.Get("json"), ",")[0]
+		if tag != "" && tag != "-" {
+			names = append(names, tag)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 func TestCapabilityProfilesRegisterExpectedTools(t *testing.T) {
 	root := t.TempDir()
 	layout := state.Layout{
