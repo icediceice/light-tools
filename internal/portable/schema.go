@@ -58,7 +58,9 @@ func normalizeValue(schema map[string]any, value any, path string) (any, bool, e
 			return nil, false, schemaError(path, "must be an object")
 		}
 		properties, _ := schema["properties"].(map[string]any)
+		requiredProperties := make(map[string]struct{})
 		for _, required := range stringSlice(schema["required"]) {
+			requiredProperties[required] = struct{}{}
 			if _, exists := object[required]; !exists {
 				return nil, false, schemaError(childPath(path, required), "is required")
 			}
