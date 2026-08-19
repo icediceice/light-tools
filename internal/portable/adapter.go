@@ -3,6 +3,7 @@
 package portable
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
