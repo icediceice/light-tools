@@ -304,7 +304,8 @@ The full output is captured before preview filtering.
 
 ## Secret vault
 
-Secret writes are CLI-only and values are read from stdin, never argv:
+Values can be written from stdin, so they never need to appear in process
+arguments:
 
 ```sh
 printf '%s' "$TOKEN" | light-tools vault set api-token
@@ -312,19 +313,42 @@ light-tools vault list
 light-tools vault rm api-token
 ```
 
-The AES-GCM vault stores only encrypted values in `vault.enc`; its local
-32-byte key and ciphertext are mode 0600. The threat boundary is model context,
-not a compromised user account: a process running as the same OS user can read
-the key.
+For a beginner-friendly local UI, run:
 
-MCP calls can resolve names only through `env_refs`, `file_refs`,
-`key_ref`, or `cert_ref`. Values are not returned. File, key, and
-certificate refs are materialized as mode-0600 temporary files and
-best-effort overwritten and removed after use. Output scrubbing is
-best-effort.
+```sh
+light-tools vault ui
+```
 
-There is currently no vault web UI. This intentionally avoids adding a
-network-facing secret surface to the base server.
+The command prints a bare loopback URL and a single-use pairing code, then opens
+the system browser when possible. Paste the code into the page, and on first use
+choose a password of at least eight characters. The pairing code expires after
+five minutes; the browser session survives refresh in that tab but is removed
+when the tab is closed or the UI is locked. The foreground command must keep
+running while the page is in use.
+
+The UI supports explicit empty groups, group assignment, rename, and deletion.
+Deleting a group keeps its secrets and unassigns them; renaming refuses to merge
+into an existing group. Secret names, groups, and update times can be read by the
+UI, but values are write-only: a saved value is never returned by an HTTP or MCP
+response.
+
+The AES-GCM vault keeps the existing `vault.enc` format. Its random local
+32-byte `master.key`, ciphertext, and UI-password verifier are mode 0600 where
+Unix permissions exist. The password protects entry to the loopback UI; it does
+not wrap the encryption key or protect against a process running as the same OS
+user. Browser extensions with localhost/page access may inspect a value while
+you type it, so `vault set` is the safer entry path on an untrusted browser.
+
+Mutations hold a local-filesystem lock across the complete load/change/save
+transaction. Network filesystems are not supported for the secrets state root.
+If `master.key` is missing while `vault.enc` remains, light-tools refuses to
+mint a replacement and asks you to restore the key.
+
+MCP calls resolve values only through `env_refs`, `file_refs`, `key_ref`,
+or `cert_ref`. The file, SCP, and operations tools deny the secrets, snapshot,
+and spill state roots even when an allowed root contains the whole home
+directory. Opt-in `light_bash` remains arbitrary same-user code and can access
+files the account itself can read; output scrubbing is best-effort.
 
 ## `light_ssh` and `light_scp` (opt-in)
 
