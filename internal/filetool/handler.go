@@ -26,13 +26,13 @@ type spillStore interface {
 }
 
 type Options struct {
-	Roots        []string
+	Confiner     *security.Confiner
 	SnapshotRoot string
 	Spills       spillStore
 }
 
 type Handler struct {
-	roots     []string
+	confiner  *security.Confiner
 	vault     *snapshot.Vault
 	cache     *readcache.Ledger
 	assembler *payload.Assembler
