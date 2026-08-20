@@ -78,7 +78,7 @@ func TestAbsentRootDoesNotPoisonTheUnion(t *testing.T) {
 		t.Fatal(err)
 	}
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	handler, err := New([]string{root}, []string{missing})
+	handler, err := New([]string{root}, []string{missing}, nil)
 	if err != nil {
 		t.Fatalf("New should drop the absent root, not fail: %v", err)
 	}
