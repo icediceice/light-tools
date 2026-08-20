@@ -96,8 +96,8 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	if err != nil {
 		return err
 	}
-	remoteTransport := remote.New(configuration.Remote, configuration.AllowedRoots, secretVault)
-	opsHandler, err := ops.New(configuration.AllowedRoots, configuration.LogRoots)
+	remoteTransport := remote.New(configuration.Remote, confiner, secretVault)
+	opsHandler, err := ops.New(configuration.AllowedRoots, configuration.LogRoots, deniedRoots)
 	if err != nil {
 		return err
 	}
