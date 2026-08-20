@@ -337,6 +337,24 @@ into an existing group. Secret names, groups, and update times can be read by th
 UI, but values are write-only: a saved value is never returned by an HTTP or MCP
 response.
 
+Textual SSH key and certificate material can be added in either of two ways:
+
+```bash
+# Safer when browser extensions or page access are not trusted.
+light-tools vault set deploy-key < ~/.ssh/id_ed25519
+```
+
+In the browser, use **Import a key or certificate file**, confirm the displayed
+file name and byte count, then press **Save value**. Selection reads the file
+locally and does not send it to the server before Save. The picker accepts files
+up to 1 MiB that decode as strict UTF-8 text; common PEM/OpenSSH private keys,
+OpenSSH public keys, and textual certificates fit this contract. Binary DER,
+PKCS#12, and PuTTY PPK containers are not supported. The picker does not prove
+that the text is the right key type or unlock passphrase-protected keys. Remote
+commands use noninteractive batch mode, so use an SSH agent or a dedicated
+unencrypted deployment key when prompting would otherwise be required. Refer to
+the saved name later with `key_ref` or `cert_ref`.
+
 The AES-GCM vault keeps the existing `vault.enc` format. Its random local
 32-byte `master.key`, ciphertext, and UI-password verifier are mode 0600 where
 Unix permissions exist. The password protects entry to the loopback UI; it does
