@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/icediceice/light-tools/internal/fileop"
 	"golang.org/x/crypto/argon2"
 )
 
