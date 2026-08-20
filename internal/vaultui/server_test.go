@@ -174,9 +174,30 @@ func TestVaultAPIIsWriteOnlyAndPreservesHostileMetadata(t *testing.T) {
 		len(overview.Groups) != 1 || overview.Groups[0] != hostileGroup {
 		t.Fatalf("overview lost metadata: %#v", overview)
 	}
+	page, err := os.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{`id="secret-file"`, `id="secret-import"`, `type="button">Discard file`} {
+		if !bytes.Contains(page, []byte(marker)) {
+			t.Fatalf("key import markup missing %q", marker)
+		}
+	}
+
 	script, err := os.ReadFile("app.js")
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, marker := range []string{
+		`new TextDecoder("utf-8", { fatal: true })`,
+		`file.size > maxImportedFileBytes`,
+		`sequence !== importSequence`,
+		`pendingImport ? pendingImport.text : valueInput.value`,
+		`input.value = ""`,
+	} {
+		if !bytes.Contains(script, []byte(marker)) {
+			t.Fatalf("key import behavior missing %q", marker)
+		}
 	}
 	if bytes.Contains(script, []byte("innerHTML")) {
 		t.Fatal("UI renders dynamic metadata through innerHTML")
