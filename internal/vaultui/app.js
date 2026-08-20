@@ -27,6 +27,85 @@
     message.classList.toggle("hidden", !text);
   }
 
+  function renderPendingImport() {
+    const container = byId("secret-import");
+    const valueInput = byId("secret-value");
+    const active = pendingImport !== null;
+    container.classList.toggle("hidden", !active);
+    valueInput.disabled = active;
+    byId("secret-import-name").textContent = active ? pendingImport.name : "";
+    byId("secret-import-size").textContent = active
+      ? pendingImport.size.toLocaleString() + " bytes ready to save"
+      : "";
+  }
+
+  function discardImport(reason = "") {
+    importSequence += 1;
+    pendingImport = null;
+    renderPendingImport();
+    if (reason) {
+      notice(reason, true);
+    }
+  }
+
+  function clearSecretDraft() {
+    importSequence += 1;
+    pendingImport = null;
+    byId("secret-file").value = "";
+    byId("secret-value").value = "";
+    byId("secret-name").value = "";
+    renderPendingImport();
+  }
+
+  byId("secret-import-discard").addEventListener("click", () => {
+    discardImport();
+    notice("Imported file discarded.");
+  });
+
+  byId("secret-file").addEventListener("change", async (event) => {
+    const input = event.currentTarget;
+    const file = input.files && input.files[0];
+    input.value = "";
+    const sequence = ++importSequence;
+    pendingImport = null;
+    renderPendingImport();
+    if (!file) return;
+
+    const valueInput = byId("secret-value");
+    if (valueInput.value !== "") {
+      notice("Clear the typed value before importing a file.", true);
+      return;
+    }
+    if (file.size === 0) {
+      notice("That file is empty.", true);
+      return;
+    }
+    if (file.size > maxImportedFileBytes) {
+      notice("That file is larger than 1 MiB.", true);
+      return;
+    }
+
+    notice("Reading " + file.name + " locally…");
+    let text;
+    try {
+      const bytes = await file.arrayBuffer();
+      text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      if (sequence !== importSequence) return;
+      notice("That file is not UTF-8 text. Export a PEM or OpenSSH copy first.", true);
+      return;
+    }
+    if (sequence !== importSequence) return;
+    if (valueInput.value !== "") {
+      notice("The typed value was kept; clear it before importing a file.", true);
+      return;
+    }
+
+    pendingImport = { text, name: file.name, size: file.size };
+    renderPendingImport();
+    notice("File loaded locally. Press Save value to store it in the vault.");
+  });
+
   async function api(route, options = {}) {
     const headers = new Headers(options.headers || {});
     if (token) {
