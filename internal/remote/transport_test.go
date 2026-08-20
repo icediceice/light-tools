@@ -9,6 +9,7 @@ import (
 
 	"github.com/icediceice/light-tools/internal/config"
 	"github.com/icediceice/light-tools/internal/secret"
+	"github.com/icediceice/light-tools/internal/security"
 )
 
 func TestSSHAndSCPOptionParity(t *testing.T) {
