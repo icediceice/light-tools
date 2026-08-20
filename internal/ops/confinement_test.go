@@ -57,7 +57,7 @@ func TestPathUnderLogRootIsAllowed(t *testing.T) {
 	if err := os.WriteFile(logFile, []byte("2026-08-16T10:00:00Z INFO up\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New([]string{allowed}, []string{logRoot})
+	handler, err := New([]string{allowed}, []string{logRoot}, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
