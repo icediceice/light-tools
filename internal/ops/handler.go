@@ -55,7 +55,7 @@ type Handler struct {
 // canonicalizes every root on each call and errors on the first one that does
 // not exist, so a single absent root would otherwise disable every other root
 // on every request. Absent roots are dropped here instead.
-func New(allowedRoots, logRoots []string) (*Handler, error) {
+func New(allowedRoots, logRoots, deniedRoots []string) (*Handler, error) {
 	union := make([]string, 0, len(allowedRoots)+len(logRoots))
 	seen := make(map[string]bool)
 	for _, root := range append(append([]string{}, allowedRoots...), logRoots...) {
