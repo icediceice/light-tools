@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+
 	"time"
 
 	fileop "github.com/icediceice/light-tools/internal/file"
