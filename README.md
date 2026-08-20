@@ -337,12 +337,18 @@ into an existing group. Secret names, groups, and update times can be read by th
 UI, but values are write-only: a saved value is never returned by an HTTP or MCP
 response.
 
-Textual SSH key and certificate material can be added in either of two ways:
+Textual SSH key and certificate material can be added through the CLI or the
+browser:
 
 ```bash
 # Safer when browser extensions or page access are not trusted.
 light-tools vault set deploy-key < ~/.ssh/id_ed25519
 ```
+
+The paths do not normalize text identically: the CLI removes one trailing LF and
+then one trailing CR, while browser import keeps a terminal newline (browser
+UTF-8 decoding ignores a leading BOM). Use browser import when preserving a
+key's terminating newline matters.
 
 In the browser, use **Import a key or certificate file**, confirm the displayed
 file name and byte count, then press **Save value**. Selection reads the file
