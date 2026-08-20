@@ -128,6 +128,12 @@ func locateGo(path string, expression *regexp.Regexp, contextLines int, permit f
 		if walkErr != nil {
 			return nil
 		}
+		if err := permit(current); err != nil {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if entry.IsDir() {
 			if entry.Name() == ".git" {
 				return filepath.SkipDir
