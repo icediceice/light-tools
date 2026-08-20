@@ -18,6 +18,7 @@ import (
 	"github.com/icediceice/light-tools/internal/mcp"
 	"github.com/icediceice/light-tools/internal/ops"
 	"github.com/icediceice/light-tools/internal/remote"
+	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/state"
 )
 
