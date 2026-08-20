@@ -237,7 +237,12 @@ func TestVaultRejectsTamperedCiphertext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data[len(data)-1] ^= 1
+	ciphertext, err := base64.RawStdEncoding.DecodeString(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ciphertext[len(ciphertext)/2] ^= 1
+	data = []byte(base64.RawStdEncoding.EncodeToString(ciphertext))
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
