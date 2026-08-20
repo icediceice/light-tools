@@ -166,8 +166,12 @@ func (f *fakeSpills) Store(data []byte) (string, error) {
 func TestOversizedLineIsHandedToTheSpillStore(t *testing.T) {
 	root := t.TempDir()
 	spills := &fakeSpills{}
+	confiner, err := security.NewConfiner([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	handler, err := New(Options{
-		Roots: []string{root}, SnapshotRoot: filepath.Join(root, ".snap"), Spills: spills,
+		Confiner: confiner, SnapshotRoot: filepath.Join(root, ".snap"), Spills: spills,
 	})
 	if err != nil {
 		t.Fatal(err)
