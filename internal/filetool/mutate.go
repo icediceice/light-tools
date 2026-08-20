@@ -282,7 +282,7 @@ func (h *Handler) rename(mutation fileop.Mutation) (any, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return nil, err
 	}
-	if err := security.Recheck(filepath.Dir(target), filepath.Dir(target), h.roots); err != nil {
+	if err := h.confiner.Recheck(filepath.Dir(target), filepath.Dir(target)); err != nil {
 		return nil, err
 	}
 	if mutation.Overwrite && runtime.GOOS == "windows" {
