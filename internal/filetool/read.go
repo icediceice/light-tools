@@ -451,7 +451,7 @@ func (h *Handler) diff(request Request) (any, error) {
 }
 
 func (h *Handler) resolve(path string) (string, error) {
-	return security.ResolveBeneath(path, h.roots)
+	return h.confiner.Resolve(path)
 }
 
 func isImage(path string) bool {
