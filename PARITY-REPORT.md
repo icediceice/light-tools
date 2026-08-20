@@ -97,7 +97,7 @@ Note: `line_range` addresses the **spill file's** lines, which include a leading
 `STDOUT` header, so `10-13` returned command output values 9-12. Documented
 behaviour, but easy to misread.
 
-## `light_ops` — PASS on function, FAIL on confinement
+## `light_ops` — PASS with one known lines divergence
 
 | Case | Observed | Verdict |
 | --- | --- | --- |
