@@ -150,6 +150,13 @@ func TestVaultAPIIsWriteOnlyAndPreservesHostileMetadata(t *testing.T) {
 	if response.StatusCode != http.StatusOK || bytes.Contains(setBody, []byte(value)) {
 		t.Fatalf("set response leaked value or failed: %d %s", response.StatusCode, setBody)
 	}
+	stored, err := ui.server.vault.Resolve("api-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored != value {
+		t.Fatalf("stored key text changed: got %q, want %q", stored, value)
+	}
 	response = ui.request(t, http.MethodGet, "/api/vault", nil, token)
 	overviewBody, _ := io.ReadAll(response.Body)
 	response.Body.Close()
