@@ -232,6 +232,11 @@ func runVault(args []string) error {
 			fmt.Println(name)
 		}
 		return nil
+	case "ui":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: light-tools vault ui")
+		}
+		return runVaultUI(layout, vault)
 	default:
 		return fmt.Errorf("unknown vault command %q", args[0])
 	}
