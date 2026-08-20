@@ -248,19 +248,21 @@
     const valueInput = byId("secret-value");
     const payload = {
       name: byId("secret-name").value,
-      value: valueInput.value,
+      value: pendingImport ? pendingImport.text : valueInput.value,
       group: byId("secret-group").value
     };
     try {
       await api("/api/secret/set", { method: "POST", body: JSON.stringify(payload) });
-      valueInput.value = "";
-      byId("secret-name").value = "";
-      notice("Secret saved. Its value will not be shown again.");
-      await loadVault();
-    } catch {
-      valueInput.value = "";
-      notice("Secret could not be saved. Check its name, group, and size.", true);
+    } catch (error) {
+      const expired = String(error.message).includes("unauthorized");
+      notice(expired
+        ? "Your session expired. The unsaved value is still here; copy it or reselect the file after restarting the vault UI."
+        : "Secret could not be saved. The value was kept; check its name, group, and size.", true);
+      return;
     }
+    clearSecretDraft();
+    notice("Secret saved. Its value will not be shown again.");
+    await loadVault();
   });
 
   byId("group-form").addEventListener("submit", async (event) => {
