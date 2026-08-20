@@ -47,8 +47,8 @@ type Request struct {
 type Runner struct {
 	confiner *security.Confiner
 	spills   *SpillStore
-	secrets *secret.Vault
-	tasks   *TaskManager
+	secrets  *secret.Vault
+	tasks    *TaskManager
 
 	wildcardMu       sync.Mutex
 	wildcardReceipts map[[sha256.Size]byte]time.Time

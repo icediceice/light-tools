@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	fileop "github.com/icediceice/light-tools/internal/file"
-
 )
 
 func (h *Handler) mutateBatch(ctx context.Context, mutations []fileop.Mutation) (any, error) {

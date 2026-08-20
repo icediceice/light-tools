@@ -45,9 +45,9 @@ type Overview struct {
 }
 
 type diskStore struct {
-	Values   map[string]string         `json:"values"`
-	Metadata map[string]SecretMetadata `json:"metadata,omitempty"`
-	Groups   map[string]bool           `json:"groups,omitempty"`
+	Values   map[string]string          `json:"values"`
+	Metadata map[string]SecretMetadata  `json:"metadata,omitempty"`
+	Groups   map[string]bool            `json:"groups,omitempty"`
 	Extra    map[string]json.RawMessage `json:"-"`
 }
 
