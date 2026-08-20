@@ -239,7 +239,7 @@ func (h *Handler) sourceLogs(ctx context.Context, request Request) (string, stri
 		args = append(args, service.Name)
 		content, err = commandOutput(ctx, "docker", args...)
 	case "pm2":
-		content, err = readPM2Logs(service, request.Lines)
+		content, err = h.readPM2Logs(service, request.Lines)
 	default:
 		err = fmt.Errorf("unsupported service source")
 	}
