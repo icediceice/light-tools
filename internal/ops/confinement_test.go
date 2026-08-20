@@ -17,7 +17,7 @@ func TestCallerSuppliedPathOutsideRootsIsRefused(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("classified\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New([]string{root}, nil)
+	handler, err := New([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestRegistryDiscoveredLogOutsideRootsStaysReadable(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("2026-08-16T11:00:00Z ERROR boom\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New([]string{root}, nil)
+	handler, err := New([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
