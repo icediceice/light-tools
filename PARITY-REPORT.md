@@ -90,7 +90,7 @@ sending `"id": null`. JSON-RPC 2.0 requires null when the id is undeterminable.
 | `read_block` + `line_range` | recovers exact ranges | PASS |
 | async lifecycle | `queued` → `running` → `collect` → `done` with full result | PASS |
 | cancel | `cancelling` → `cancelled` | PASS |
-| `env_refs` | value reached the process; output came back `token-is: [REDACTED]` | PASS |
+| `env_refs` | exact value reached the process and was redacted on direct output; transformed/encoded disclosure remains possible | PASS within documented best-effort boundary |
 | missing secret | `secret "nonexistent-name" not found` | PASS |
 
 Note: `line_range` addresses the **spill file's** lines, which include a leading
