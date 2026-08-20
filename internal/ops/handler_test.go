@@ -51,7 +51,7 @@ func testLogHandler(t *testing.T) (*Handler, string, string) {
 		"2026-08-16T10:30:00Z INFO idle",
 		"2026-08-16T11:00:01Z WARN request_id=trace-123456789 retry",
 	}, "\n")+"\n"), 0o600)
-	handler, err := New([]string{root}, nil)
+	handler, err := New([]string{root}, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
