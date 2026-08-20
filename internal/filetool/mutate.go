@@ -244,7 +244,7 @@ func (h *Handler) rename(mutation fileop.Mutation) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	target, err := security.ResolveBeneath(mutation.Target, h.roots)
+	target, err := h.confiner.Resolve(mutation.Target)
 	if err != nil {
 		return nil, err
 	}
