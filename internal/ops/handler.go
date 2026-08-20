@@ -81,7 +81,7 @@ func New(allowedRoots, logRoots, deniedRoots []string) (*Handler, error) {
 // resolveCallerPath confines a path the CALLER supplied. Registry-discovered
 // service log paths never come through here.
 func (h *Handler) resolveCallerPath(path string) (string, error) {
-	resolved, err := security.ResolveBeneath(path, h.roots)
+	resolved, err := h.confiner.Resolve(path)
 	if err != nil {
 		return "", fmt.Errorf("path is outside the configured log roots: %w", err)
 	}
