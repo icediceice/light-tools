@@ -205,6 +205,7 @@
     }
     token = "";
     sessionStorage.removeItem("light-vault-session");
+    clearSecretDraft();
     show(pairView);
     notice("Vault locked. Restart the terminal command to pair again.");
   });
