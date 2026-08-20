@@ -133,7 +133,7 @@ func (t *Transport) SCP(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	source, target := request.Src, request.Dst
 	if !sourceRemote {
-		source, err = security.ResolveBeneath(source, t.roots)
+		source, err = t.confiner.Resolve(source)
 	} else {
 		target, err = security.ResolveBeneath(target, t.roots)
 	}
