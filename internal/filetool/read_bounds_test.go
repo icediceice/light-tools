@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/icediceice/light-tools/internal/security"
 )
 
 func boundsHandler(t *testing.T) (*Handler, string) {
