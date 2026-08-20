@@ -525,3 +525,30 @@ func TestVaultSetBoundsStandardInput(t *testing.T) {
 		t.Fatalf("oversized stdin = %v", err)
 	}
 }
+
+func TestVaultUIResetClearsOnlyPasswordVerifier(t *testing.T) {
+	isolateHome(t)
+	layout, err := state.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := secret.NewPasswordAuth(layout.Secrets)
+	if err := auth.Setup("forgotten password"); err != nil {
+		t.Fatal(err)
+	}
+
+	output := captureStdout(t, func() error { return runVault([]string{"ui-reset"}) })
+	if !strings.Contains(output, "Secrets were not touched") {
+		t.Fatalf("reset output omitted vault safety statement: %q", output)
+	}
+	configured, err := auth.Configured()
+	if err != nil || configured {
+		t.Fatalf("Configured after CLI reset = %t, %v", configured, err)
+	}
+	if err := auth.Setup("replacement password"); err != nil {
+		t.Fatalf("setup after CLI reset: %v", err)
+	}
+	if err := runVault([]string{"ui-reset", "extra"}); err == nil || !strings.Contains(err.Error(), "vault ui-reset") {
+		t.Fatalf("ui-reset accepted extra argument: %v", err)
+	}
+}
