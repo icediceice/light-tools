@@ -71,7 +71,11 @@ func New(allowedRoots, logRoots, deniedRoots []string) (*Handler, error) {
 	if len(union) == 0 {
 		return nil, fmt.Errorf("light_ops needs at least one readable root; check allowed_roots and log_roots")
 	}
-	return &Handler{registry: &Registry{}, tasks: newTaskStore(), roots: union}, nil
+	confiner, err := security.NewConfiner(union, deniedRoots)
+	if err != nil {
+		return nil, err
+	}
+	return &Handler{registry: &Registry{}, tasks: newTaskStore(), confiner: confiner}, nil
 }
 
 // resolveCallerPath confines a path the CALLER supplied. Registry-discovered
