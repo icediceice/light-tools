@@ -51,12 +51,12 @@ type connection struct {
 
 type Transport struct {
 	profiles map[string]config.RemoteProfile
-	roots    []string
+	confiner *security.Confiner
 	secrets  *secret.Vault
 }
 
-func New(profiles map[string]config.RemoteProfile, roots []string, secrets *secret.Vault) *Transport {
-	return &Transport{profiles: profiles, roots: roots, secrets: secrets}
+func New(profiles map[string]config.RemoteProfile, confiner *security.Confiner, secrets *secret.Vault) *Transport {
+	return &Transport{profiles: profiles, confiner: confiner, secrets: secrets}
 }
 
 func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
