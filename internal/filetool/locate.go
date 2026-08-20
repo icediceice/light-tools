@@ -64,7 +64,7 @@ func (h *Handler) locate(ctx context.Context, request Request) (any, error) {
 	return textJSON(map[string]any{"path": path, "matches": matches, "capped": len(matches) == locateCap, "warning": warning, "engine": "go"})
 }
 
-func locateRG(ctx context.Context, path, pattern string, fixed bool, contextLines int) ([]locateMatch, error) {
+func locateRG(ctx context.Context, path, pattern string, fixed bool, contextLines int, permit func(string) error) ([]locateMatch, error) {
 	args := []string{"--json", "--line-number", "--max-count", fmt.Sprint(locateCap)}
 	if contextLines > 0 {
 		args = append(args, "--context", fmt.Sprint(contextLines))
