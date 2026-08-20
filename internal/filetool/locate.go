@@ -52,7 +52,7 @@ func (h *Handler) locate(ctx context.Context, request Request) (any, error) {
 		expression = regexp.MustCompile(regexp.QuoteMeta(request.Pattern))
 	}
 	if _, err := exec.LookPath("rg"); err == nil {
-		matches, rgErr := locateRG(ctx, path, request.Pattern, fixed, request.Context)
+		matches, rgErr := locateRG(ctx, path, request.Pattern, fixed, request.Context, h.confiner.Permit)
 		if rgErr == nil {
 			return textJSON(map[string]any{"path": path, "matches": matches, "capped": len(matches) == locateCap, "warning": warning, "engine": "rg"})
 		}
