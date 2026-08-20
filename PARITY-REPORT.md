@@ -139,13 +139,14 @@ code genuinely backs the claim.
 All three defects are closed, re-verified against a freshly built binary over
 real stdio, and covered by tests.
 
-1. **`light_ops` caller paths confined** — the two caller-supplied branches of
-   `sourceLogs` and `probeFile` now resolve through `security.ResolveBeneath`
-   against `allowed_roots` + `log_roots`. The registry-discovered branch is
-   deliberately left unconfined; a regression test pins that, because
-   `grepPool` swallows fetch errors and an accidental confinement there would
-   look like "no matches" instead of an error. `log_roots` is configurable via
-   `config.toml`, an XDG-only `.env`, or `LIGHT_TOOLS_LOG_ROOTS`.
+1. **Unified path confinement** — one explicit `security.Confiner` applies
+   caller-facing allowed roots and private-state denied roots across file
+   transactions, rename targets, SCP, and operations paths. Directory listing
+   and both recursive locate engines filter every visited or returned path.
+   Registry-discovered PM2 files may remain outside `log_roots`, but the
+   secrets, snapshot, and spill roots are still denied. `log_roots` is
+   configurable via `config.toml`, an XDG-only `.env`, or
+   `LIGHT_TOOLS_LOG_ROOTS`.
 2. **Timeout made observable** — the deadline check now precedes the
    `*exec.ExitError` branch, and the result carries `timed_out`, `timeout_ms`
    and `error` while preserving partial `stdout`/`stderr`.
