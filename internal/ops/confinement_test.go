@@ -92,7 +92,7 @@ func TestAbsentRootDoesNotPoisonTheUnion(t *testing.T) {
 // come up with an empty boundary that would refuse or admit everything.
 func TestNewFailsWithNoReadableRoot(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "gone")
-	if _, err := New([]string{missing}, []string{missing}); err == nil {
+	if _, err := New([]string{missing}, []string{missing}, nil); err == nil {
 		t.Fatal("ops.New must fail when no configured root exists")
 	}
 }
