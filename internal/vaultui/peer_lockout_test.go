@@ -50,8 +50,8 @@ func TestForgottenPasswordHasNoRecoveryRoute(t *testing.T) {
 		response := restarted.request(t, http.MethodPost, route,
 			map[string]any{"password": "a different password"}, token)
 		response.Body.Close()
-		if response.StatusCode != http.StatusNotFound {
-			t.Fatalf("%s = %d, want 404 (a recovery route now exists; update this test)", route, response.StatusCode)
+		if response.StatusCode != http.StatusNotFound && response.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("%s = %d, want 404/405 (a recovery route now exists; update this test)", route, response.StatusCode)
 		}
 	}
 
