@@ -45,8 +45,8 @@ type Request struct {
 }
 
 type Runner struct {
-	roots   []string
-	spills  *SpillStore
+	confiner *security.Confiner
+	spills   *SpillStore
 	secrets *secret.Vault
 	tasks   *TaskManager
 
