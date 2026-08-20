@@ -196,7 +196,7 @@ func toolSchema(name string) map[string]any {
 
 func runVault(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: light-tools vault set|rm|list [name]")
+		return fmt.Errorf("usage: light-tools vault set|rm|list|ui [name]")
 	}
 	layout, err := state.Resolve()
 	if err != nil {
