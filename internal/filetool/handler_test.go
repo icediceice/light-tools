@@ -16,7 +16,15 @@ import (
 func newTestHandler(t *testing.T) (*Handler, string) {
 	t.Helper()
 	root := t.TempDir()
-	handler, err := New(Options{Roots: []string{root}, SnapshotRoot: filepath.Join(root, ".snapshots")})
+	snapshotRoot := filepath.Join(root, ".snapshots")
+	if err := os.Mkdir(snapshotRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	confiner, err := security.NewConfiner([]string{root}, []string{snapshotRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Options{Confiner: confiner, SnapshotRoot: snapshotRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
