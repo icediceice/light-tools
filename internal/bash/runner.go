@@ -211,7 +211,7 @@ func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, 
 	if cwd == "" {
 		cwd, _ = os.Getwd()
 	}
-	resolvedCwd, err := security.ResolveBeneath(cwd, r.roots)
+	resolvedCwd, err := r.confiner.Resolve(cwd)
 	if err != nil {
 		return nil, err
 	}
