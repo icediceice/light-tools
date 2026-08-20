@@ -19,12 +19,12 @@ type Snapshotter interface {
 }
 
 type CommitRequest struct {
-	Path         string
-	Data         []byte
-	ExpectedSHA  string
-	AllowedRoots []string
-	Snapshotter  Snapshotter
-	Mode         os.FileMode
+	Path        string
+	Data        []byte
+	ExpectedSHA string
+	Confiner    *security.Confiner
+	Snapshotter Snapshotter
+	Mode        os.FileMode
 }
 
 type CommitResult struct {
@@ -39,12 +39,15 @@ func Commit(ctx context.Context, request CommitRequest) (CommitResult, error) {
 	if err := ctx.Err(); err != nil {
 		return CommitResult{}, err
 	}
+	if request.Confiner == nil {
+		return CommitResult{}, errors.New("path confiner is required")
+	}
 	if info, err := os.Lstat(request.Path); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return CommitResult{}, errors.New("refusing symlink target")
 	} else if err != nil && !os.IsNotExist(err) {
 		return CommitResult{}, err
 	}
-	resolved, err := security.ResolveBeneath(request.Path, request.AllowedRoots)
+	resolved, err := request.Confiner.Resolve(request.Path)
 	if err != nil {
 		return CommitResult{}, err
 	}
@@ -75,7 +78,7 @@ func Commit(ctx context.Context, request CommitRequest) (CommitResult, error) {
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return CommitResult{}, fmt.Errorf("create parent: %w", err)
 	}
-	if err := security.Recheck(parent, parent, request.AllowedRoots); err != nil {
+	if err := request.Confiner.Recheck(parent, parent); err != nil {
 		return CommitResult{}, fmt.Errorf("parent identity check: %w", err)
 	}
 	temp, err := os.CreateTemp(parent, ".light-tools-*")
@@ -108,7 +111,7 @@ func Commit(ctx context.Context, request CommitRequest) (CommitResult, error) {
 	if err := temp.Close(); err != nil {
 		return CommitResult{}, err
 	}
-	if err := security.Recheck(parent, parent, request.AllowedRoots); err != nil {
+	if err := request.Confiner.Recheck(parent, parent); err != nil {
 		return CommitResult{}, fmt.Errorf("parent swapped before rename: %w", err)
 	}
 	if info, err := os.Lstat(resolved); err == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -119,10 +122,10 @@ func Commit(ctx context.Context, request CommitRequest) (CommitResult, error) {
 	if err := replaceFile(tempName, resolved); err != nil {
 		return CommitResult{}, err
 	}
-	if err := syncDirectory(parent); err != nil {
+	if err := SyncDirectory(parent); err != nil {
 		return CommitResult{}, err
 	}
-	if err := security.Recheck(resolved, resolved, request.AllowedRoots); err != nil {
+	if err := request.Confiner.Recheck(resolved, resolved); err != nil {
 		return CommitResult{}, fmt.Errorf("post-write identity check: %w", err)
 	}
 	return CommitResult{Path: resolved, SHA: afterSHA}, nil
@@ -158,7 +161,9 @@ func replaceFile(source, target string) error {
 	return os.Rename(source, target)
 }
 
-func syncDirectory(path string) error {
+// SyncDirectory persists a completed rename on platforms that support
+// directory fsync. Windows treats directory Sync as unsupported.
+func SyncDirectory(path string) error {
 	directory, err := os.Open(path)
 	if err != nil {
 		return err
