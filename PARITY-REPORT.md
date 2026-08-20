@@ -166,9 +166,9 @@ Two further hardening changes came out of peer review and are included:
 
 Root resolution was also corrected: `~` now expands against the home directory
 (it was being joined to the working directory), and absent built-in default
-roots are dropped instead of failing — `ResolveBeneath` errors on the first
-missing root, so shipping `~/.local/log` as a default would have made every
-`light_ops` call fail on any machine without that directory.
+roots are dropped before constructing the canonical confiner, so shipping
+`~/.local/log` does not disable every `light_ops` call on a machine without
+that directory.
 
 ## Still open
 
