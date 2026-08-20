@@ -14,7 +14,11 @@ import (
 func boundsHandler(t *testing.T) (*Handler, string) {
 	t.Helper()
 	root := t.TempDir()
-	handler, err := New(Options{Roots: []string{root}, SnapshotRoot: filepath.Join(root, ".snap")})
+	confiner, err := security.NewConfiner([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Options{Confiner: confiner, SnapshotRoot: filepath.Join(root, ".snap")})
 	if err != nil {
 		t.Fatal(err)
 	}
