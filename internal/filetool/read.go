@@ -305,6 +305,9 @@ func (h *Handler) list(request Request) (any, error) {
 	}
 	result := make([]listed, 0, len(entries))
 	for _, entry := range entries {
+		if err := h.confiner.Permit(filepath.Join(path, entry.Name())); err != nil {
+			continue
+		}
 		info, err := entry.Info()
 		if err != nil {
 			continue
