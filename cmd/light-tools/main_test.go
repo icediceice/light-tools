@@ -467,3 +467,60 @@ func TestInitAntigravityPreviewGolden(t *testing.T) {
 		})
 	}
 }
+
+func TestVaultBareCommandKeepsUsageError(t *testing.T) {
+	isolateHome(t)
+	if err := runVault(nil); err == nil || !strings.Contains(err.Error(), "vault set|rm|list|ui") {
+		t.Fatalf("bare vault command = %v", err)
+	}
+}
+
+func TestBrowserCommandIsCrossPlatformAndUsesBareURL(t *testing.T) {
+	url := "http://127.0.0.1:43210"
+	cases := map[string]struct {
+		name string
+		args []string
+	}{
+		"linux":   {name: "xdg-open", args: []string{url}},
+		"darwin":  {name: "open", args: []string{url}},
+		"windows": {name: "rundll32", args: []string{"url.dll,FileProtocolHandler", url}},
+	}
+	for goos, want := range cases {
+		name, args, err := browserCommand(goos, url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != want.name || !reflect.DeepEqual(args, want.args) {
+			t.Errorf("%s command = %s %#v, want %s %#v", goos, name, args, want.name, want.args)
+		}
+		for _, argument := range args {
+			if strings.Contains(argument, "#") || strings.Contains(argument, "token") {
+				t.Fatalf("%s browser argument contains launch authority: %q", goos, argument)
+			}
+		}
+	}
+	if _, _, err := browserCommand("plan9", url); err == nil {
+		t.Fatal("unsupported platform accepted")
+	}
+}
+
+func TestVaultSetBoundsStandardInput(t *testing.T) {
+	isolateHome(t)
+	input, err := os.CreateTemp(t.TempDir(), "vault-input-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	if _, err := input.WriteString(strings.Repeat("x", secret.MaxValueBytes+1)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := input.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stdin
+	os.Stdin = input
+	defer func() { os.Stdin = previous }()
+	if err := runVault([]string{"set", "large"}); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized stdin = %v", err)
+	}
+}
