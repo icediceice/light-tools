@@ -1,0 +1,24 @@
+# github.com/mattn/go-pointer v0.0.1
+## explicit
+github.com/mattn/go-pointer
+# github.com/tree-sitter/go-tree-sitter v0.25.0
+## explicit; go 1.23
+github.com/tree-sitter/go-tree-sitter
+# github.com/tree-sitter/tree-sitter-go v0.23.4
+## explicit; go 1.22
+github.com/tree-sitter/tree-sitter-go/bindings/go
+# github.com/tree-sitter/tree-sitter-javascript v0.25.0
+## explicit; go 1.22
+github.com/tree-sitter/tree-sitter-javascript/bindings/go
+# github.com/tree-sitter/tree-sitter-python v0.23.6
+## explicit; go 1.22
+github.com/tree-sitter/tree-sitter-python/bindings/go
+# golang.org/x/crypto v0.33.0
+## explicit; go 1.20
+golang.org/x/crypto/argon2
+golang.org/x/crypto/blake2b
+# golang.org/x/sys v0.30.0
+## explicit; go 1.18
+golang.org/x/sys/cpu
+golang.org/x/sys/unix
+golang.org/x/sys/windows
