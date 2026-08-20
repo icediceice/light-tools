@@ -149,3 +149,51 @@ func TestPasswordAuthValidatesInputAndConfig(t *testing.T) {
 		t.Fatalf("verify before setup = %v", err)
 	}
 }
+
+func TestPasswordAuthResetPreservesEncryptedVault(t *testing.T) {
+	root := t.TempDir()
+	auth := NewPasswordAuth(root)
+	if err := auth.Setup("original password"); err != nil {
+		t.Fatal(err)
+	}
+	fixtures := map[string]string{
+		"master.key": "unchanged master key",
+		"vault.enc":  "unchanged ciphertext",
+	}
+	for name, value := range fixtures {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := auth.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.Reset(); err != nil {
+		t.Fatalf("idempotent reset: %v", err)
+	}
+	configured, err := auth.Configured()
+	if err != nil || configured {
+		t.Fatalf("Configured after reset = %t, %v", configured, err)
+	}
+	for name, value := range fixtures {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatalf("read %s after reset: %v", name, err)
+		}
+		if string(data) != value {
+			t.Fatalf("%s changed during reset: %q", name, data)
+		}
+	}
+
+	if err := auth.Setup("replacement password"); err != nil {
+		t.Fatalf("setup after reset: %v", err)
+	}
+	auth.sleep = func(time.Duration) {}
+	if ok, err := auth.Verify("original password"); err != nil || ok {
+		t.Fatalf("original password after reset = %t, %v", ok, err)
+	}
+	if ok, err := auth.Verify("replacement password"); err != nil || !ok {
+		t.Fatalf("replacement password after reset = %t, %v", ok, err)
+	}
+}
