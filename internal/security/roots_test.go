@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestResolveRejectsSymlinkedParentCreate(t *testing.T) {
+func TestConfinerRejectsSymlinkedParentCreate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink permissions vary on Windows")
 	}
@@ -16,12 +16,16 @@ func TestResolveRejectsSymlinkedParentCreate(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveBeneath(filepath.Join(root, "escape", "new.txt"), []string{root}); err == nil {
+	confiner, err := NewConfiner([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := confiner.Resolve(filepath.Join(root, "escape", "new.txt")); err == nil {
 		t.Fatal("expected symlinked parent escape rejection")
 	}
 }
 
-func TestRecheckDetectsParentSwap(t *testing.T) {
+func TestConfinerRecheckDetectsParentSwap(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink permissions vary on Windows")
 	}
@@ -31,8 +35,12 @@ func TestRecheckDetectsParentSwap(t *testing.T) {
 	if err := os.Mkdir(parent, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	confiner, err := NewConfiner([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(parent, "new.txt")
-	resolved, err := ResolveBeneath(path, []string{root})
+	resolved, err := confiner.Resolve(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +50,7 @@ func TestRecheckDetectsParentSwap(t *testing.T) {
 	if err := os.Symlink(outside, parent); err != nil {
 		t.Fatal(err)
 	}
-	if err := Recheck(path, resolved, []string{root}); err == nil {
+	if err := confiner.Recheck(path, resolved); err == nil {
 		t.Fatal("expected parent-swap detection")
 	}
 }
