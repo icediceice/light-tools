@@ -67,8 +67,8 @@ func TestPathUnderLogRootIsAllowed(t *testing.T) {
 	}
 }
 
-// An absent root must not disable the roots that DO exist. security.
-// ResolveBeneath canonicalizes every root up front and errors on the first
+// An absent root must not disable the roots that DO exist. NewConfiner
+// canonicalizes every root up front and errors on the first
 // missing one, so shipping ~/.local/log as a default would otherwise have made
 // every light_ops call fail on any machine lacking that directory.
 func TestAbsentRootDoesNotPoisonTheUnion(t *testing.T) {
