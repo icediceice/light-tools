@@ -29,7 +29,10 @@ stay server-side with idle and absolute expiry, while the browser keeps its
 token in tab-scoped `sessionStorage` so refresh works and closing the tab drops
 it. Exact Host and mutating Origin checks, JSON-only bounded bodies, no CORS,
 and no-store, referrer, framing, MIME, and content-security headers constrain
-the browser surface.
+the browser surface. The UI password cannot be changed in the browser or
+recovered. If it is forgotten, `light-tools vault ui-reset` removes only
+`Secrets/ui.json`; the vault key and ciphertext remain intact, and the next UI
+launch can choose a new password.
 
 The UI never reveals a saved value, but a browser extension with page or
 localhost access may inspect a value while it is being typed. Use stdin-based
