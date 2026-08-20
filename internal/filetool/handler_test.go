@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/icediceice/light-tools/internal/mcp"
+	"github.com/icediceice/light-tools/internal/security"
 )
 
 func newTestHandler(t *testing.T) (*Handler, string) {
