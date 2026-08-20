@@ -24,6 +24,7 @@ import (
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
 	"github.com/icediceice/light-tools/internal/state"
+	"github.com/icediceice/light-tools/internal/vaultui"
 )
 
 var version = "0.1.0-dev"
