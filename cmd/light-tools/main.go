@@ -262,6 +262,7 @@ func runVaultUI(layout state.Layout, vault *secret.Vault) error {
 	}
 	url := vaultui.URL(listener)
 	fmt.Printf("Vault UI:     %s\n", url)
+	fmt.Printf("Secrets root: %s\n", layout.Secrets)
 	fmt.Printf("Pairing code: %s (single use, expires in 5 minutes)\n", server.PairingCode())
 	if err := openBrowser(url); err != nil {
 		fmt.Fprintf(os.Stderr, "Could not open a browser automatically: %v\nCopy the Vault UI URL above into your browser.\n", err)
