@@ -110,6 +110,26 @@ func (a *PasswordAuth) Setup(password string) error {
 	return writePrivate(a.path(), data)
 }
 
+// Reset removes only the UI password verifier. The vault key and ciphertext
+// remain untouched so terminal access can always recover password setup.
+func (a *PasswordAuth) Reset() error {
+	if err := os.MkdirAll(a.root, 0o700); err != nil {
+		return err
+	}
+	release, err := acquireFileLock(filepath.Join(a.root, ".lock"))
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err := os.Remove(a.path()); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("remove UI password config: %w", err)
+	}
+	return fileop.SyncDirectory(a.root)
+}
+
 func (a *PasswordAuth) Verify(password string) (bool, error) {
 	if err := validateUIPassword(password); err != nil {
 		return false, err
