@@ -177,5 +177,8 @@ that directory.
 - `readWindow` still reads the whole file before slicing; the 256 MiB refusal
   bounds it in practice, but streaming would remove the exposure. Logged as a
   todo.
-- The vault has no cross-process write lock, and the write-only vault web UI is
-  split into its own plan. Both logged as todos.
+- Vault parity is now implemented for the single-user subset: cross-process
+  load/change/save locking, encrypted metadata and explicit groups, missing-key
+  refusal, growth-only limits, and an embedded password-protected write-only UI.
+  Fleet enrollment, machine authorization, credential sets, and hub dispatch
+  remain deliberately excluded.
