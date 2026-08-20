@@ -13,6 +13,7 @@ import (
 	"github.com/icediceice/light-tools/internal/payload"
 	"github.com/icediceice/light-tools/internal/portable"
 	"github.com/icediceice/light-tools/internal/readcache"
+	"github.com/icediceice/light-tools/internal/security"
 	"github.com/icediceice/light-tools/internal/snapshot"
 )
 
