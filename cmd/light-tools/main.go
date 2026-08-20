@@ -91,7 +91,7 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 		return err
 	}
 	fileHandler, err := filetool.New(filetool.Options{
-		Roots: configuration.AllowedRoots, SnapshotRoot: layout.Snapshots, Spills: bashRunner.Spills(),
+		Confiner: confiner, SnapshotRoot: layout.Snapshots, Spills: bashRunner.Spills(),
 	})
 	if err != nil {
 		return err
