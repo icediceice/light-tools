@@ -10,6 +10,9 @@
   let token = sessionStorage.getItem("light-vault-session") || "";
   let configured = false;
   let overview = { secrets: [], groups: [] };
+  let pendingImport = null;
+  let importSequence = 0;
+  const maxImportedFileBytes = 1 << 20;
 
   function show(view) {
     for (const candidate of [pairView, passwordView, vaultView]) {
