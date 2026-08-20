@@ -57,7 +57,7 @@ func (h *Handler) locate(ctx context.Context, request Request) (any, error) {
 			return textJSON(map[string]any{"path": path, "matches": matches, "capped": len(matches) == locateCap, "warning": warning, "engine": "rg"})
 		}
 	}
-	matches, err := locateGo(path, expression, request.Context)
+	matches, err := locateGo(path, expression, request.Context, h.confiner.Permit)
 	if err != nil {
 		return nil, err
 	}
