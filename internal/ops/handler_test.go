@@ -149,3 +149,24 @@ func TestAsyncLocalLogLifecycle(t *testing.T) {
 		t.Fatalf("collect failed: %#v", collected)
 	}
 }
+
+func TestPM2RegistryLogsRespectPrivateRoots(t *testing.T) {
+	root := t.TempDir()
+	private := filepath.Join(root, "secrets")
+	if err := os.Mkdir(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(private, "vault.enc")
+	if err := os.WriteFile(logPath, []byte("ciphertext"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New([]string{root}, nil, []string{private})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.registry.services = []Service{{ID: "pm2:vault", Source: "pm2", Name: "vault", OutLog: logPath}}
+	handler.registry.updated = time.Now()
+	if _, err := callOpsErr(t, handler, map[string]any{"verb": "log_window", "service": "pm2:vault"}); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("expected private PM2 log refusal, got %v", err)
+	}
+}
