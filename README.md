@@ -326,6 +326,11 @@ five minutes; the browser session survives refresh in that tab but is removed
 when the tab is closed or the UI is locked. The foreground command must keep
 running while the page is in use.
 
+The UI password cannot be changed in the browser and cannot be recovered. If you
+forget it, run `light-tools vault ui-reset`, then run `light-tools vault ui` and
+choose a new password. Reset removes only `ui.json`; `master.key` and `vault.enc`
+are untouched, so no saved secret is lost.
+
 The UI supports explicit empty groups, group assignment, rename, and deletion.
 Deleting a group keeps its secrets and unassigns them; renaming refuses to merge
 into an existing group. Secret names, groups, and update times can be read by the
