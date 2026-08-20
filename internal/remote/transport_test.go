@@ -41,9 +41,13 @@ func TestConnectionProfileAndSecureRefs(t *testing.T) {
 	if err := vault.Set("certificate", "CERTIFICATE BYTES"); err != nil {
 		t.Fatal(err)
 	}
+	confiner, err := security.NewConfiner([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transport := New(map[string]config.RemoteProfile{
 		"prod": {Host: "example", User: "deploy", Port: 2222, ProxyJump: "jump", KeyPath: "/keys/id"},
-	}, []string{root}, vault)
+	}, confiner, vault)
 	settings, err := transport.connection("prod")
 	if err != nil {
 		t.Fatal(err)
