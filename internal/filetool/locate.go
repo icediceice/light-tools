@@ -103,6 +103,9 @@ func locateRG(ctx context.Context, path, pattern string, fixed bool, contextLine
 		if json.Unmarshal(scanner.Bytes(), &event) != nil || event.Type != "match" {
 			continue
 		}
+		if err := permit(event.Data.Path.Text); err != nil {
+			continue
+		}
 		match := locateMatch{Path: event.Data.Path.Text, Line: event.Data.LineNumber, Text: strings.TrimSuffix(event.Data.Lines.Text, "\n")}
 		if len(event.Data.Submatches) > 0 {
 			match.Start, match.End = event.Data.Submatches[0].Start, event.Data.Submatches[0].End
