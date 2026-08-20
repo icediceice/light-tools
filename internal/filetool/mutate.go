@@ -115,7 +115,7 @@ func (h *Handler) batchEdit(ctx context.Context, mutations []fileop.Mutation) (a
 	}
 	result, err := fileop.Commit(ctx, fileop.CommitRequest{
 		Path: path, Data: transformed.Data, ExpectedSHA: expected,
-		AllowedRoots: h.roots, Snapshotter: h.vault,
+		Confiner: h.confiner, Snapshotter: h.vault,
 	})
 	if err != nil {
 		return nil, err
@@ -156,7 +156,7 @@ func (h *Handler) mutate(ctx context.Context, mutation fileop.Mutation) (any, er
 	}
 	result, err := fileop.Commit(ctx, fileop.CommitRequest{
 		Path: path, Data: transformed.Data, ExpectedSHA: mutation.ExpectedSHA,
-		AllowedRoots: h.roots, Snapshotter: h.vault,
+		Confiner: h.confiner, Snapshotter: h.vault,
 	})
 	if err != nil {
 		return nil, err
@@ -193,7 +193,7 @@ func (h *Handler) rewrite(ctx context.Context, mutation fileop.Mutation) (any, e
 	}
 	result, err := fileop.Commit(ctx, fileop.CommitRequest{
 		Path: path, Data: transformed.Data, ExpectedSHA: expected,
-		AllowedRoots: h.roots, Snapshotter: nil, Mode: mode,
+		Confiner: h.confiner, Snapshotter: nil, Mode: mode,
 	})
 	if err == nil {
 		h.cache.Invalidate(path)
@@ -219,7 +219,7 @@ func (h *Handler) restore(ctx context.Context, mutation fileop.Mutation) (any, e
 		expected = hashBytes(current)
 	}
 	result, err := fileop.Commit(ctx, fileop.CommitRequest{
-		Path: path, Data: data, ExpectedSHA: expected, AllowedRoots: h.roots, Snapshotter: h.vault, Mode: mode,
+		Path: path, Data: data, ExpectedSHA: expected, Confiner: h.confiner, Snapshotter: h.vault, Mode: mode,
 	})
 	if err == nil {
 		h.cache.Invalidate(path)
