@@ -237,6 +237,15 @@ func runVault(args []string) error {
 			return fmt.Errorf("usage: light-tools vault ui")
 		}
 		return runVaultUI(layout, vault)
+	case "ui-reset":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: light-tools vault ui-reset")
+		}
+		if err := secret.NewPasswordAuth(layout.Secrets).Reset(); err != nil {
+			return err
+		}
+		fmt.Println("UI password cleared. Run `light-tools vault ui` and choose a new one. Secrets were not touched.")
+		return nil
 	default:
 		return fmt.Errorf("unknown vault command %q", args[0])
 	}
