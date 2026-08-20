@@ -22,7 +22,9 @@ import (
 )
 
 const (
-	maxSecretBytes    = 1 << 20
+	// MaxValueBytes is the shared CLI and HTTP limit for one secret value.
+	MaxValueBytes     = 1 << 20
+	maxSecretBytes    = MaxValueBytes
 	maxVaultPlaintext = 8 << 20
 )
 
