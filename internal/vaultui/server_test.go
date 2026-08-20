@@ -159,8 +159,13 @@ func TestVaultAPIIsWriteOnlyAndPreservesHostileMetadata(t *testing.T) {
 	if bytes.Contains(overviewBody, []byte(value)) {
 		t.Fatalf("overview leaked value: %s", overviewBody)
 	}
-	if !bytes.Contains(overviewBody, []byte("api-token")) || !bytes.Contains(overviewBody, []byte(hostileGroup)) {
-		t.Fatalf("overview lost metadata: %s", overviewBody)
+	var overview secret.Overview
+	if err := json.Unmarshal(overviewBody, &overview); err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Secrets) != 1 || overview.Secrets[0].Name != "api-token" || overview.Secrets[0].Group != hostileGroup ||
+		len(overview.Groups) != 1 || overview.Groups[0] != hostileGroup {
+		t.Fatalf("overview lost metadata: %#v", overview)
 	}
 	script, err := os.ReadFile("app.js")
 	if err != nil {
