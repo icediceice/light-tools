@@ -349,11 +349,14 @@ func (h *Handler) investigate(ctx context.Context, request Request) (map[string]
 	return map[string]any{"summary": summary, "errors": rows, "identifiers": identifiers, "traces": traces, "scope": "local-only"}, nil
 }
 
-func readPM2Logs(service Service, limit int) (string, error) {
+func (h *Handler) readPM2Logs(service Service, limit int) (string, error) {
 	var output []string
 	for _, path := range []string{service.OutLog, service.ErrorLog} {
 		if path == "" {
 			continue
+		}
+		if err := h.confiner.Permit(path); err != nil {
+			return "", fmt.Errorf("registry log path is private: %w", err)
 		}
 		file, err := os.Open(path)
 		if err != nil {
