@@ -52,6 +52,16 @@
             <label>Value
               <textarea id="secret-value" rows="4" autocomplete="off" required></textarea>
             </label>
+            <label>Import a key or certificate file (optional)
+              <input id="secret-file" type="file" accept=".pem,.key,.pub,.crt,.cer,.cert,text/plain">
+            </label>
+            <div id="secret-import" class="row hidden" role="status">
+              <div class="row-main">
+                <div id="secret-import-name" class="row-title"></div>
+                <div id="secret-import-size" class="row-meta"></div>
+              </div>
+              <button id="secret-import-discard" class="secondary" type="button">Discard file</button>
+            </div>
             <label>Group
               <select id="secret-group"></select>
             </label>
