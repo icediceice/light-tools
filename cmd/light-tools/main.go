@@ -242,6 +242,51 @@ func runVault(args []string) error {
 	}
 }
 
+func runVaultUI(layout state.Layout, vault *secret.Vault) error {
+	server, err := vaultui.New(vault, secret.NewPasswordAuth(layout.Secrets))
+	if err != nil {
+		return err
+	}
+	listener, err := vaultui.Listen()
+	if err != nil {
+		return err
+	}
+	url := vaultui.URL(listener)
+	fmt.Printf("Vault UI:     %s\n", url)
+	fmt.Printf("Pairing code: %s (single use, expires in 5 minutes)\n", server.PairingCode())
+	if err := openBrowser(url); err != nil {
+		fmt.Fprintf(os.Stderr, "Could not open a browser automatically: %v\nCopy the Vault UI URL above into your browser.\n", err)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return server.Serve(ctx, listener)
+}
+
+func openBrowser(url string) error {
+	name, args, err := browserCommand(runtime.GOOS, url)
+	if err != nil {
+		return err
+	}
+	command := exec.Command(name, args...)
+	if err := command.Start(); err != nil {
+		return err
+	}
+	return command.Process.Release()
+}
+
+func browserCommand(goos, url string) (string, []string, error) {
+	switch goos {
+	case "darwin":
+		return "open", []string{url}, nil
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", url}, nil
+	case "linux":
+		return "xdg-open", []string{url}, nil
+	default:
+		return "", nil, fmt.Errorf("automatic browser opening is unsupported on %s", goos)
+	}
+}
+
 // stringList collects a repeatable string flag.
 type stringList []string
 
