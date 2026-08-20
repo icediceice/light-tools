@@ -141,7 +141,7 @@ func TestVaultAPIIsWriteOnlyAndPreservesHostileMetadata(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("group add status = %d", response.StatusCode)
 	}
-	value := "value-that-must-never-return"
+	value := "-----BEGIN OPENSSH PRIVATE KEY-----\nexact multiline key text\n-----END OPENSSH PRIVATE KEY-----\n"
 	response = ui.request(t, http.MethodPost, "/api/secret/set", map[string]any{
 		"name": "api-token", "value": value, "group": hostileGroup,
 	}, token)
