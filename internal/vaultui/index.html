@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Light Vault</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <p class="eyebrow">Light MCP</p>
+        <h1>Secret Vault</h1>
+        <p class="subtitle">Names and groups are visible here. Saved values are write-only.</p>
+      </div>
+      <button id="logout" class="secondary hidden" type="button">Lock</button>
+    </header>
+
+    <section id="message" class="message hidden" role="status" aria-live="polite"></section>
+
+    <section id="pair-view" class="panel hidden">
+      <h2>Pair this browser</h2>
+      <p>Copy the one-time code shown in the terminal that opened this page.</p>
+      <form id="pair-form">
+        <label>Pairing code
+          <input id="pair-code" autocomplete="one-time-code" required placeholder="ABCD-2345">
+        </label>
+        <button type="submit">Pair browser</button>
+      </form>
+    </section>
+
+    <section id="password-view" class="panel hidden">
+      <h2 id="password-title">Unlock vault</h2>
+      <p id="password-help">Enter your vault UI password.</p>
+      <form id="password-form">
+        <label>Password
+          <input id="password" type="password" autocomplete="current-password" minlength="8" required>
+        </label>
+        <button id="password-submit" type="submit">Unlock</button>
+      </form>
+    </section>
+
+    <section id="vault-view" class="hidden">
+      <div class="grid">
+        <section class="panel">
+          <h2>Add or update a secret</h2>
+          <form id="secret-form">
+            <label>Name
+              <input id="secret-name" pattern="[-_.A-Za-z0-9]+" autocomplete="off" required>
+            </label>
+            <label>Value
+              <textarea id="secret-value" rows="4" autocomplete="off" required></textarea>
+            </label>
+            <label>Group
+              <select id="secret-group"></select>
+            </label>
+            <button type="submit">Save value</button>
+          </form>
+          <p class="hint">The value is sent once and is never returned by this page.</p>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Groups</h2>
+          </div>
+          <form id="group-form" class="inline-form">
+            <label class="grow">New group
+              <input id="group-name" maxlength="64" required>
+            </label>
+            <button type="submit">Add</button>
+          </form>
+          <div id="groups" class="stack"></div>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="section-heading">
+          <h2>Secrets</h2>
+          <button id="refresh" class="secondary" type="button">Refresh</button>
+        </div>
+        <div id="secrets" class="stack"></div>
+      </section>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
