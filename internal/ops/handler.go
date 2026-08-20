@@ -46,9 +46,9 @@ type Request struct {
 type Handler struct {
 	registry *Registry
 	tasks    *taskStore
-	// roots is the pre-canonicalized caller-path boundary: allowed_roots plus
-	// log_roots, absent entries already dropped.
-	roots []string
+	// confiner applies the same private-state deny list to caller paths and
+	// registry-discovered file logs.
+	confiner *security.Confiner
 }
 
 // New compiles the caller-path root union ONCE. security.ResolveBeneath
