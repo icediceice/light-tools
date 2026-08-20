@@ -208,11 +208,15 @@ func runVault(args []string) error {
 		if len(args) != 2 {
 			return fmt.Errorf("usage: light-tools vault set NAME (value is read from stdin)")
 		}
-		data, err := io.ReadAll(os.Stdin)
+		reader := &io.LimitedReader{R: os.Stdin, N: int64(secret.MaxValueBytes + 3)}
+		data, err := io.ReadAll(reader)
 		if err != nil {
 			return err
 		}
 		value := strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r")
+		if len([]byte(value)) > secret.MaxValueBytes {
+			return fmt.Errorf("secret value exceeds %d bytes", secret.MaxValueBytes)
+		}
 		return vault.Set(args[1], value)
 	case "rm":
 		if len(args) != 2 {
