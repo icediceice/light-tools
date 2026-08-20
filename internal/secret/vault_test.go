@@ -106,8 +106,8 @@ func TestVaultSerializesIndependentProcesses(t *testing.T) {
 		commands = append(commands, command)
 	}
 	for _, command := range commands {
-		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("subprocess write: %v\n%s", err, output)
+		if err := command.Wait(); err != nil {
+			t.Fatalf("subprocess write: %v", err)
 		}
 	}
 	names, err := New(root).List()
