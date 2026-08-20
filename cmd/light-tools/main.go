@@ -79,6 +79,11 @@ func main() {
 
 func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config) error {
 	secretVault := secret.New(layout.Secrets)
+	deniedRoots := []string{layout.Secrets, layout.Snapshots, layout.Spills}
+	confiner, err := security.NewConfiner(configuration.AllowedRoots, deniedRoots)
+	if err != nil {
+		return err
+	}
 	// The runner is built first so light_file can share its spill store: an
 	// oversized read then comes back as a spill_id readable via light_bash.
 	bashRunner, err := bash.NewRunner(configuration.AllowedRoots, layout.Spills, secretVault)
