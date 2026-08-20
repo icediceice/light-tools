@@ -90,25 +90,14 @@ type Request struct {
 }
 
 func New(options Options) (*Handler, error) {
-	if len(options.Roots) == 0 {
-		workingDirectory, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-		options.Roots = []string{workingDirectory}
-	}
-	for index, root := range options.Roots {
-		absolute, err := filepath.Abs(root)
-		if err != nil {
-			return nil, err
-		}
-		options.Roots[index] = filepath.Clean(absolute)
+	if options.Confiner == nil {
+		return nil, fmt.Errorf("path confiner is required")
 	}
 	if options.SnapshotRoot == "" {
 		return nil, fmt.Errorf("snapshot root is required")
 	}
 	return &Handler{
-		roots: options.Roots, vault: snapshot.New(options.SnapshotRoot),
+		confiner: options.Confiner, vault: snapshot.New(options.SnapshotRoot),
 		cache: readcache.New(10*time.Minute, 512), assembler: payload.NewAssembler(),
 		spills: options.Spills,
 	}, nil
