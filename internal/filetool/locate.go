@@ -115,7 +115,7 @@ func locateRG(ctx context.Context, path, pattern string, fixed bool, contextLine
 	return matches, scanner.Err()
 }
 
-func locateGo(path string, expression *regexp.Regexp, contextLines int) ([]locateMatch, error) {
+func locateGo(path string, expression *regexp.Regexp, contextLines int, permit func(string) error) ([]locateMatch, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
