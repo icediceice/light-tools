@@ -1,0 +1,187 @@
+name: Promote release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful release-candidate workflow run ID
+        required: true
+        type: string
+      version:
+        description: Candidate version, with or without a leading v
+        required: true
+        type: string
+      expected_checksums_sha256:
+        description: SHA-256 of checksums.txt copied from the green candidate run
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promote-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Validate candidate run through the Actions API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_CHECKSUMS_SHA256: ${{ inputs.expected_checksums_sha256 }}
+        run: |
+          set -euo pipefail
+
+          version="${INPUT_VERSION#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "invalid release version: $version" >&2
+            exit 1
+          fi
+          if ! [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "candidate_run_id must contain only digits" >&2
+            exit 1
+          fi
+          expected_checksums_sha256="$(printf '%s' "$INPUT_CHECKSUMS_SHA256" | tr '[:upper:]' '[:lower:]')"
+          if ! [[ "$expected_checksums_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "expected_checksums_sha256 must be a 64-character SHA-256 digest" >&2
+            exit 1
+          fi
+
+          default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" > candidate-run.json
+
+          require_equal() {
+            if [ "$1" != "$2" ]; then
+              echo "$3: expected '$2', got '$1'" >&2
+              exit 1
+            fi
+          }
+
+          require_equal "$(jq -r .status candidate-run.json)" "completed" "candidate status"
+          require_equal "$(jq -r .conclusion candidate-run.json)" "success" "candidate conclusion"
+          require_equal "$(jq -r .event candidate-run.json)" "workflow_dispatch" "candidate event"
+          require_equal "$(jq -r .head_branch candidate-run.json)" "$default_branch" "candidate branch"
+          require_equal "$(jq -r .path candidate-run.json)" ".github/workflows/release.yml" "candidate workflow"
+
+          tested_sha="$(jq -r .head_sha candidate-run.json)"
+          run_attempt="$(jq -r .run_attempt candidate-run.json)"
+          if ! [[ "$tested_sha" =~ ^[0-9a-f]{40}$ ]] || ! [[ "$run_attempt" =~ ^[0-9]+$ ]]; then
+            echo "candidate run returned malformed SHA or attempt metadata" >&2
+            exit 1
+          fi
+
+          compare_status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$default_branch...$tested_sha" --jq .status)"
+          case "$compare_status" in
+            identical|behind) ;;
+            *)
+              echo "candidate SHA is no longer reachable from $default_branch: $compare_status" >&2
+              exit 1
+              ;;
+          esac
+
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/attempts/$run_attempt/jobs?per_page=100" > candidate-jobs.json
+          expected_smokes=(
+            smoke-linux_amd64
+            smoke-linux_arm64
+            smoke-darwin_amd64
+            smoke-darwin_arm64
+            smoke-windows_amd64
+            smoke-windows_arm64
+          )
+          smoke_count="$(jq '[.jobs[] | select(.name | startswith("smoke-"))] | length' candidate-jobs.json)"
+          require_equal "$smoke_count" "6" "smoke job count"
+          for smoke in "${expected_smokes[@]}"; do
+            success_count="$(
+              jq --arg name "$smoke" '[.jobs[] | select(.name == $name and .conclusion == "success")] | length' candidate-jobs.json
+            )"
+            require_equal "$success_count" "1" "$smoke successful job count"
+          done
+
+          {
+            echo "VERSION=$version"
+            echo "TAG=v$version"
+            echo "TESTED_SHA=$tested_sha"
+            echo "RUN_ATTEMPT=$run_attempt"
+            echo "EXPECTED_CHECKSUMS_SHA256=$expected_checksums_sha256"
+            echo "ARTIFACT_NAME=release-$version-${CANDIDATE_RUN_ID}-$run_attempt"
+          } >> "$GITHUB_ENV"
+
+      - name: Download the exact run-bound candidate
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.candidate_run_id }}
+          name: ${{ env.ARTIFACT_NAME }}
+          path: release
+
+      - name: Verify candidate filenames and bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          actual_checksums_sha256="$(sha256sum release/checksums.txt | cut -d' ' -f1)"
+          if [ "$actual_checksums_sha256" != "$EXPECTED_CHECKSUMS_SHA256" ]; then
+            echo "checksums.txt digest mismatch: expected $EXPECTED_CHECKSUMS_SHA256, got $actual_checksums_sha256" >&2
+            exit 1
+          fi
+
+          expected_assets=(
+            "light-tools_${VERSION}_darwin_amd64.tar.gz"
+            "light-tools_${VERSION}_darwin_arm64.tar.gz"
+            "light-tools_${VERSION}_linux_amd64.tar.gz"
+            "light-tools_${VERSION}_linux_arm64.tar.gz"
+            "light-tools_${VERSION}_windows_amd64.zip"
+            "light-tools_${VERSION}_windows_arm64.zip"
+          )
+          printf '%s\n' "${expected_assets[@]}" | sort > expected-assets.txt
+          find release -maxdepth 1 -type f -printf '%f\n' | sort > actual-files.txt
+          { cat expected-assets.txt; echo checksums.txt; } | sort > expected-files.txt
+          diff -u expected-files.txt actual-files.txt
+          awk '{print $2}' release/checksums.txt | sed 's/^\*//' | sort > manifest-assets.txt
+          diff -u expected-assets.txt manifest-assets.txt
+          test "$(wc -l < release/checksums.txt)" -eq 6
+          (cd release && sha256sum --strict -c checksums.txt)
+
+      - name: Atomically create the tested tag and publish exact assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+
+          exact_count="$(
+            gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG" |
+              jq --arg ref "refs/tags/$TAG" '[.[] | select(.ref == $ref)] | length'
+          )"
+          if [ "$exact_count" -ne 0 ]; then
+            echo "tag already exists: $TAG" >&2
+            exit 1
+          fi
+
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs"             -f ref="refs/tags/$TAG"             -f sha="$TESTED_SHA"
+
+          notes="Promoted from candidate run $CANDIDATE_RUN_ID attempt $RUN_ATTEMPT.
+Tested commit: $TESTED_SHA
+checksums.txt SHA-256: $EXPECTED_CHECKSUMS_SHA256"
+          gh release create "$TAG" --verify-tag --notes "$notes" release/*
+
+          {
+            echo "### Published $TAG"
+            echo
+            echo "- Candidate run: \`$CANDIDATE_RUN_ID\` attempt \`$RUN_ATTEMPT\`"
+            echo "- Tested commit: \`$TESTED_SHA\`"
+            echo "- checksums.txt SHA-256: \`$EXPECTED_CHECKSUMS_SHA256\`"
+          } >> "$GITHUB_STEP_SUMMARY"
