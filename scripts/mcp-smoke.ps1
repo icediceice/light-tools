@@ -137,7 +137,7 @@ $enabledRequests = @(
         params = [ordered]@{
             name = "light_bash"
             arguments = [ordered]@{
-                command = "printf release-smoke"; cwd = $Workspace; timeout_ms = 30000
+                command = "echo release-smoke"; cwd = $Workspace; timeout_ms = 30000
             }
         }
     },
