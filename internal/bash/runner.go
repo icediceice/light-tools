@@ -348,14 +348,50 @@ func minimalEnvironment() []string {
 	return filterEnvironment(os.Environ(), runtime.GOOS)
 }
 
-func filterEnvironment(entries []string, _ string) []string {
-	allowed := map[string]bool{"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true, "TERM": true, "TMPDIR": true, "SSH_AUTH_SOCK": true, "SYSTEMROOT": true}
-	var environment []string
-	for _, item := range entries {
-		name, _, _ := strings.Cut(item, "=")
-		if allowed[name] {
+var posixEnvironmentNames = [...]string{
+	"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "SSH_AUTH_SOCK", "SYSTEMROOT",
+}
+
+var windowsEnvironmentNames = [...]string{
+	"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "SSH_AUTH_SOCK", "SYSTEMROOT",
+	"PATHEXT", "USERPROFILE", "TEMP", "TMP", "COMSPEC", "WINDIR", "APPDATA", "LOCALAPPDATA",
+	"SYSTEMDRIVE", "PROGRAMDATA", "PSMODULEPATH",
+}
+
+func filterEnvironment(entries []string, goos string) []string {
+	names := posixEnvironmentNames[:]
+	foldCase := false
+	if goos == "windows" {
+		names = windowsEnvironmentNames[:]
+		foldCase = true
+	}
+
+	// A nil exec.Cmd.Env inherits the complete parent environment, so construct
+	// a non-nil result even when no allowlisted entries exist.
+	environment := make([]string, 0, len(names)+1)
+	hasPATHEXT := false
+	for _, allowedName := range names {
+		for _, item := range entries {
+			name, _, ok := strings.Cut(item, "=")
+			if !ok || name == "" {
+				continue
+			}
+			matches := name == allowedName
+			if foldCase {
+				matches = strings.EqualFold(name, allowedName)
+			}
+			if !matches {
+				continue
+			}
 			environment = append(environment, item)
+			if allowedName == "PATHEXT" {
+				hasPATHEXT = true
+			}
+			break
 		}
+	}
+	if goos == "windows" && !hasPATHEXT {
+		environment = append(environment, "PATHEXT=.COM;.EXE;.BAT;.CMD")
 	}
 	sort.Strings(environment)
 	return environment
