@@ -29,7 +29,12 @@ switch ($architecture) {
 }
 
 $asset = "light-tools_{0}_windows_{1}.zip" -f $Version, $arch
-$base = "https://github.com/{0}/releases/download/v{1}" -f $Repository, $Version
+if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+    $base = "https://github.com/{0}/releases/download/v{1}" -f $Repository, $Version
+}
+else {
+    $base = $BaseUrl.TrimEnd("/")
+}
 $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("light-tools-" + [guid]::NewGuid().ToString("N"))
 $archive = Join-Path $tempDirectory $asset
 $checksumFile = Join-Path $tempDirectory "checksums.txt"
