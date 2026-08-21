@@ -37,8 +37,7 @@ else {
     $baseUri = $null
     $isAbsolute = [Uri]::TryCreate($base, [UriKind]::Absolute, [ref]$baseUri)
     $isHttps = $isAbsolute -and $baseUri.Scheme -eq "https"
-    $isLoopbackHttp = $isAbsolute -and $baseUri.Scheme -eq "http" -and
-        ($baseUri.Host -eq "127.0.0.1" -or $baseUri.Host -eq "localhost")
+    $isLoopbackHttp = $isAbsolute -and $baseUri.Scheme -eq "http" -and ($baseUri.Host -eq "127.0.0.1" -or $baseUri.Host -eq "localhost")
     if (-not ($isHttps -or $isLoopbackHttp)) {
         throw "BaseUrl must use HTTPS or loopback HTTP."
     }
