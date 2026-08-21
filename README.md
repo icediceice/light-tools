@@ -34,6 +34,11 @@ PowerShell install. The POSIX equivalents are `LIGHT_TOOLS_VERSION` and
 `LIGHT_TOOLS_INSTALL_DIR`. Both installers refuse an asset that has no exact
 entry in `checksums.txt`.
 
+Release testing and trusted mirrors may override the candidate asset directory with
+`LIGHT_TOOLS_BASE_URL` or PowerShell's `-BaseUrl`. The override must name the
+directory containing the six archives and `checksums.txt`; checksum verification
+remains mandatory. Leaving it unset preserves the GitHub Releases URL.
+
 Published binaries cover:
 
 | OS | amd64 | arm64 | Symbol extraction |
