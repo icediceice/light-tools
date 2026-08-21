@@ -34,6 +34,15 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
 }
 else {
     $base = $BaseUrl.TrimEnd("/")
+    $baseUri = $null
+    $isAbsolute = [Uri]::TryCreate($base, [UriKind]::Absolute, [ref]$baseUri)
+    $isHttps = $isAbsolute -and $baseUri.Scheme -eq "https"
+    $isLoopbackHttp = $isAbsolute -and $baseUri.Scheme -eq "http" -and
+        ($baseUri.Host -eq "127.0.0.1" -or $baseUri.Host -eq "localhost")
+    if (-not ($isHttps -or $isLoopbackHttp)) {
+        throw "BaseUrl must use HTTPS or loopback HTTP."
+    }
+    Write-Warning "BaseUrl is set; checksums.txt comes from the same custom origin, so this install is trusted, not independently verified."
 }
 $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("light-tools-" + [guid]::NewGuid().ToString("N"))
 $archive = Join-Path $tempDirectory $asset
