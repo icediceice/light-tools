@@ -345,9 +345,13 @@ func shellCommand(ctx context.Context, source string) *exec.Cmd {
 }
 
 func minimalEnvironment() []string {
+	return filterEnvironment(os.Environ(), runtime.GOOS)
+}
+
+func filterEnvironment(entries []string, _ string) []string {
 	allowed := map[string]bool{"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true, "TERM": true, "TMPDIR": true, "SSH_AUTH_SOCK": true, "SYSTEMROOT": true}
 	var environment []string
-	for _, item := range os.Environ() {
+	for _, item := range entries {
 		name, _, _ := strings.Cut(item, "=")
 		if allowed[name] {
 			environment = append(environment, item)
