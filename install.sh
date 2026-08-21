@@ -27,7 +27,8 @@ esac
 extension=tar.gz
 [ "$os" = windows ] && extension=zip
 asset="light-tools_${version}_${os}_${arch}.${extension}"
-base="https://github.com/$repo/releases/download/v$version"
+base="${LIGHT_TOOLS_BASE_URL:-https://github.com/$repo/releases/download/v$version}"
+base="${base%/}"
 temp_dir="$(mktemp -d)"
 trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
 
