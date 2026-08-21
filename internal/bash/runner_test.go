@@ -43,7 +43,7 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	}
 
 	result, err = runner.Run(context.Background(), Request{
-		Command: "value=$(cat \"$TOKEN_FILE\"); printf '%s' \"$value\"", Cwd: root,
+		Command: shellSource("value=$(cat \"$TOKEN_FILE\"); printf '%s' \"$value\"", "[Console]::Out.Write((Get-Content -Raw $env:TOKEN_FILE))"), Cwd: root,
 		FileRefs: map[string]string{"TOKEN_FILE": "token"},
 	})
 	if err != nil {
