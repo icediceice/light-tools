@@ -84,7 +84,7 @@ sending `"id": null`. JSON-RPC 2.0 requires null when the id is undeterminable.
 | --- | --- | --- |
 | sync execution | `stdout`/`stderr` separated, `exit_code:3` preserved | PASS |
 | root confinement (cwd) | `path "/etc" escapes allowed roots` | PASS |
-| minimal environment | only `HOME LANG PATH PWD SHLVL SSH_AUTH_SOCK` survive | PASS (by design) |
+| minimal environment | POSIX keeps the documented allowlist; Windows now filters names case-insensitively into a non-nil minimal environment with executable, module, home, cache, temporary-directory, and system-path support | PASS (by design) |
 | timeout | **`{"exit_code":-1}` after 307 ms, no error at all** | **BUG** |
 | spill | opaque random `spill_id`, `truncated:true`, tail preview | PASS |
 | `read_block` + `line_range` | recovers exact ranges | PASS |
