@@ -32,7 +32,7 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	}
 
 	result, err := runner.Run(context.Background(), Request{
-		Command: "printf '%s' \"$TOKEN\"", Cwd: root,
+		Command: shellSource("printf '%s' \"$TOKEN\"", "[Console]::Out.Write($env:TOKEN)"), Cwd: root,
 		EnvRefs: map[string]string{"TOKEN": "token"},
 	})
 	if err != nil {
