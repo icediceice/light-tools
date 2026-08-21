@@ -309,9 +309,9 @@ jobs:
               $env:LIGHT_TOOLS_INSTALL_DIR = $destination
               $env:LIGHT_TOOLS_BASE_URL = $baseUrl
               & /bin/sh ./install.sh
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
               $binary = Join-Path $destination "light-tools"
             }
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           finally {
             if ($null -ne $process -and -not $process.HasExited) {
