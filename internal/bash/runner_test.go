@@ -20,12 +20,6 @@ func shellSource(posix, powershell string) string {
 	return posix
 }
 
-func shellSource(posix, powershell string) string {
-	if runtime.GOOS == "windows" {
-		return powershell
-	}
-	return posix
-}
 
 func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	root := t.TempDir()
