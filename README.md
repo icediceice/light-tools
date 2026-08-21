@@ -38,6 +38,7 @@ Release testing and trusted mirrors may override the candidate asset directory w
 `LIGHT_TOOLS_BASE_URL` or PowerShell's `-BaseUrl`. The override must name the
 directory containing the six archives and `checksums.txt`; checksum verification
 remains mandatory. Leaving it unset preserves the GitHub Releases URL.
+
 Maintainers should follow the tag-last process in [RELEASING.md](RELEASING.md).
 
 Published binaries cover:
