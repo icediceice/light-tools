@@ -24,7 +24,7 @@ jobs:
             arch: arm64
             cgo: "1"
             tags: treesitter
-          - runner: macos-13
+          - runner: macos-15-intel
             os: darwin
             arch: amd64
             cgo: "1"
