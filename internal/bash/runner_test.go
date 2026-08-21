@@ -21,6 +21,103 @@ func shellSource(posix, powershell string) string {
 	return posix
 }
 
+func TestFilterEnvironmentNeverReturnsNil(t *testing.T) {
+	for _, goos := range []string{"windows", "linux", "darwin"} {
+		t.Run(goos, func(t *testing.T) {
+			if got := filterEnvironment(nil, goos); got == nil {
+				t.Fatal("filterEnvironment returned nil; assigning nil to exec.Cmd.Env inherits the full parent environment")
+			}
+		})
+	}
+}
+
+func TestFilterEnvironmentWindowsFoldsCaseAndStaysMinimal(t *testing.T) {
+	path := `Path=C:\Program Files\Go\bin;C:\Users\a b\bin`
+	entries := []string{
+		path,
+		`PATHEXT=.COM;.EXE;.BAT;.CMD`,
+		`SystemRoot=C:\Windows`,
+		`windir=C:\Windows`,
+		`ComSpec=C:\Windows\System32\cmd.exe`,
+		`USERPROFILE=C:\Users\runner`,
+		`LOCALAPPDATA=C:\Users\runner\AppData\Local`,
+		`AWS_SECRET_ACCESS_KEY=must-not-leak`,
+		`=C:=C:\work`,
+	}
+	got := filterEnvironment(entries, "windows")
+	if !containsEnvironmentEntry(got, path) {
+		t.Fatalf("mixed-case Path was not preserved verbatim: %#v", got)
+	}
+	for _, item := range got {
+		name, _, ok := strings.Cut(item, "=")
+		if !ok || name == "" {
+			t.Fatalf("invalid or per-drive environment entry survived: %q", item)
+		}
+		if strings.EqualFold(name, "AWS_SECRET_ACCESS_KEY") {
+			t.Fatalf("unauthorized environment variable survived: %q", item)
+		}
+	}
+}
+
+func TestFilterEnvironmentPosixStaysExactCase(t *testing.T) {
+	got := filterEnvironment([]string{"Path=/nope", "PATH=/usr/bin", "HOME=/home/runner", "SECRET=x"}, "linux")
+	if !containsEnvironmentEntry(got, "PATH=/usr/bin") || !containsEnvironmentEntry(got, "HOME=/home/runner") {
+		t.Fatalf("allowed POSIX entries missing: %#v", got)
+	}
+	if containsEnvironmentEntry(got, "Path=/nope") || containsEnvironmentEntry(got, "SECRET=x") {
+		t.Fatalf("POSIX filtering became case-insensitive or leaked a secret: %#v", got)
+	}
+}
+
+func TestFilterEnvironmentSuppliesPATHEXTDefault(t *testing.T) {
+	got := filterEnvironment([]string{`Path=C:\Go\bin`}, "windows")
+	if !containsEnvironmentEntry(got, "PATHEXT=.COM;.EXE;.BAT;.CMD") {
+		t.Fatalf("PATHEXT default missing: %#v", got)
+	}
+}
+
+func TestRunnerResolvesExternalCommandAndKeepsEnvironmentMinimal(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go is not available on the parent PATH")
+	}
+	t.Setenv("LIGHT_TOOLS_BOUNDARY_MARKER", "must-not-leak")
+
+	root := t.TempDir()
+	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), Request{
+		Command: shellSource(
+			`go env GOCACHE; printf '%s' "$LIGHT_TOOLS_BOUNDARY_MARKER"`,
+			`& go env GOCACHE; [Console]::Out.Write([string]$env:LIGHT_TOOLS_BOUNDARY_MARKER)`,
+		),
+		Cwd: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["exit_code"] != 0 {
+		t.Fatalf("external command failed: %#v", result)
+	}
+	stdout, _ := result["stdout"].(string)
+	if strings.TrimSpace(stdout) == "" {
+		t.Fatalf("go env GOCACHE returned no cache path: %#v", result)
+	}
+	if strings.Contains(stdout, "must-not-leak") {
+		t.Fatalf("child inherited a non-allowlisted parent variable: %#v", result)
+	}
+}
+
+func containsEnvironmentEntry(entries []string, want string) bool {
+	for _, entry := range entries {
+		if entry == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	root := t.TempDir()
 	vault := secret.New(filepath.Join(root, "secrets"))
