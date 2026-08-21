@@ -82,6 +82,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "light-tools init failed with code $LASTEXITCODE"
 }
 
+$defaultRequests = @(
+    [ordered]@{ jsonrpc = "2.0"; id = 1; method = "initialize"; params = @{} },
+    [ordered]@{ jsonrpc = "2.0"; id = 2; method = "tools/list"; params = @{} }
+)
+$defaultResponses = @(Invoke-McpTranscript -ServerArguments @() -Requests $defaultRequests)
+if ($defaultResponses.Count -ne 2 -or $defaultResponses[0].result.protocolVersion -ne "2025-06-18") {
+    throw "default profile did not initialize"
+}
+$defaultTools = @($defaultResponses[1].result.tools | ForEach-Object { $_.name })
+Assert-Equal $defaultTools @("light_file") "default tools/list"
+
 $statePaths = @(
     (Join-Path $env:XDG_CONFIG_HOME "light-tools"),
     (Join-Path $env:XDG_DATA_HOME "light-tools-secrets"),
@@ -99,17 +110,6 @@ if (-not [string]::IsNullOrWhiteSpace($RealHome) -and (Test-Path -LiteralPath $R
         ForEach-Object { $_.FullName } | Sort-Object)
     Assert-Equal $afterHomeEntries $beforeHomeEntries "real-home light-tools entries"
 }
-
-$defaultRequests = @(
-    [ordered]@{ jsonrpc = "2.0"; id = 1; method = "initialize"; params = @{} },
-    [ordered]@{ jsonrpc = "2.0"; id = 2; method = "tools/list"; params = @{} }
-)
-$defaultResponses = @(Invoke-McpTranscript -ServerArguments @() -Requests $defaultRequests)
-if ($defaultResponses.Count -ne 2 -or $defaultResponses[0].result.protocolVersion -ne "2025-06-18") {
-    throw "default profile did not initialize"
-}
-$defaultTools = @($defaultResponses[1].result.tools | ForEach-Object { $_.name })
-Assert-Equal $defaultTools @("light_file") "default tools/list"
 
 $sourcePath = Join-Path $Workspace "release_probe.go"
 @"
