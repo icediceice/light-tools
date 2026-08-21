@@ -71,7 +71,15 @@ func TestMetadataPathIdentityMismatchRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = []byte(strings.Replace(string(data), filepath.Clean(path), filepath.Join(root, "other.txt"), 1))
+	var value metadata
+	if err := json.Unmarshal(data, &value); err != nil {
+		t.Fatal(err)
+	}
+	value.Path = filepath.Join(root, "other.txt")
+	data, err = json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(metadataPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
