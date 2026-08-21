@@ -7,17 +7,19 @@ on:
         description: Version to build, with or without a leading v
         required: true
         type: string
-      publish:
-        description: Create the version tag and GitHub release after approval
-        required: true
-        default: false
-        type: boolean
   pull_request:
     paths:
       - .github/workflows/release.yml
+      - .github/workflows/promote-release.yml
+      - .github/release-environment.json
       - .goreleaser.yml
+      - "**/*.go"
+      - go.mod
+      - go.sum
       - install.sh
       - install.ps1
+      - README.md
+      - RELEASING.md
       - scripts/mcp-smoke.ps1
       - scripts/candidateserve/**
 
@@ -34,7 +36,7 @@ jobs:
       artifact_name: ${{ steps.release.outputs.artifact_name }}
       tested_sha: ${{ steps.release.outputs.tested_sha }}
     steps:
-      - name: Normalize candidate metadata
+      - name: Normalize candidate metadata and prove exact tag absence
         id: release
         shell: bash
         env:
@@ -51,22 +53,26 @@ jobs:
             echo "invalid release version: $version" >&2
             exit 1
           fi
+
           tag="v$version"
-          if lookup="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" 2>&1)"; then
+          exact_count="$(
+            gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" |
+              jq --arg ref "refs/tags/$tag" '[.[] | select(.ref == $ref)] | length'
+          )"
+          if [ "$exact_count" -ne 0 ]; then
             echo "tag already exists: $tag" >&2
             exit 1
-          elif [[ "$lookup" != *"HTTP 404"* && "$lookup" != *"Not Found"* ]]; then
-            echo "could not prove tag absence: $lookup" >&2
-            exit 1
           fi
+
           {
             echo "version=$version"
             echo "tag=$tag"
-            echo "artifact_name=release-$version"
+            echo "artifact_name=release-$version-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             echo "tested_sha=$GITHUB_SHA"
           } >> "$GITHUB_OUTPUT"
 
   build:
+    name: build-${{ matrix.os }}_${{ matrix.arch }}
     needs: metadata
     timeout-minutes: 45
     strategy:
@@ -107,8 +113,6 @@ jobs:
         with:
           go-version: "1.24.x"
           cache: true
-      - uses: egor-tensin/setup-mingw@v2
-        if: runner.os == 'Windows' && matrix.arch == 'amd64'
       - uses: goreleaser/goreleaser-action@v6
         env:
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
@@ -118,7 +122,7 @@ jobs:
           args: build --clean --single-target --snapshot --id ${{ matrix.build_id }}
       - uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ matrix.os }}_${{ matrix.arch }}
+          name: binary-${{ matrix.os }}_${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist/*/light-tools*
           if-no-files-found: error
           retention-days: 7
@@ -132,27 +136,27 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: binary-linux_amd64
+          name: binary-linux_amd64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/linux_amd64
       - uses: actions/download-artifact@v4
         with:
-          name: binary-linux_arm64
+          name: binary-linux_arm64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/linux_arm64
       - uses: actions/download-artifact@v4
         with:
-          name: binary-darwin_amd64
+          name: binary-darwin_amd64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/darwin_amd64
       - uses: actions/download-artifact@v4
         with:
-          name: binary-darwin_arm64
+          name: binary-darwin_arm64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/darwin_arm64
       - uses: actions/download-artifact@v4
         with:
-          name: binary-windows_amd64
+          name: binary-windows_amd64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/windows_amd64
       - uses: actions/download-artifact@v4
         with:
-          name: binary-windows_arm64
+          name: binary-windows_arm64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/windows_arm64
       - name: Package exact native assets
         id: package
@@ -176,6 +180,7 @@ jobs:
           done
           (cd release && sha256sum light-tools_* > checksums.txt)
           test "$(find release -maxdepth 1 -type f | wc -l)" -eq 7
+          test "$(wc -l < release/checksums.txt)" -eq 6
           echo "checksums_sha256=$(sha256sum release/checksums.txt | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
@@ -183,8 +188,25 @@ jobs:
           path: release/*
           if-no-files-found: error
           retention-days: 7
+      - name: Record candidate approval inputs
+        shell: bash
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          ARTIFACT_NAME: ${{ needs.metadata.outputs.artifact_name }}
+          CHECKSUMS_SHA256: ${{ steps.package.outputs.checksums_sha256 }}
+        run: |
+          {
+            echo "### Unpublished release candidate"
+            echo
+            echo "- Version: \`$VERSION\`"
+            echo "- Candidate artifact: \`$ARTIFACT_NAME\`"
+            echo "- checksums.txt SHA-256: \`$CHECKSUMS_SHA256\`"
+            echo
+            echo "Copy the run ID, version, and checksum digest only after all six smoke jobs succeed."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   smoke:
+    name: smoke-${{ matrix.os }}_${{ matrix.arch }}
     needs: [metadata, package]
     timeout-minutes: 30
     strategy:
@@ -224,7 +246,8 @@ jobs:
         with:
           go-version: "1.24.x"
           cache: true
-      - uses: actions/download-artifact@v4
+      - name: Download candidate (failed-only reruns are unsupported)
+        uses: actions/download-artifact@v4
         with:
           name: ${{ needs.metadata.outputs.artifact_name }}
           path: candidate
@@ -330,47 +353,17 @@ jobs:
           $workspace = Join-Path $isolation "workspace"
           $realHome = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
           & ./scripts/mcp-smoke.ps1 -Binary $binary -ExpectedVersion $env:VERSION -Workspace $workspace -SymbolMode $env:SYMBOL_MODE -RealHome $realHome
-          "version=$($env:VERSION)" | Set-Content -Encoding utf8 "smoke-${{ matrix.os }}_${{ matrix.arch }}.txt"
+          @(
+            "run_id=${{ github.run_id }}"
+            "run_attempt=${{ github.run_attempt }}"
+            "version=$($env:VERSION)"
+            "tested_sha=${{ needs.metadata.outputs.tested_sha }}"
+            "checksums_sha256=${{ needs.package.outputs.checksums_sha256 }}"
+            "os_arch=${{ matrix.os }}_${{ matrix.arch }}"
+          ) | Set-Content -Encoding utf8 "smoke-${{ matrix.os }}_${{ matrix.arch }}.txt"
       - uses: actions/upload-artifact@v4
         with:
-          name: smoke-${{ matrix.os }}_${{ matrix.arch }}
+          name: smoke-${{ matrix.os }}_${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: smoke-${{ matrix.os }}_${{ matrix.arch }}.txt
           if-no-files-found: error
           retention-days: 7
-
-  publish:
-    needs: [metadata, package, smoke]
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    environment: release
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.metadata.outputs.artifact_name }}
-          path: release
-      - name: Recheck tested bytes and create tag last
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.metadata.outputs.tag }}
-          TESTED_SHA: ${{ needs.metadata.outputs.tested_sha }}
-          EXPECTED_CHECKSUMS_SHA256: ${{ needs.package.outputs.checksums_sha256 }}
-        run: |
-          set -euo pipefail
-          actual="$(sha256sum release/checksums.txt | cut -d' ' -f1)"
-          [ "$actual" = "$EXPECTED_CHECKSUMS_SHA256" ] || {
-            echo "candidate checksum manifest changed: $actual" >&2
-            exit 1
-          }
-          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 7
-          if lookup="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" 2>&1)"; then
-            echo "tag already exists: $TAG" >&2
-            exit 1
-          elif [[ "$lookup" != *"HTTP 404"* && "$lookup" != *"Not Found"* ]]; then
-            echo "could not prove tag absence: $lookup" >&2
-            exit 1
-          fi
-          gh release create "$TAG" --target "$TESTED_SHA" release/* --generate-notes
