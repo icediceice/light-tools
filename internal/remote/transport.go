@@ -256,7 +256,7 @@ func isRemotePath(path string) bool {
 		return false
 	}
 	colon := strings.IndexByte(path, ':')
-	return colon > 0 && !strings.Contains(path[:colon], string(filepath.Separator))
+	return colon > 0 && !strings.ContainsAny(path[:colon], `/\\`)
 }
 
 func runRetryTimeout(ctx context.Context, executable string, args []string, timeoutMS int) (string, string, int, error) {
