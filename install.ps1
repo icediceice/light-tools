@@ -1,7 +1,8 @@
 param(
     [string]$Version = $env:LIGHT_TOOLS_VERSION,
     [string]$Destination = $env:LIGHT_TOOLS_INSTALL_DIR,
-    [string]$Repository = $env:LIGHT_TOOLS_REPO
+    [string]$Repository = $env:LIGHT_TOOLS_REPO,
+    [string]$BaseUrl = $env:LIGHT_TOOLS_BASE_URL
 )
 
 $ErrorActionPreference = "Stop"
