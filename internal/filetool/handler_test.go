@@ -120,7 +120,11 @@ func TestAliasesAndSamePathPayloadBatch(t *testing.T) {
 	read := invokeRequest(t, handler, map[string]any{
 		"verb": "read", "reads": []map[string]any{{"path": target, "offset": 0, "limit": 2}},
 	})
-	if !strings.Contains(read, "=== "+target+" ===") || !strings.Contains(read, "ONE") {
+	resolvedTarget, err := handler.confiner.Resolve(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(read, "=== "+resolvedTarget+" ===") || !strings.Contains(read, "ONE") {
 		t.Fatalf("reads alias did not materialize: %s", read)
 	}
 }
