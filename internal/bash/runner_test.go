@@ -32,21 +32,32 @@ func TestFilterEnvironmentNeverReturnsNil(t *testing.T) {
 }
 
 func TestFilterEnvironmentWindowsFoldsCaseAndStaysMinimal(t *testing.T) {
-	path := `Path=C:\Program Files\Go\bin;C:\Users\a b\bin`
-	entries := []string{
-		path,
+	expected := []string{
+		`Path=C:\Program Files\Go\bin;C:\Users\a b\bin`,
 		`PATHEXT=.COM;.EXE;.BAT;.CMD`,
 		`SystemRoot=C:\Windows`,
 		`windir=C:\Windows`,
 		`ComSpec=C:\Windows\System32\cmd.exe`,
 		`USERPROFILE=C:\Users\runner`,
+		`APPDATA=C:\Users\runner\AppData\Roaming`,
 		`LOCALAPPDATA=C:\Users\runner\AppData\Local`,
-		`AWS_SECRET_ACCESS_KEY=must-not-leak`,
-		`=C:=C:\work`,
+		`SystemDrive=C:`,
+		`ProgramData=C:\ProgramData`,
+		`PSModulePath=C:\Windows\System32\WindowsPowerShell\v1.0\Modules`,
+		`TEMP=C:\Users\runner\AppData\Local\Temp`,
+		`TMP=C:\Users\runner\AppData\Local\Temp`,
 	}
+	entries := append([]string{}, expected...)
+	entries = append(entries, `AWS_SECRET_ACCESS_KEY=must-not-leak`, `=C:=C:\work`)
+
 	got := filterEnvironment(entries, "windows")
-	if !containsEnvironmentEntry(got, path) {
-		t.Fatalf("mixed-case Path was not preserved verbatim: %#v", got)
+	for _, want := range expected {
+		if !containsEnvironmentEntry(got, want) {
+			t.Fatalf("allowed Windows entry was not preserved verbatim: want=%q got=%#v", want, got)
+		}
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("Windows filter retained entries outside the allowlist: %#v", got)
 	}
 	for _, item := range got {
 		name, _, ok := strings.Cut(item, "=")
