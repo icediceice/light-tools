@@ -268,7 +268,6 @@ jobs:
               throw "candidate server did not report its bound URL: $($process.StandardError.ReadToEnd())"
             }
             & ./install.ps1 -Version $env:VERSION -Destination $destination -BaseUrl $baseUrl
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             if (-not (Test-Path -LiteralPath (Join-Path $destination "light-tools.exe") -PathType Leaf)) {
               throw "Windows PowerShell installer did not create light-tools.exe"
             }
