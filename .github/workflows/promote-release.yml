@@ -171,11 +171,9 @@ jobs:
             exit 1
           fi
 
-          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs"             -f ref="refs/tags/$TAG"             -f sha="$TESTED_SHA"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$TESTED_SHA"
 
-          notes="Promoted from candidate run $CANDIDATE_RUN_ID attempt $RUN_ATTEMPT.
-Tested commit: $TESTED_SHA
-checksums.txt SHA-256: $EXPECTED_CHECKSUMS_SHA256"
+          printf -v notes 'Promoted from candidate run %s attempt %s.\nTested commit: %s\nchecksums.txt SHA-256: %s' "$CANDIDATE_RUN_ID" "$RUN_ATTEMPT" "$TESTED_SHA" "$EXPECTED_CHECKSUMS_SHA256"
           gh release create "$TAG" --verify-tag --notes "$notes" release/*
 
           {
