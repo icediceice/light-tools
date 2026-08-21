@@ -13,6 +13,13 @@ import (
 	"github.com/icediceice/light-tools/internal/secret"
 )
 
+func shellSource(posix, powershell string) string {
+	if runtime.GOOS == "windows" {
+		return powershell
+	}
+	return posix
+}
+
 func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	root := t.TempDir()
 	vault := secret.New(filepath.Join(root, "secrets"))
