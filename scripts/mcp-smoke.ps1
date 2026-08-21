@@ -170,7 +170,7 @@ if ($fileValue.content -notmatch "candidate-package") {
 }
 
 $bashValue = Get-ToolValue $enabledResponses[3] "light_bash"
-if ($bashValue.exit_code -ne 0 -or $bashValue.stdout -ne "release-smoke") {
+if ($bashValue.exit_code -ne 0 -or $bashValue.stdout.Trim() -ne "release-smoke") {
     throw "installed light_bash returned an unexpected result"
 }
 
