@@ -89,6 +89,9 @@ func TestFilterEnvironmentSuppliesPATHEXTDefault(t *testing.T) {
 
 func TestRunnerResolvesExternalCommandAndKeepsEnvironmentMinimal(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("go must be on PATH under CI: this test is the only native Windows evidence for the light_bash environment boundary: %v", err)
+		}
 		t.Skip("go is not available on the parent PATH")
 	}
 	t.Setenv("LIGHT_TOOLS_BOUNDARY_MARKER", "must-not-leak")
