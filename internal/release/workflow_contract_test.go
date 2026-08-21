@@ -18,7 +18,9 @@ func workflow(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(raw)
+	// Windows runners check out with core.autocrlf enabled, so normalise before
+	// any line-shaped assertion below.
+	return strings.ReplaceAll(string(raw), "\r\n", "\n")
 }
 
 // gh resolves the "base repository" for repository-scoped commands such as
