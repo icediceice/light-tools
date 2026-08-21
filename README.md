@@ -35,9 +35,12 @@ PowerShell install. The POSIX equivalents are `LIGHT_TOOLS_VERSION` and
 entry in `checksums.txt`.
 
 Release testing and trusted mirrors may override the candidate asset directory with
-`LIGHT_TOOLS_BASE_URL` or PowerShell's `-BaseUrl`. The override must name the
-directory containing the six archives and `checksums.txt`; checksum verification
-remains mandatory. Leaving it unset preserves the GitHub Releases URL.
+`LIGHT_TOOLS_BASE_URL` or PowerShell's `-BaseUrl`. Overrides must use HTTPS or
+loopback HTTP and name the directory containing the six archives and
+`checksums.txt`. The checksum still detects corruption, but because both files
+come from the selected origin the installer warns that a custom origin is trusted,
+not independently verified. Leaving the override unset preserves the GitHub
+Releases URL and its default verification behavior.
 
 Maintainers should follow the tag-last process in [RELEASING.md](RELEASING.md).
 
