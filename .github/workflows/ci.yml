@@ -53,7 +53,6 @@ jobs:
         with:
           go-version: "1.24.x"
           cache: true
-
       - name: Build MCP artifact
         shell: pwsh
         run: |
