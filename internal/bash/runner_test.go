@@ -20,7 +20,6 @@ func shellSource(posix, powershell string) string {
 	return posix
 }
 
-
 func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	root := t.TempDir()
 	vault := secret.New(filepath.Join(root, "secrets"))
