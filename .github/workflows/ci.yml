@@ -67,7 +67,7 @@ jobs:
       - name: Test
         shell: pwsh
         run: |
-          $arguments = @("test")
+          $arguments = @("test", "-count=1", "-v")
           if ("${{ matrix.tags }}" -ne "") { $arguments += "-tags=${{ matrix.tags }}" }
           $arguments += "./..."
           & go @arguments
