@@ -82,7 +82,7 @@ func TestSemanticParityCorpus(t *testing.T) {
 }
 
 func TestExtensionMatrix(t *testing.T) {
-	want := strings.Fields(".bash .c .cc .cpp .cs .css .cxx .dart .go .h .hpp .html .java .js .jsx .kt .kts .lua .markdown .md .mjs .cjs .php .py .rb .rs .scala .sh .toml .ts .tsx .yaml .yml")
+	want := strings.Fields(".bash .c .cc .cjs .cpp .cs .css .cxx .dart .go .h .hpp .html .java .js .jsx .kt .kts .lua .markdown .md .mjs .php .py .rb .rs .scala .sh .toml .ts .tsx .yaml .yml")
 	got := supportedExtensions()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("extensions = %#v; want %#v", got, want)
