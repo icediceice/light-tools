@@ -202,6 +202,7 @@ export async function buildPackages({
       size: (await stat(tarball)).size,
       sha256: (await digest(tarball, "sha256")).toString("hex"),
       integrity: `sha512-${(await digest(tarball, "sha512")).toString("base64")}`,
+      files: result.files.map(({ path }) => path).sort(),
     });
 
     return packed;
