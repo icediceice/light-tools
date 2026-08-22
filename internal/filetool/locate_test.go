@@ -66,3 +66,47 @@ func assertOnlyPublicMatch(t *testing.T, matches []locateMatch, public string) {
 		t.Fatalf("denied locate result escaped: %#v", matches)
 	}
 }
+
+func TestLocateEngineResultContracts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "contract.txt")
+	if err := os.WriteFile(path, []byte("before\nalpha needle omega\nafter\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	permit := func(string) error { return nil }
+
+	goMatches, err := locateGo(path, regexp.MustCompile("needle"), 1, permit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(goMatches) != 1 {
+		t.Fatalf("Go locate returned %#v", goMatches)
+	}
+	goMatch := goMatches[0]
+	if goMatch.Path != path || goMatch.Line != 2 || goMatch.Start != 6 || goMatch.End != 12 ||
+		goMatch.Text != "before\nalpha needle omega\nafter" {
+		t.Fatalf("Go locate contract drifted: %#v", goMatch)
+	}
+
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Log("rg unavailable; pure-Go contract remains covered")
+		return
+	}
+	rgMatches, err := locateRG(context.Background(), path, "needle", true, 1, permit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rgMatches) != 1 {
+		t.Fatalf("rg locate returned %#v", rgMatches)
+	}
+	rgMatch := rgMatches[0]
+	if rgMatch.Path != path || rgMatch.Line != 2 || rgMatch.Start != 6 || rgMatch.End != 12 ||
+		rgMatch.Text != "alpha needle omega" {
+		t.Fatalf("rg locate contract drifted: %#v", rgMatch)
+	}
+	// Context is intentionally asserted per engine rather than as parity: rg
+	// currently discards JSON context events while the Go fallback joins them.
+	if rgMatch.Text == goMatch.Text {
+		t.Fatal("fixture no longer exposes the documented locate context-engine difference")
+	}
+}
