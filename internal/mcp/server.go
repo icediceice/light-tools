@@ -168,19 +168,37 @@ func (s *Server) dispatch(ctx context.Context, req request) (resp response) {
 		}
 		switch typed := value.(type) {
 		case Result:
-			resp.Result = typed
+			resp.Result = s.formatResult(typed)
 		case *Result:
-			resp.Result = typed
+			if typed == nil {
+				resp.Result = typed
+			} else {
+				resp.Result = s.formatResult(*typed)
+			}
 		default:
 			encoded, err := json.Marshal(value)
 			if err != nil {
 				resp.Result = Result{Content: []Content{Text(err.Error())}, IsError: true}
 			} else {
-				resp.Result = Result{Content: []Content{Text(string(encoded))}}
+				resp.Result = s.formatResult(Result{Content: []Content{Text(string(encoded))}})
 			}
 		}
 	default:
 		resp.Error = &rpcError{Code: -32601, Message: "method not found: " + req.Method}
 	}
 	return resp
+}
+
+func (s *Server) formatResult(result Result) Result {
+	if !s.terse || result.IsError || len(result.Content) == 0 || result.Content[0].Type != "text" {
+		return result
+	}
+	formatted, changed := terse.Format([]byte(result.Content[0].Text))
+	if !changed {
+		return result
+	}
+	cloned := result
+	cloned.Content = append([]Content(nil), result.Content...)
+	cloned.Content[0].Text = string(formatted)
+	return cloned
 }
