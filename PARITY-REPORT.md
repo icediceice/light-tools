@@ -1,6 +1,6 @@
 # light-tools parity report
 
-Session date: 2026-08-16 · binary: `0.1.0-dev` built `-tags treesitter` · host: light-worker
+Session date: 2026-08-22 · binary: `0.1.0-dev` · host: light-worker
 
 Every row below is backed by a build verdict, a test verdict, or a live JSON-RPC
 transcript captured this session. Rows that could not be exercised say so
