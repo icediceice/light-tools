@@ -52,9 +52,12 @@ func runParserWork(deadline time.Duration, work func() ([]Symbol, error)) ([]Sym
 
 	result := make(chan parseResult, 1)
 	go func() {
-		defer func() { parserCircuit <- struct{}{} }()
-		symbols, err := work()
-		result <- parseResult{symbols: symbols, err: err}
+		completed := func() parseResult {
+			defer func() { parserCircuit <- struct{}{} }()
+			symbols, err := work()
+			return parseResult{symbols: symbols, err: err}
+		}()
+		result <- completed
 	}()
 
 	timer := time.NewTimer(deadline)
