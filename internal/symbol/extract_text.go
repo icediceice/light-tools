@@ -12,7 +12,7 @@ var (
 	cssKeyframeRE = regexp.MustCompile(`@keyframes\s+([a-zA-Z][a-zA-Z0-9_-]*)`)
 	cssElementRE  = regexp.MustCompile(`^\s*(html|body|\*|:root)\s*[{,]`)
 	markdownRE    = regexp.MustCompile(`^#{1,6}\s+(.+)$`)
-	yamlRE        = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_-]*):\s`)
+	yamlRE        = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_-]*):(\s|$)`)
 	tomlSectionRE = regexp.MustCompile(`^\[([^\]]+)\]`)
 	tomlKeyRE     = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_.-]*)\s*=`)
 )
