@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import {
+  NativeBinaryError,
   NativePackageError,
   isMain,
   resolveNativeBinary,
