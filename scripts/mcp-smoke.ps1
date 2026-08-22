@@ -210,6 +210,7 @@ $enabledRequests = @(
             arguments = [ordered]@{ verb = "symbol"; path = $tsxPath; name = "Badge" }
         }
     }
+)
 $enabledArguments = @("--enable-shell", "--enable-remote", "--enable-ops")
 $enabledResponses = @(Invoke-McpTranscript -ServerArguments $enabledArguments -Requests $enabledRequests)
 if ($enabledResponses.Count -ne 12 -or $enabledResponses[0].result.protocolVersion -ne "2025-06-18") {
