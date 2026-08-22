@@ -44,6 +44,25 @@ test("the committed root manifest is inert and publish-safe", () => {
   ));
 });
 
+test("promotion keeps prereleases away from stable GitHub and npm pointers", () => {
+  assert.match(
+    promotionWorkflow,
+    /if \[\[ "\\$VERSION" == \*-\* \]\]; then\s+release_flags\+=\(--prerelease\);\s+fi/,
+  );
+  assert.match(
+    promotionWorkflow,
+    /gh release create "\\$TAG" "\\$\{release_flags\[@\]\}" release\/\*/,
+  );
+  assert.match(
+    promotionWorkflow,
+    /dist_tag=latest\s+if \[\[ "\\$VERSION" == \*-\* \]\]; then\s+dist_tag=next/,
+  );
+  assert.doesNotMatch(
+    promotionWorkflow,
+    /gh release create "\\$TAG" --verify-tag/,
+  );
+});
+
 test("candidate root manifests pin every optional package to the release version", () => {
   const manifest = createRootManifest(rootPackage, "1.2.3-rc.4");
   assert.equal(manifest.version, "1.2.3-rc.4");
