@@ -149,7 +149,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: false
       - name: Unit and manifest contract
         run: node --test npm/*.test.mjs
       - name: Public package allowlist
