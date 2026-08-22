@@ -102,6 +102,9 @@ func extractGrammar(descriptor grammarDescriptor, source []byte) ([]Symbol, erro
 			}
 		}
 		parent := parentName(bodyNode, source)
+		if parentNode != nil {
+			parent = strings.TrimSpace(parentNode.Utf8Text(source))
+		}
 		if descriptor.id == langGo && bodyNode.Kind() == "method_declaration" {
 			parent = extractGoReceiver(firstLine(emitNode.Utf8Text(source)))
 		}
