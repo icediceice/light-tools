@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
+
 	"strings"
 	"sync"
 	"time"
