@@ -123,8 +123,11 @@ Never print, copy, commit, upload, or record an npm credential during bootstrap.
 - Tag creation succeeds but GitHub release creation fails: do not delete or reuse
   the tag. Verify it still names the tested SHA and complete the same release with
   the original run-bound assets, or publish a corrected higher version.
-- A prerelease was promoted accidentally: do not move `latest`; keep prereleases
-  on `next` and deprecate the mistaken version if consumers need a warning.
+- Prereleases are created with GitHub's prerelease flag, so `releases/latest` and
+  both unpinned native installers continue to resolve the newest stable version.
+- A prerelease was promoted accidentally: mark the GitHub release as a prerelease,
+  do not move npm `latest`, keep prereleases on `next`, and deprecate the
+  mistaken version if consumers need a warning.
 - Trusted publishing must be revoked: use `npm trust list <package>` followed by
   `npm trust revoke <package> --id=<trust-id>` for every affected package, or use
   npmjs.com package settings.
