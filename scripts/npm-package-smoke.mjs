@@ -51,6 +51,20 @@ function runNpm(args, options = {}) {
   );
 }
 
+function commandAvailable(command, args = []) {
+  const result = spawnSync(command, args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (result.error?.code === "ENOENT") {
+    return false;
+  }
+  if (result.error) {
+    throw result.error;
+  }
+  return result.status === 0;
+}
+
 async function sha256(path) {
   return createHash("sha256").update(await readFile(path)).digest("hex");
 }
