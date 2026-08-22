@@ -162,6 +162,29 @@ The five request structs and schemas are checked field-for-field in tests, so a
 tool cannot be advertised without its documented arguments reaching the
 registered handler.
 
+## Opt-in terse output
+
+Set `LIGHT_TERSE_OUTPUT=1` on the MCP server process to allow deterministic
+terse text for large successful JSON tool results. The default is off; unset,
+empty, and every value other than exactly `1` preserve the handler's raw JSON
+text.
+
+The formatter touches only `content[0]` when it is text and the result is not
+an error. Images, later content blocks, plain text, malformed JSON, unsupported
+or empty shapes, and any result that does not get strictly smaller in both bytes
+and the internal punctuation-aware token estimate pass through byte-for-byte.
+The formatter parses numbers with `json.Number`, sorts object keys, renders
+supported scalar, nested, array, and homogeneous-row shapes, decodes its own
+output in production, and compares the reconstructed value with the original
+before emitting it. This preserves strings such as `"8080"`, multiline log
+content, null/empty values, and exact numeric spelling.
+
+The terse swap estimate is internal and deliberately separate from
+`light_file read`'s public `tokens` field; changing the latter would change a
+tool contract. Release tests exercise raw and terse modes through real MCP
+stdio for all five registered tools, including image passthrough and SSH/SCP
+pre-execution refusals.
+
 ## `light_file`
 
 Supported verbs are `read`, `list`, `symbol`, `outline`, `locate`,
