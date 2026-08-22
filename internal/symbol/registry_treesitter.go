@@ -164,7 +164,10 @@ var grammarRegistry = map[languageID]grammarDescriptor{
 	langLua: {
 		id: langLua, language: languageFrom(lua.Language), query: `
 (function_declaration name: (identifier) @name) @body
-`, kinds: map[string]string{"function_declaration": KindFunction},
+(function_declaration name: (dot_index_expression table: (identifier) @parent field: (identifier) @name)) @body
+(function_declaration name: (method_index_expression table: (identifier) @parent method: (identifier) @name)) @body
+(assignment_statement (variable_list name: (identifier) @name) (expression_list value: (function_definition))) @body
+`, kinds: map[string]string{"function_declaration": KindFunction, "assignment_statement": KindFunction},
 	},
 	langScala: {
 		id: langScala, language: languageFrom(scala.Language), query: `
