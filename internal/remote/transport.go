@@ -147,7 +147,7 @@ func (t *Transport) SCP(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	args := sshOptions(settings, true)
 	args = append(args, source, target)
-	stdout, stderr, exitCode, err := runRetryTimeout(ctx, "scp", args, request.TimeoutMS)
+	stdout, stderr, exitCode, err := t.runner(ctx, "scp", args, request.TimeoutMS, true)
 	if err != nil {
 		return nil, err
 	}
