@@ -35,6 +35,33 @@ features remain intentionally absent.
 `-count=1` was used deliberately: the first runs reported `(cached)` for every
 package, and a cache hit is not a test run.
 
+## 2026-08-22 multilingual symbol lane
+
+The standalone extractor ports the Light-CF language coverage through a
+contract-first registry rather than copying vector-index losses. The grammar
+matrix covers Go, JavaScript, TypeScript, TSX, Python, Java, Rust, C, C++, C#,
+Ruby, PHP, Bash, Lua, Scala, Kotlin, Dart, and HTML. Untagged CSS, Markdown,
+YAML, and TOML extraction works on all six platforms.
+
+The parity corpus compiles every registered query and requires a positive
+fixture for every grammar family. It also pins grouped Go declarations,
+dedicated TSX (`Props` plus JSX-bearing `Badge`), one-rune Ruby/Lua/Dart
+declarations, exact ranges, valid UTF-8 truncation, deterministic repeats, and
+the bounded parser circuit. Public integration drives both outline and named
+symbol lookup. Installed-package smoke repeats the discriminating TSX probe on
+the five grammar-enabled platforms while preserving Windows ARM64's exact Go
+no-symbol assertion.
+
+Deliberate divergences from Light-CF are user-facing fixes: no duplicate or
+lost Go types, no invalid UTF-8 caps, no synthetic `<module>`, no quoted
+unaddressable test names, no dropped one-rune declarations, real structured
+text byte offsets, and richer class-like kinds. Syntax mutation gates,
+call/import/literal/xref extraction, embeddings, index storage, hub telemetry,
+regex fallback builds, and `.htm` remain excluded.
+
+CI rejects executables above 64 MiB and release packaging rejects compressed
+candidates above 32 MiB.
+
 ## 2026-08-22 formatter and five-tool release gate
 
 | Contract | Local evidence |
