@@ -21,6 +21,7 @@ import (
 	"github.com/icediceice/light-tools/internal/remote"
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/state"
+	"github.com/icediceice/light-tools/internal/terse"
 )
 
 func TestToolSchemasContainRetainedSingleOperatorFields(t *testing.T) {
