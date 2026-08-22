@@ -130,7 +130,6 @@ export async function main() {
   }
 }
 
-const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
-if (entryPath === path.resolve(fileURLToPath(import.meta.url))) {
+if (isMain()) {
   await main();
 }
