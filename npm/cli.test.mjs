@@ -42,7 +42,7 @@ test("npm bin symlinks still execute the installed module as main", () => {
     true,
   );
   assert.equal(seen.length, 2);
-  assert.equal(isMain(import.meta.url, undefined, canonicalize), false);
+  assert.equal(isMain(import.meta.url, "", canonicalize), false);
 });
 
 test("native resolution is anchored at the exact optional package", () => {
