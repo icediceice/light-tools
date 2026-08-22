@@ -68,7 +68,10 @@ which is a consumer-visible contract.
 - Locate uses `rg --json` when present, rejects glob metacharacters in the
   single-file path, retries an invalid regular expression once as a fixed
   string with a warning, and stops after 501 matches. A pure-Go scanner is the
-  fallback when ripgrep is unavailable.
+  fallback when ripgrep is unavailable. The engines do not yet claim parity:
+  ripgrep follows ignore/hidden rules and currently drops JSON context events;
+  the Go walker skips only `.git` and joins context into `text`. Match
+  offsets identify the matching line even when the Go `text` contains context.
 - A single png/jpg/jpeg/webp/gif read returns an MCP image block only when the
   decoded file is at most 9 MiB. Larger images degrade to a text description.
 - Remote execution and transfer retry exactly once, and only after a timeout.
