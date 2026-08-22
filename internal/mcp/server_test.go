@@ -226,7 +226,17 @@ func TestTerseFormattingPassthroughCases(t *testing.T) {
 				Params: json.RawMessage(`{"name":"sample","arguments":{}}`),
 			})
 			result, ok := response.Result.(Result)
-			if !ok || !reflect.DeepEqual(result, test.want) {
+			if !ok {
+				t.Fatalf("got %#v, want a Result", response.Result)
+			}
+			if test.name == "tool-error" {
+				if !result.IsError || len(result.Content) != 1 ||
+					!strings.Contains(result.Content[0].Text, raw) || strings.HasPrefix(result.Content[0].Text, "~") {
+					t.Fatalf("wrapped tool error was reformatted or lost detail: %#v", result)
+				}
+				return
+			}
+			if !reflect.DeepEqual(result, test.want) {
 				t.Fatalf("got %#v, want %#v", response.Result, test.want)
 			}
 		})
