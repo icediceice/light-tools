@@ -66,6 +66,51 @@ test("platform manifests carry npm compatibility gates and no executable shim", 
   assert.deepEqual(windows.files, ["bin/light-tools.exe"]);
 });
 
+test("glibc platform packages are rejected on musl instead of failing at first run", {
+  skip: process.platform !== "linux" ||
+    Boolean(process.report.getReport().header.glibcVersionRuntime),
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), "light-tools-musl-"));
+  try {
+    const key = `linux-${process.arch}`;
+    const staging = join(root, "package");
+    const binaryDirectory = join(staging, "bin");
+    await mkdir(binaryDirectory, { recursive: true });
+    await writeFile(
+      join(staging, "package.json"),
+      `${JSON.stringify(createPlatformManifest(key, "1.2.3"), null, 2)}\n`,
+      "utf8",
+    );
+    await writeFile(join(binaryDirectory, "light-tools"), "not-an-executable", "utf8");
+    const packed = spawnSync(
+      "npm",
+      ["pack", staging, "--pack-destination", root, "--json"],
+      { encoding: "utf8" },
+    );
+    assert.equal(packed.status, 0, packed.stderr);
+    const [{ filename }] = JSON.parse(packed.stdout);
+    const installed = spawnSync(
+      "npm",
+      [
+        "install",
+        "--global",
+        "--ignore-scripts",
+        "--prefix",
+        join(root, "prefix"),
+        join(root, filename),
+      ],
+      { encoding: "utf8" },
+    );
+    assert.notEqual(installed.status, 0);
+    assert.match(
+      `${installed.stdout}\n${installed.stderr}`,
+      /EBADPLATFORM|Unsupported platform|libc/i,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("release versions accept SemVer releases and reject path-like input", () => {
   for (const version of ["0.1.0", "0.1.1-oidc.0", "12.34.56-rc.1"]) {
     assert.equal(validateVersion(version), version);
