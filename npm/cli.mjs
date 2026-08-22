@@ -105,6 +105,22 @@ export function run({
   });
 }
 
+export function isMain(
+  moduleUrl = import.meta.url,
+  entryPath = process.argv[1],
+  canonicalize = realpathSync,
+) {
+  if (!entryPath) {
+    return false;
+  }
+  try {
+    return canonicalize(path.resolve(entryPath)) ===
+      canonicalize(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
 export async function main() {
   try {
     process.exitCode = await run();
