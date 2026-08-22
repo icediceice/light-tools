@@ -49,3 +49,23 @@ func TestOutlineAndNamedSymbolUseDedicatedTSXGrammar(t *testing.T) {
 		t.Fatalf("Badge matches = %#v", result.Matches)
 	}
 }
+
+func TestOutlineReportsTypedExtractionFailure(t *testing.T) {
+	handler, root := newTestHandler(t)
+	path := filepath.Join(root, "hostile.ts")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", 8001)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	outlineText := invokeRequest(t, handler, map[string]any{"verb": "read", "path": path})
+	var outline struct {
+		Note   string `json:"note"`
+		Chunks []any  `json:"chunks"`
+	}
+	if err := json.Unmarshal([]byte(outlineText), &outline); err != nil {
+		t.Fatalf("outline JSON: %v: %s", err, outlineText)
+	}
+	if !strings.Contains(outline.Note, "source rejected as parse-hostile") || len(outline.Chunks) == 0 {
+		t.Fatalf("typed outline fallback = %#v", outline)
+	}
+}
