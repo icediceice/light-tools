@@ -196,3 +196,102 @@ jobs:
             echo "- Tested commit: \`$TESTED_SHA\`"
             echo "- checksums.txt SHA-256: \`$EXPECTED_CHECKSUMS_SHA256\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-npm:
+    name: Publish npm packages
+    if: ${{ inputs.publish_npm }}
+    needs: promote
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      INPUT_VERSION: ${{ inputs.version }}
+      INPUT_CHECKSUMS_SHA256: ${{ inputs.expected_checksums_sha256 }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Pin trusted-publishing npm client
+        run: npm install --global npm@11.19.0
+      - name: Download and verify the promoted release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "invalid release version: $version" >&2
+            exit 1
+          fi
+          expected_checksums_sha256="$(printf '%s' "$INPUT_CHECKSUMS_SHA256" | tr '[:upper:]' '[:lower:]')"
+          mkdir release
+          gh release download "v$version" --repo "$GITHUB_REPOSITORY" --dir release
+          actual_checksums_sha256="$(sha256sum release/checksums.txt | cut -d' ' -f1)"
+          if [ "$actual_checksums_sha256" != "$expected_checksums_sha256" ]; then
+            echo "promoted checksums.txt digest mismatch" >&2
+            exit 1
+          fi
+          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 14
+          test "$(wc -l < release/checksums.txt)" -eq 13
+          (cd release && sha256sum --strict -c checksums.txt)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Publish platform packages before the root package
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist_tag=latest
+          if [[ "$VERSION" == *-* ]]; then
+            dist_tag=next
+          fi
+
+          packages=(
+            "@icediceice/light-tools-darwin-arm64"
+            "@icediceice/light-tools-darwin-x64"
+            "@icediceice/light-tools-linux-arm64"
+            "@icediceice/light-tools-linux-x64"
+            "@icediceice/light-tools-win32-arm64"
+            "@icediceice/light-tools-win32-x64"
+            "@icediceice/light-tools"
+          )
+          tarballs=(
+            "icediceice-light-tools-darwin-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-darwin-x64-${VERSION}.tgz"
+            "icediceice-light-tools-linux-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-linux-x64-${VERSION}.tgz"
+            "icediceice-light-tools-win32-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-win32-x64-${VERSION}.tgz"
+            "icediceice-light-tools-${VERSION}.tgz"
+          )
+
+          publish_one() {
+            package="$1"
+            tarball="release/$2"
+            local_integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
+            if registry_integrity="$(npm view "$package@$VERSION" dist.integrity 2>/dev/null)"; then
+              if [ "$registry_integrity" != "$local_integrity" ]; then
+                echo "immutable npm version has different bytes: $package@$VERSION" >&2
+                echo "expected $local_integrity, got $registry_integrity" >&2
+                exit 1
+              fi
+              echo "already published byte-identical: $package@$VERSION"
+              return
+            fi
+            npm publish --access public --tag "$dist_tag" "$tarball"
+          }
+
+          for index in "${!packages[@]}"; do
+            publish_one "${packages[$index]}" "${tarballs[$index]}"
+          done
+
+          {
+            echo "### npm publication complete"
+            echo
+            echo "- Version: \`$VERSION\`"
+            echo "- Dist-tag: \`$dist_tag\`"
+            echo "- Packages: seven, platform-first and root-last"
+          } >> "$GITHUB_STEP_SUMMARY"
