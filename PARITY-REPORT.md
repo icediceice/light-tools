@@ -150,10 +150,14 @@ code genuinely backs the claim.
 
 ## Not covered
 
-- `light_ssh` / `light_scp`: registration and schemas verified; no live
-  round-trip, which would require a reachable host and a real key. UNPROVEN.
+- Live `light_ssh` / `light_scp` interoperability remains UNPROVEN because it
+  requires a reachable host and real key. Command construction, environment,
+  retry, timeout/cancellation, confinement, cleanup, direction, and byte
+  accounting are covered hermetically.
 - Payload `@find`/`@replace` sections (see above). UNPROVEN.
-- Windows/macOS behaviour; everything here is Linux amd64.
+- This hand-run report is Linux amd64. Exact-HEAD Windows/macOS evidence comes
+  from the required uncached native CI and installed-package release matrix; no
+  local cross-platform claim substitutes for those jobs.
 
 ## Fixes applied
 
