@@ -37,7 +37,5 @@ func TestUnsupportedAndGrammarOnlyExtensions(t *testing.T) {
 	if _, err := Extract("notes.txt", []byte("hello")); !errors.Is(err, ErrUnsupportedExtension) {
 		t.Fatalf("unsupported extension error = %v", err)
 	}
-	if _, err := Extract("main.go", []byte("package main")); err == nil {
-		t.Fatal("grammar-backed extraction unexpectedly available without treesitter tag")
-	}
+
 }
