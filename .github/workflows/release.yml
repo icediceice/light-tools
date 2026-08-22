@@ -412,6 +412,62 @@ jobs:
           $workspace = Join-Path $isolation "workspace"
           $realHome = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
           & ./scripts/mcp-smoke.ps1 -Binary $binary -ExpectedVersion $env:VERSION -Workspace $workspace -SymbolMode $env:SYMBOL_MODE -RealHome $realHome
+
+          $npmOs = if ("${{ matrix.os }}" -eq "windows") { "win32" } else { "${{ matrix.os }}" }
+          $npmArch = if ("${{ matrix.arch }}" -eq "amd64") { "x64" } else { "arm64" }
+          $rootTgz = (Resolve-Path (Join-Path $candidate "icediceice-light-tools-$($env:VERSION).tgz")).Path
+          $nativeTgz = (Resolve-Path (Join-Path $candidate "icediceice-light-tools-$npmOs-$npmArch-$($env:VERSION).tgz")).Path
+          $npmPrefix = Join-Path $env:RUNNER_TEMP "npm-prefix"
+          $npmCache = Join-Path $env:RUNNER_TEMP "npm-cache"
+          $npmUserConfig = Join-Path $env:RUNNER_TEMP "empty-npmrc"
+          New-Item -ItemType File -Force -Path $npmUserConfig | Out-Null
+          $env:npm_config_cache = $npmCache
+          $env:npm_config_userconfig = $npmUserConfig
+          $env:npm_config_audit = "false"
+          $env:npm_config_fund = "false"
+          $env:npm_config_update_notifier = "false"
+          & npm install --global --ignore-scripts --offline --prefix $npmPrefix $rootTgz $nativeTgz
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          if ($env:RUNNER_OS -eq "Windows") {
+            $npmShim = Join-Path $npmPrefix "light-tools.cmd"
+            $npmBinary = Join-Path $npmPrefix "node_modules/@icediceice/light-tools-$npmOs-$npmArch/bin/light-tools.exe"
+          }
+          else {
+            $npmShim = Join-Path $npmPrefix "bin/light-tools"
+            $npmBinary = Join-Path $npmPrefix "lib/node_modules/@icediceice/light-tools-$npmOs-$npmArch/bin/light-tools"
+          }
+          if (-not (Test-Path -LiteralPath $npmShim -PathType Leaf)) {
+            throw "npm did not create the documented shim: $npmShim"
+          }
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $npmBinary).Hash -ne
+              (Get-FileHash -Algorithm SHA256 -LiteralPath $binary).Hash) {
+            throw "npm native binary differs from the direct release archive"
+          }
+
+          $env:NPM_SHIM = $npmShim
+          $nodeProbe = @'
+const { spawnSync } = require("node:child_process");
+const windows = process.platform === "win32";
+const command = windows ? (process.env.ComSpec || "cmd.exe") : process.env.NPM_SHIM;
+const args = windows
+  ? ["/d", "/s", "/c", process.env.NPM_SHIM, "version"]
+  : ["version"];
+const result = spawnSync(command, args, { encoding: "utf8" });
+if (result.status !== 0 || result.stdout.trim() !== process.env.VERSION) {
+  console.error({ status: result.status, stdout: result.stdout, stderr: result.stderr });
+  process.exit(1);
+}
+'@
+          & node -e $nodeProbe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $npmIsolation = Join-Path $env:RUNNER_TEMP "light-tools-npm-isolation"
+          $env:XDG_CONFIG_HOME = Join-Path $npmIsolation "config"
+          $env:XDG_DATA_HOME = Join-Path $npmIsolation "data"
+          $env:XDG_RUNTIME_DIR = Join-Path $npmIsolation "runtime"
+          $npmWorkspace = Join-Path $npmIsolation "workspace"
+          & ./scripts/mcp-smoke.ps1 -Binary $npmShim -ExpectedVersion $env:VERSION -Workspace $npmWorkspace -SymbolMode $env:SYMBOL_MODE -RealHome $realHome
           @(
             "run_id=${{ github.run_id }}"
             "run_attempt=${{ github.run_attempt }}"
