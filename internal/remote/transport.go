@@ -98,7 +98,7 @@ func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	args := sshOptions(settings, false)
 	args = append(args, settings.remote, request.Command)
-	stdout, stderr, exitCode, err := runRetryTimeout(ctx, "ssh", args, request.TimeoutMS)
+	stdout, stderr, exitCode, err := t.runner(ctx, "ssh", args, request.TimeoutMS, false)
 	if err != nil {
 		return nil, err
 	}
