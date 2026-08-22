@@ -34,7 +34,6 @@ type grammarDescriptor struct {
 	special  func(*tree_sitter.Node, []byte) []Symbol
 }
 
-
 func grammarFor(id languageID) (grammarDescriptor, bool) {
 	descriptor, ok := grammarRegistry[id]
 	return descriptor, ok
