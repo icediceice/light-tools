@@ -50,7 +50,7 @@ export function createPlatformManifest(key, version) {
     name: definition.packageName,
     version,
     description: `Native light-tools binary for ${definition.platform}/${definition.arch}.`,
-    license: "Apache-2.0",
+    license: "GPL-3.0-or-later",
     repository: {
       type: "git",
       url: "git+https://github.com/icediceice/light-tools.git",
