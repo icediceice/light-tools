@@ -84,13 +84,19 @@ export function run({
   spawn = spawnChild,
   signalSource = process,
 } = {}) {
-  const binary = resolveNativeBinary({ platform, arch, resolve });
-  const child = spawn(binary, args, {
-    cwd,
-    env,
-    stdio: "inherit",
-    windowsHide: true,
-  });
+  const definition = resolvePlatform(platform, arch);
+  const binary = resolveNativeBinary({ platform, arch, resolve, definition });
+  let child;
+  try {
+    child = spawn(binary, args, {
+      cwd,
+      env,
+      stdio: "inherit",
+      windowsHide: true,
+    });
+  } catch (error) {
+    throw mapNativeStartError(definition, binary, error);
+  }
 
   return new Promise((resolveRun, rejectRun) => {
     let settled = false;
