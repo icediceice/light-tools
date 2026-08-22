@@ -74,7 +74,12 @@ which is a consumer-visible contract.
   offsets identify the matching line even when the Go `text` contains context.
 - A single png/jpg/jpeg/webp/gif read returns an MCP image block only when the
   decoded file is at most 9 MiB. Larger images degrade to a text description.
-- Remote execution and transfer retry exactly once, and only after a timeout.
+- SSH commands execute at most once. SCP may retry one timed-out transfer because
+  the second attempt overwrites the destination from byte zero. Parent
+  cancellation and timeout are tool errors; a nil error means `exit_code` is
+  the remote program's own status. Bash, SSH, and SCP share one non-nil minimal
+  child environment policy with case-insensitive Windows matching and original
+  variable spelling.
 - Read windows are one-based `cat -n` lines. Batch reads share an output budget
   and return exact continuation cursors rather than silently dropping content.
 - Symbol extraction deduplicates captures by body-start byte, filters low-value
