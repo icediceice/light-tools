@@ -7,12 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/icediceice/light-tools/internal/portable"
-	"github.com/icediceice/light-tools/internal/terse"
 	"io"
 	"runtime/debug"
 	"sort"
 	"sync"
+
+	"github.com/icediceice/light-tools/internal/portable"
+	"github.com/icediceice/light-tools/internal/terse"
 )
 
 const ProtocolVersion = "2025-06-18"
