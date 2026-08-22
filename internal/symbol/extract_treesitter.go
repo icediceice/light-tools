@@ -160,7 +160,8 @@ func parentName(node *tree_sitter.Node, source []byte) string {
 	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
 		switch ancestor.Kind() {
 		case "class_declaration", "class_definition", "class", "module", "object_definition",
-			"object_declaration", "trait_definition", "interface_declaration", "struct_item":
+			"object_declaration", "trait_definition", "interface_declaration", "struct_item",
+			"class_specifier", "struct_specifier":
 			if name := directName(ancestor, source); name != "" {
 				return name
 			}
