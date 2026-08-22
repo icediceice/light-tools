@@ -4,6 +4,7 @@ package symbol
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
