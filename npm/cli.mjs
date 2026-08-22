@@ -26,6 +26,30 @@ export class NativePackageError extends Error {
   }
 }
 
+export class NativeBinaryError extends Error {
+  constructor(definition, binary, cause) {
+    super(
+      `native binary ${binary} for ${definition.packageName} could not be started; ` +
+      `the installation is incomplete, not executable, or built for a different C library. ` +
+      `Reinstall with: npm install --global --force @icediceice/light-tools. ` +
+      `Alpine/musl is unsupported because release binaries require glibc.`,
+      { cause },
+    );
+    this.name = "NativeBinaryError";
+    this.code = "E_NATIVE_BINARY_UNUSABLE";
+    this.packageName = definition.packageName;
+    this.binary = binary;
+  }
+}
+
+const nativeStartErrorCodes = new Set(["ENOENT", "EACCES", "ENOEXEC"]);
+
+function mapNativeStartError(definition, binary, error) {
+  return nativeStartErrorCodes.has(error?.code)
+    ? new NativeBinaryError(definition, binary, error)
+    : error;
+}
+
 export function resolveNativeBinary({
   platform = process.platform,
   arch = process.arch,
