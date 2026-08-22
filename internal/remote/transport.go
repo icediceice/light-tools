@@ -264,18 +264,23 @@ func isRemotePath(path string) bool {
 	return colon > 0 && !strings.ContainsAny(path[:colon], `/\\`)
 }
 
-func runRetryTimeout(ctx context.Context, executable string, args []string, timeoutMS int) (string, string, int, error) {
+type runOnceFunc func(context.Context, string, []string, time.Duration) (string, string, int, bool, error)
+
+func runCommand(ctx context.Context, executable string, args []string, timeoutMS int, retryTimeout bool) (string, string, int, error) {
+	return runCommandWith(ctx, executable, args, timeoutMS, retryTimeout, runOnce)
+}
+
+func runCommandWith(ctx context.Context, executable string, args []string, timeoutMS int, retryTimeout bool, execute runOnceFunc) (string, string, int, error) {
 	timeout := time.Duration(timeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	for attempt := 0; attempt < 2; attempt++ {
-		stdout, stderr, exitCode, timedOut, err := runOnce(ctx, executable, args, timeout)
-		if !timedOut || attempt == 1 {
-			return stdout, stderr, exitCode, err
-		}
+	stdout, stderr, exitCode, timedOut, err := execute(ctx, executable, args, timeout)
+	if !retryTimeout || !timedOut || ctx.Err() != nil {
+		return stdout, stderr, exitCode, err
 	}
-	panic("unreachable")
+	stdout, stderr, exitCode, _, err = execute(ctx, executable, args, timeout)
+	return stdout, stderr, exitCode, err
 }
 
 func runOnce(parent context.Context, executable string, args []string, timeout time.Duration) (string, string, int, bool, error) {
