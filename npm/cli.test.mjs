@@ -21,6 +21,30 @@ class FakeChild extends EventEmitter {
   }
 }
 
+test("npm bin symlinks still execute the installed module as main", () => {
+  const seen = [];
+  const canonicalize = (candidate) => {
+    seen.push(candidate);
+    if (candidate.endsWith("/bin/light-tools")) {
+      return "/real/package/npm/cli.mjs";
+    }
+    if (candidate.endsWith("/npm/cli.mjs")) {
+      return "/real/package/npm/cli.mjs";
+    }
+    return candidate;
+  };
+  assert.equal(
+    isMain(
+      "file:///prefix/lib/node_modules/@icediceice/light-tools/npm/cli.mjs",
+      "/prefix/bin/light-tools",
+      canonicalize,
+    ),
+    true,
+  );
+  assert.equal(seen.length, 2);
+  assert.equal(isMain(import.meta.url, undefined, canonicalize), false);
+});
+
 test("native resolution is anchored at the exact optional package", () => {
   const calls = [];
   const resolved = resolveNativeBinary({
