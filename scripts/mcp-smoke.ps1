@@ -120,6 +120,11 @@ func releaseProbe() string {
 	return "candidate-package"
 }
 "@ | Set-Content -Encoding utf8 -Path $sourcePath
+$tsxPath = Join-Path $Workspace "release_probe.tsx"
+@"
+interface Props { label: string }
+export const Badge = (p: Props) => <span>{p.label}</span>;
+"@ | Set-Content -Encoding utf8 -Path $tsxPath
 $outsidePath = Join-Path (Split-Path -Parent $Workspace) "outside-release-probe.txt"
 "outside" | Set-Content -Encoding utf8 -Path $outsidePath
 $imagePath = Join-Path $Workspace "release-probe.png"
@@ -190,11 +195,24 @@ $enabledRequests = @(
             name = "light_file"
             arguments = [ordered]@{ verb = "read"; path = $imagePath }
         }
+    },
+    [ordered]@{
+        jsonrpc = "2.0"; id = 11; method = "tools/call"
+        params = [ordered]@{
+            name = "light_file"
+            arguments = [ordered]@{ verb = "symbol"; path = $tsxPath; name = "Props" }
+        }
+    },
+    [ordered]@{
+        jsonrpc = "2.0"; id = 12; method = "tools/call"
+        params = [ordered]@{
+            name = "light_file"
+            arguments = [ordered]@{ verb = "symbol"; path = $tsxPath; name = "Badge" }
+        }
     }
-)
 $enabledArguments = @("--enable-shell", "--enable-remote", "--enable-ops")
 $enabledResponses = @(Invoke-McpTranscript -ServerArguments $enabledArguments -Requests $enabledRequests)
-if ($enabledResponses.Count -ne 10 -or $enabledResponses[0].result.protocolVersion -ne "2025-06-18") {
+if ($enabledResponses.Count -ne 12 -or $enabledResponses[0].result.protocolVersion -ne "2025-06-18") {
     throw "fully enabled profile did not initialize"
 }
 $enabledTools = @($enabledResponses[1].result.tools | ForEach-Object { $_.name })
@@ -214,6 +232,11 @@ $symbolValue = Get-ToolValue $enabledResponses[4] "light_file symbol"
 if ($SymbolMode -eq "symbols") {
     if (@($symbolValue.matches).Count -lt 1) {
         throw "tree-sitter package did not extract releaseProbe"
+    }
+    $propsValue = Get-ToolValue $enabledResponses[10] "light_file TSX interface symbol"
+    $badgeValue = Get-ToolValue $enabledResponses[11] "light_file TSX JSX symbol"
+    if (@($propsValue.matches).Count -ne 1 -or @($badgeValue.matches).Count -ne 1) {
+        throw "tree-sitter package did not prove dedicated TSX grammar with Props and Badge"
     }
 }
 else {
