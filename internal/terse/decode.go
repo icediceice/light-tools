@@ -65,6 +65,9 @@ func (p *parser) parseObject() (any, error) {
 		if _, exists := result[key]; exists {
 			return nil, fmt.Errorf("duplicate object key %q", key)
 		}
+		if !p.take(':') {
+			return nil, fmt.Errorf("expected : after object key %q", key)
+		}
 		value, err := p.parseValue()
 		if err != nil {
 			return nil, fmt.Errorf("key %q: %w", key, err)
