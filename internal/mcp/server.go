@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/icediceice/light-tools/internal/portable"
+	"github.com/icediceice/light-tools/internal/terse"
 	"io"
 	"runtime/debug"
 	"sort"
