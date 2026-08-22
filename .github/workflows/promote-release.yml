@@ -187,7 +187,11 @@ jobs:
           gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$TESTED_SHA"
 
           printf -v notes 'Promoted from candidate run %s attempt %s.\nTested commit: %s\nchecksums.txt SHA-256: %s' "$CANDIDATE_RUN_ID" "$RUN_ATTEMPT" "$TESTED_SHA" "$EXPECTED_CHECKSUMS_SHA256"
-          gh release create "$TAG" --verify-tag --notes "$notes" release/*
+          release_flags=(--verify-tag --notes "$notes")
+          if [[ "$VERSION" == *-* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$TAG" "${release_flags[@]}" release/*
 
           {
             echo "### Published $TAG"
