@@ -66,14 +66,16 @@ func extractGrammar(descriptor grammarDescriptor, source []byte) ([]Symbol, erro
 	seen := make(map[string]bool)
 	var symbols []Symbol
 	for match := matches.Next(); match != nil; match = matches.Next() {
-		var nameNode, bodyNode *tree_sitter.Node
+		var nameNode, bodyNode, parentNode *tree_sitter.Node
 		for index := range match.Captures {
 			capture := &match.Captures[index]
-			switch uint(capture.Index) {
-			case nameIndex:
+			switch {
+			case uint(capture.Index) == nameIndex:
 				nameNode = &capture.Node
-			case bodyIndex:
+			case uint(capture.Index) == bodyIndex:
 				bodyNode = &capture.Node
+			case parentOK && uint(capture.Index) == parentIndex:
+				parentNode = &capture.Node
 			}
 		}
 		if nameNode == nil || bodyNode == nil {
