@@ -447,18 +447,18 @@ jobs:
 
           $env:NPM_SHIM = $npmShim
           $nodeProbe = @'
-const { spawnSync } = require("node:child_process");
-const windows = process.platform === "win32";
-const command = windows ? (process.env.ComSpec || "cmd.exe") : process.env.NPM_SHIM;
-const args = windows
-  ? ["/d", "/s", "/c", process.env.NPM_SHIM, "version"]
-  : ["version"];
-const result = spawnSync(command, args, { encoding: "utf8" });
-if (result.status !== 0 || result.stdout.trim() !== process.env.VERSION) {
-  console.error({ status: result.status, stdout: result.stdout, stderr: result.stderr });
-  process.exit(1);
-}
-'@
+          const { spawnSync } = require("node:child_process");
+          const windows = process.platform === "win32";
+          const command = windows ? (process.env.ComSpec || "cmd.exe") : process.env.NPM_SHIM;
+          const args = windows
+            ? ["/d", "/s", "/c", process.env.NPM_SHIM, "version"]
+            : ["version"];
+          const result = spawnSync(command, args, { encoding: "utf8" });
+          if (result.status !== 0 || result.stdout.trim() !== process.env.VERSION) {
+            console.error({ status: result.status, stdout: result.stdout, stderr: result.stderr });
+            process.exit(1);
+          }
+          '@
           & node -e $nodeProbe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
