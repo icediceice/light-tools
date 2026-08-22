@@ -54,8 +54,8 @@ export function resolveNativeBinary({
   platform = process.platform,
   arch = process.arch,
   resolve = ownRequire.resolve,
+  definition = resolvePlatform(platform, arch),
 } = {}) {
-  const definition = resolvePlatform(platform, arch);
   let manifestPath;
   try {
     manifestPath = resolve(`${definition.packageName}/package.json`);
