@@ -30,6 +30,7 @@ test("the committed root manifest is inert and publish-safe", () => {
   assert.deepEqual(rootPackage.bin, { "light-tools": "npm/cli.mjs" });
   assert.deepEqual(rootPackage.files, ["npm/cli.mjs", "npm/platform.mjs"]);
   assert.equal(rootPackage.engines.node, ">=18.17.0");
+  assert.equal(rootPackage.engines.npm, ">=10.0.0");
   assert.equal(rootPackage.publishConfig.access, "public");
   assert.equal(rootPackage.scripts?.postinstall, undefined);
   assert.equal(rootPackage.dependencies, undefined);
