@@ -177,6 +177,7 @@ export async function buildPackages({
         sha256: (await digest(tarball, "sha256")).toString("hex"),
         integrity: `sha512-${(await digest(tarball, "sha512")).toString("base64")}`,
         binarySha256: (await digest(stagedBinary, "sha256")).toString("hex"),
+        files: result.files.map(({ path }) => path).sort(),
       });
     }
 
