@@ -126,7 +126,9 @@ export function run({
       signalSource.on(signal, handler);
     }
 
-    child.once("error", (error) => settle(() => rejectRun(error)));
+    child.once("error", (error) => {
+      settle(() => rejectRun(mapNativeStartError(definition, binary, error)));
+    });
     child.once("close", (code, signal) => {
       settle(() => resolveRun(
         Number.isInteger(code) ? code : signalExitCode(signal),
