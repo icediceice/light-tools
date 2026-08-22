@@ -226,4 +226,61 @@ if (-not $enabledResponses[5].result.isError) {
     throw "light_file unexpectedly read outside the isolated workspace"
 }
 
+$opsValue = Get-ToolValue $enabledResponses[6] "light_ops"
+if (-not $opsValue.exists -or $opsValue.size -le 0) {
+    throw "installed light_ops probe_file returned an unexpected result"
+}
+if (-not $enabledResponses[7].result.isError -or
+    $enabledResponses[7].result.content[0].text -notmatch "remote or profile is required") {
+    throw "installed light_ssh did not refuse before execution"
+}
+if (-not $enabledResponses[8].result.isError -or
+    $enabledResponses[8].result.content[0].text -notmatch "exactly one of src and dst must be remote") {
+    throw "installed light_scp did not refuse before execution"
+}
+$imageContent = $enabledResponses[9].result.content[0]
+if ($enabledResponses[9].result.isError -or $imageContent.type -ne "image" -or
+    $imageContent.mimeType -ne "image/png" -or [string]::IsNullOrWhiteSpace($imageContent.data)) {
+    throw "installed light_file image response was not preserved"
+}
+
+$terseRequests = @(
+    [ordered]@{ jsonrpc = "2.0"; id = 1; method = "initialize"; params = @{} },
+    [ordered]@{
+        jsonrpc = "2.0"; id = 2; method = "tools/call"
+        params = [ordered]@{
+            name = "light_file"
+            arguments = [ordered]@{ verb = "read"; path = $tersePath; offset = 0; limit = 20 }
+        }
+    }
+)
+$rawTerseResponses = @(Invoke-McpTranscript -ServerArguments $enabledArguments -Requests $terseRequests)
+if ($rawTerseResponses.Count -ne 2 -or $rawTerseResponses[1].result.isError) {
+    throw "raw formatter probe failed"
+}
+$rawTerseText = [string]$rawTerseResponses[1].result.content[0].text
+$null = ConvertFrom-Json -InputObject $rawTerseText
+
+try {
+    $env:LIGHT_TERSE_OUTPUT = "1"
+    $firstTerseResponses = @(Invoke-McpTranscript -ServerArguments $enabledArguments -Requests $terseRequests)
+    $secondTerseResponses = @(Invoke-McpTranscript -ServerArguments $enabledArguments -Requests $terseRequests)
+}
+finally {
+    Remove-Item Env:LIGHT_TERSE_OUTPUT -ErrorAction SilentlyContinue
+}
+if ($firstTerseResponses[1].result.isError -or $secondTerseResponses[1].result.isError) {
+    throw "opt-in formatter probe returned a tool error"
+}
+$firstTerseText = [string]$firstTerseResponses[1].result.content[0].text
+$secondTerseText = [string]$secondTerseResponses[1].result.content[0].text
+if ($firstTerseText -cne $secondTerseText) {
+    throw "opt-in formatter output was not deterministic"
+}
+$rawByteCount = [Text.Encoding]::UTF8.GetByteCount($rawTerseText)
+$terseByteCount = [Text.Encoding]::UTF8.GetByteCount($firstTerseText)
+if ($firstTerseText -cne $rawTerseText -and $terseByteCount -ge $rawByteCount) {
+    throw "opt-in formatter output was not strictly smaller"
+}
+
 Write-Host "release package smoke passed: $ExpectedVersion ($SymbolMode)"
