@@ -86,6 +86,33 @@ jobs:
           $names = @($responses[1].result.tools | ForEach-Object { $_.name })
           if ($names.Count -ne 1 -or $names[0] -ne "light_file") { throw "unexpected tools/list: $names" }
 
+  race:
+    name: Race (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: untagged
+            tags: ""
+          - name: treesitter
+            tags: treesitter
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - name: Uncached race test
+        shell: bash
+        run: |
+          arguments=(test -race -count=1 -v)
+          if [[ -n "${{ matrix.tags }}" ]]; then arguments+=("-tags=${{ matrix.tags }}"); fi
+          arguments+=(./...)
+          go "${arguments[@]}"
+
   inspector:
     runs-on: ubuntu-24.04
     steps:
