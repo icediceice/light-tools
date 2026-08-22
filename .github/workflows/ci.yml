@@ -64,6 +64,8 @@ jobs:
           & go @arguments
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "LIGHT_TOOLS_BINARY=$binary" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $size = (Get-Item -LiteralPath $binary).Length
+          if ($size -gt 67108864) { throw "binary size $size exceeds 64 MiB ceiling" }
       - name: Test
         shell: pwsh
         run: |
