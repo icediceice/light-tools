@@ -122,6 +122,13 @@ func releaseProbe() string {
 "@ | Set-Content -Encoding utf8 -Path $sourcePath
 $outsidePath = Join-Path (Split-Path -Parent $Workspace) "outside-release-probe.txt"
 "outside" | Set-Content -Encoding utf8 -Path $outsidePath
+$imagePath = Join-Path $Workspace "release-probe.png"
+[System.IO.File]::WriteAllBytes(
+    $imagePath,
+    [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nZ0AAAAASUVORK5CYII=")
+)
+$tersePath = Join-Path $Workspace "terse-probe.txt"
+(("word " * 120).TrimEnd()) | Set-Content -NoNewline -Encoding utf8 -Path $tersePath
 
 $enabledRequests = @(
     [ordered]@{ jsonrpc = "2.0"; id = 1; method = "initialize"; params = @{} },
