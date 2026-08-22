@@ -40,7 +40,7 @@ func extractHTMLSymbols(root *tree_sitter.Node, source []byte) []Symbol {
 				}
 				emit := func(kind, name string) {
 					name = strings.TrimSpace(name)
-					key := kind + "\x00" + name + "\x00" + string(rune(node.StartByte()))
+					key := kind + "\x00" + name + "\x00" + strconv.FormatUint(uint64(node.StartByte()), 10)
 					if name == "" || seen[key] {
 						return
 					}
@@ -123,7 +123,7 @@ func extractDartSymbols(root *tree_sitter.Node, source []byte) []Symbol {
 				name = directName(node, source)
 			}
 			if name != "" {
-				key := kind + "\x00" + name + "\x00" + string(rune(node.StartByte()))
+				key := kind + "\x00" + name + "\x00" + strconv.FormatUint(uint64(node.StartByte()), 10)
 				if !seen[key] {
 					seen[key] = true
 					symbol := symbolFromNode(name, kind, enclosing, node, source)
