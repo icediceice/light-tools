@@ -582,3 +582,24 @@ installed artifact. Releases are also built on native runners.
 
 See [SECURITY.md](SECURITY.md) for the exact security claim and
 [PORTING.md](PORTING.md) for stable edge-case semantics.
+
+## License
+
+Copyright (C) 2026 IceDiceIce
+
+light-tools is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the [GNU General Public License](LICENSE) for more
+details.
+
+Versions up to and including 0.1.0 were released under Apache-2.0. That grant
+is irrevocable for those releases; 0.2.0 onward is GPL-3.0-or-later.
+
+Vendored tree-sitter grammars and `golang.org/x/*` packages remain under their
+own MIT and BSD-3-Clause terms, which are GPL-compatible. Their license texts
+are preserved in `vendor/`.
