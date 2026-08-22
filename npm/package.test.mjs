@@ -47,7 +47,7 @@ test("the committed root manifest is inert and publish-safe", () => {
 test("promotion keeps prereleases away from stable GitHub and npm pointers", () => {
   assert.match(
     promotionWorkflow,
-    /if \[\[ "\\$VERSION" == \*-\* \]\]; then\s+release_flags\+=\(--prerelease\);\s+fi/,
+    /if \[\[ "\$VERSION" == \*-\* \]\]; then\s+release_flags\+=\(--prerelease\);\s+fi/,
   );
   assert.match(
     promotionWorkflow,
