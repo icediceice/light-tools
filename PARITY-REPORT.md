@@ -208,6 +208,10 @@ that directory.
 
 ## Still open
 
+- Locate engines retain documented differences: ripgrep honors ignore/hidden
+  rules and drops context events, while the Go fallback walks all regular files
+  except `.git` and joins context. Offsets still index the matching line even
+  when Go `text` includes context.
 - `lines` is still ignored by `log_window` (row above), tracked separately.
 - Batch item `limit:0` defaults to 120 rather than clamping to 1.
 - `readWindow` still reads the whole file before slicing; the 256 MiB refusal
