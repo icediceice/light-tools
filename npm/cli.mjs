@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { constants as osConstants } from "node:os";
-import path, { dirname, join } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn as spawnChild } from "node:child_process";
 
