@@ -27,9 +27,10 @@ features remain intentionally absent.
 | --- | --- |
 | `go build ./...` | exit 0 |
 | `go build -tags treesitter ./...` | exit 0 (CGo tree-sitter compiles) |
-| `go test ./...` | exit 0 — 13 packages ok, 3 no test files |
+| `go test -count=1 -v ./...` | exit 0 — uncached full suite |
+| `go test -tags treesitter -count=1 -v ./...` | exit 0 — `internal/symbol` genuinely executes |
 | `go test -race -count=1 ./...` | exit 0 — no data races |
-| `go test -tags treesitter -count=1 ./...` | exit 0 — `internal/symbol` genuinely executes |
+| `go test -race -tags treesitter -count=1 ./...` | exit 0 — no races in the CGo/tree-sitter path |
 
 `-count=1` was used deliberately: the first runs reported `(cached)` for every
 package, and a cache hit is not a test run.
