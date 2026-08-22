@@ -141,9 +141,9 @@ static inline void skip(TSLexer *lexer) { lexer->advance(lexer, true); }
 static bool is_op_char(int32_t c) {
   switch (c) {
     case '!': case '#': case '%': case '&':
-    case '*': case '+': case '-': case '<': 
+    case '*': case '+': case '-': case '<':
     case '=': case '>': case '?': case '@':
-    case '\\': case '^': case '|': case '~': 
+    case '\\': case '^': case '|': case '~':
     case ':':
       return true;
     default:
@@ -187,7 +187,7 @@ static bool scan_string_content(TSLexer *lexer, bool is_multiline, StringMode st
           lexer->result_symbol = is_multiline ? RAW_STRING_MULTILINE_MIDDLE : RAW_STRING_MIDDLE;
           break;
         default:
-          assert(false);          
+          assert(false);
       }
       lexer->mark_end(lexer);
       return true;
@@ -201,7 +201,7 @@ static bool scan_string_content(TSLexer *lexer, bool is_multiline, StringMode st
           // In single-line raw strings, `\"` is not translated to `"`, but it also does
           // not close the string. Likewise, `\\` is not translated to `\`, but it does
           // stop the second `\` from stopping a double-quote from closing the string.
-          if (!is_multiline && string_mode == STRING_MODE_RAW && 
+          if (!is_multiline && string_mode == STRING_MODE_RAW &&
             (lexer->lookahead == '"' || lexer->lookahead == '\\')) {
             advance(lexer);
           }
@@ -210,9 +210,9 @@ static bool scan_string_content(TSLexer *lexer, bool is_multiline, StringMode st
           lexer->mark_end(lexer);
           return true;
         }
-      // During error recovery and dynamic precedence resolution, the external 
+      // During error recovery and dynamic precedence resolution, the external
       // scanner will be invoked with all valid_symbols set to true, which means
-      // we will be asked to scan a string token when we are not actually in a 
+      // we will be asked to scan a string token when we are not actually in a
       // string context. Here we detect these cases and return false.
       } else if (lexer->lookahead == '\n' && !is_multiline) {
         return false;
@@ -579,7 +579,7 @@ bool tree_sitter_scala_external_scanner_scan(void *payload, TSLexer *lexer,
 
   if (valid_symbols[RAW_STRING_MULTILINE_MIDDLE]) {
     return scan_string_content(lexer, true, STRING_MODE_RAW);
-  }  
+  }
 
   if (valid_symbols[INTERPOLATED_MULTILINE_STRING_MIDDLE]) {
     return scan_string_content(lexer, true, STRING_MODE_INTERPOLATED);
@@ -587,9 +587,9 @@ bool tree_sitter_scala_external_scanner_scan(void *payload, TSLexer *lexer,
 
   // We still need to handle the simple multiline string case, but there is
   // no `MULTILINE_STRING_MIDDLE` token, and `MULTILINE_STRING_END` is used
-  // by all three of simple raw, and interpolated multiline strings. So this 
+  // by all three of simple raw, and interpolated multiline strings. So this
   // check needs to come after the `INTERPOLATED_MULTILINE_STRING_MIDDLE` and
-  // `RAW_STRING_MULTILINE_MIDDLE` check, so that we can be sure we are in a 
+  // `RAW_STRING_MULTILINE_MIDDLE` check, so that we can be sure we are in a
   // simple multiline string context.
   if (valid_symbols[MULTILINE_STRING_END]) {
     return scan_string_content(lexer, true, STRING_MODE_SIMPLE);
