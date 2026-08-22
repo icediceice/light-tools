@@ -56,6 +56,7 @@ func extractGrammar(descriptor grammarDescriptor, source []byte) ([]Symbol, erro
 
 	nameIndex, nameOK := query.CaptureIndexForName("name")
 	bodyIndex, bodyOK := query.CaptureIndexForName("body")
+	parentIndex, parentOK := query.CaptureIndexForName("parent")
 	if !nameOK || !bodyOK {
 		return nil, fmt.Errorf("compile %s symbol query: required captures absent", descriptor.id)
 	}
