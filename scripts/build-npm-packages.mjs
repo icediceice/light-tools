@@ -57,6 +57,7 @@ export function createPlatformManifest(key, version) {
     },
     os: [definition.platform],
     cpu: [definition.arch],
+    engines: { npm: ">=10.0.0" },
     files: [`bin/${definition.executable}`],
     publishConfig: { access: "public" },
   };
