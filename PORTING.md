@@ -146,9 +146,12 @@ which is a consumer-visible contract.
 The release matrix is Linux, macOS, and Windows on amd64 and arm64. Five lanes
 use CGo plus tree-sitter. Windows ARM64 is a separate CGo-free build and keeps
 the complete MCP/tool surface while returning the graceful no-symbol response.
-Each native CI lane executes an `initialize` plus `tools/list` transcript
-against its built binary. Release packaging remains workflow-owned; both
-installers verify an exact checksum row before extraction.
+Each native CI lane executes uncached verbose tests and an `initialize` plus
+`tools/list` transcript against its built binary. Separate Linux race jobs
+exercise both the untagged and CGo/tree-sitter paths. Release packaging runs the
+all-five installed-binary transcript in raw mode and a final scoped terse-mode
+determinism/never-larger probe; both installers verify an exact checksum row
+before extraction.
 
 This standalone server deliberately omits fleet routing, EDCR plans, RBAC,
 telemetry, shared databases, and multi-operator file-surface fences. Those are
