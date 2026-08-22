@@ -509,6 +509,36 @@ Configuration, encrypted secrets, snapshots, and runtime spills have separate
 XDG roots. Parent directories are mode 0700 and private files are mode 0600
 where Unix permissions exist.
 
+## Symbol extraction
+
+`light_file` uses a deterministic extension registry. Grammar-backed release
+builds support:
+
+| Language | Extensions |
+| --- | --- |
+| Go | `.go` |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| TypeScript / TSX | `.ts` / `.tsx` (dedicated TSX grammar) |
+| Python / Java / Rust | `.py`, `.java`, `.rs` |
+| C / C++ / C# | `.c`, `.h` / `.cpp`, `.cc`, `.cxx`, `.hpp` / `.cs` |
+| Ruby / PHP | `.rb`, `.php` |
+| Bash / Lua | `.sh`, `.bash`, `.lua` |
+| Scala / Kotlin / Dart | `.scala`, `.kt`, `.kts`, `.dart` |
+| HTML | `.html` |
+
+CSS (`.css`), Markdown (`.md`, `.markdown`), YAML (`.yaml`,
+`.yml`), and TOML (`.toml`) use pure-Go deterministic extractors and are
+available on every release platform. Windows ARM64 intentionally remains a
+CGo-free build: these four structured-text lanes work there, while
+grammar-backed files return the documented no-symbol fallback.
+
+Symbols have a closed kind vocabulary, exact line and byte ranges,
+UTF-8-safe signatures/comments, parent attribution where the grammar exposes
+it, and deterministic source ordering. Parsing rejects lines above 8000 bytes,
+uses tree-sitter's native timeout, and has a single-flight hard circuit so a
+pathological CGo parse cannot accumulate workers. Unsupported `.htm` files
+use the ordinary fixed-size outline.
+
 ## Development and release
 
 ```sh
