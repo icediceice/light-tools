@@ -102,7 +102,7 @@ func extractGrammar(descriptor grammarDescriptor, source []byte) ([]Symbol, erro
 		if descriptor.id == langGo && bodyNode.Kind() == "method_declaration" {
 			parent = extractGoReceiver(firstLine(emitNode.Utf8Text(source)))
 		}
-		if descriptor.id == langPython && bodyNode.Kind() == "function_definition" && parent != "" {
+		if parent != "" && kind == KindFunction {
 			kind = KindMethod
 		}
 		symbol := symbolFromNode(name, kind, parent, emitNode, source)
