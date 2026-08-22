@@ -12,6 +12,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Remove-Item Env:LIGHT_TERSE_OUTPUT -ErrorAction SilentlyContinue
 $Binary = [System.IO.Path]::GetFullPath($Binary)
 $Workspace = [System.IO.Path]::GetFullPath($Workspace)
 New-Item -ItemType Directory -Force -Path $Workspace | Out-Null
