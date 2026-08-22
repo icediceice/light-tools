@@ -162,6 +162,34 @@ $enabledRequests = @(
             name = "light_file"
             arguments = [ordered]@{ verb = "read"; path = $outsidePath; offset = 0; limit = 5 }
         }
+    },
+    [ordered]@{
+        jsonrpc = "2.0"; id = 7; method = "tools/call"
+        params = [ordered]@{
+            name = "light_ops"
+            arguments = [ordered]@{ verb = "probe_file"; path = $sourcePath }
+        }
+    },
+    [ordered]@{
+        jsonrpc = "2.0"; id = 8; method = "tools/call"
+        params = [ordered]@{
+            name = "light_ssh"
+            arguments = [ordered]@{ command = "must-not-execute" }
+        }
+    },
+    [ordered]@{
+        jsonrpc = "2.0"; id = 9; method = "tools/call"
+        params = [ordered]@{
+            name = "light_scp"
+            arguments = [ordered]@{ src = $sourcePath; dst = (Join-Path $Workspace "also-local.txt") }
+        }
+    },
+    [ordered]@{
+        jsonrpc = "2.0"; id = 10; method = "tools/call"
+        params = [ordered]@{
+            name = "light_file"
+            arguments = [ordered]@{ verb = "read"; path = $imagePath }
+        }
     }
 )
 $enabledArguments = @("--enable-shell", "--enable-remote", "--enable-ops")
