@@ -181,7 +181,18 @@ real stdio, and covered by tests.
 4. **Phantom trailing line dropped** in both `readWindow` and `renderItem`; an
    empty file now reports zero lines.
 
-Two further hardening changes came out of peer review and are included:
+Three further hardening groups came out of peer review and are included:
+
+- **Self-verifying opt-in formatter** — deterministic terse output is emitted
+  only after production decode-and-compare and strict token+byte improvement;
+  raw output remains the default and every unsafe shape falls back exactly.
+- **One child environment and operation-aware remote execution** — bash, SSH,
+  and SCP use the same non-nil cross-platform allowlist. SSH no longer retries
+  arbitrary timed-out commands; SCP keeps one convergent overwrite retry.
+  Cancellation and timeout now become MCP errors instead of successful
+  `exit_code:-1` results.
+
+The earlier paging hardening is also retained:
 
 - **`expected_sha` continuation identity** — paging a file that changed between
   pages is refused rather than silently duplicating or dropping lines.
