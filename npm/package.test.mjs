@@ -56,6 +56,7 @@ test("platform manifests carry npm compatibility gates and no executable shim", 
   assert.deepEqual(linux.os, ["linux"]);
   assert.deepEqual(linux.cpu, ["x64"]);
   assert.deepEqual(linux.libc, ["glibc"]);
+  assert.equal(linux.engines.npm, ">=10.0.0");
   assert.deepEqual(linux.files, ["bin/light-tools"]);
   assert.equal(linux.bin, undefined);
   assert.equal(linux.scripts, undefined);
