@@ -275,7 +275,10 @@ jobs:
 
           publish_one() {
             package="$1"
-            tarball="release/$2"
+            # ./ prefix is REQUIRED: npm-package-arg reads a bare "release/x.tgz"
+            # as a GitHub owner/repo shorthand and tries to git-clone it. A local
+            # tarball path must start with ./ ../ / or ~/ to be treated as a file.
+            tarball="./release/$2"
             local_integrity="sha512-$(openssl dgst -sha512 -binary "$tarball" | base64 -w0)"
             if registry_integrity="$(npm view "$package@$VERSION" dist.integrity 2>/dev/null)"; then
               if [ "$registry_integrity" != "$local_integrity" ]; then
