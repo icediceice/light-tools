@@ -34,6 +34,26 @@ features remain intentionally absent.
 `-count=1` was used deliberately: the first runs reported `(cached)` for every
 package, and a cache hit is not a test run.
 
+## 2026-08-22 formatter and five-tool release gate
+
+| Contract | Local evidence |
+| --- | --- |
+| strict terse grammar | `internal/terse` tables cover exact UseNumber values, number-like and multiline strings, nested/scalar/tabular shapes, malformed/trailing input, unsupported fallback, determinism, and token+byte wins |
+| runtime semantic guard | every candidate is production-decoded and `reflect.DeepEqual` checked before emission |
+| MCP boundary | `TestTerseFormattingAtDispatchBoundary` covers value, pointer, and marshalled result branches without alias mutation; errors/images/plain text pass through |
+| all five registered tools | `TestAllFiveToolsThroughServeRawAndTerse` drives real `registerTools` + `Server.Serve` for file, bash, ops, SSH, and SCP |
+| child process environment | one `internal/childenv` policy covers bash/SSH/SCP; `TestRunOnceUsesMinimalEnvironmentAndRealProcess` executes the real helper with a parent-only canary |
+| remote execution | cancellation/timeout are errors, SSH is at most once, SCP gets one overwrite retry, and argv/precedence/confinement/accounting are hermetic tests |
+| installed package | `scripts/mcp-smoke.ps1` reaches all five handlers, verifies an MCP image block, uses pre-execution remote refusals, then scopes terse mode last and removes the environment flag |
+| race coverage | CI has uncached Linux race jobs for both untagged and CGo/tree-sitter builds in addition to six native uncached verbose lanes |
+
+The opt-in formatter is default-off and enabled only by
+`LIGHT_TERSE_OUTPUT=1`. It ports the deterministic estimator/floor, UseNumber
+handling, sorted keys, supported nested/scalar/homogeneous-row rendering,
+selective quoting, index-0-only clone, and only-if-smaller behavior. It
+deliberately excludes redundant stripping, loose rendering, grouped locate,
+factored rows, smart-index budget/dedup, and hub telemetry/F3/raw-copy behavior.
+
 ## Protocol and registration — PASS
 
 | Case | Observed |
