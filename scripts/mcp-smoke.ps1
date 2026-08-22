@@ -277,9 +277,15 @@ $secondTerseText = [string]$secondTerseResponses[1].result.content[0].text
 if ($firstTerseText -cne $secondTerseText) {
     throw "opt-in formatter output was not deterministic"
 }
+if ($firstTerseText -ceq $rawTerseText) {
+    throw "LIGHT_TERSE_OUTPUT did not engage: the installed binary ignored the opt-in gate"
+}
+if (-not $firstTerseText.StartsWith("~")) {
+    throw "opt-in formatter emitted non-terse text: $($firstTerseText.Substring(0, [Math]::Min(40, $firstTerseText.Length)))"
+}
 $rawByteCount = [Text.Encoding]::UTF8.GetByteCount($rawTerseText)
 $terseByteCount = [Text.Encoding]::UTF8.GetByteCount($firstTerseText)
-if ($firstTerseText -cne $rawTerseText -and $terseByteCount -ge $rawByteCount) {
+if ($terseByteCount -ge $rawByteCount) {
     throw "opt-in formatter output was not strictly smaller"
 }
 
