@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/icediceice/light-tools/internal/childenv"
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
 )
