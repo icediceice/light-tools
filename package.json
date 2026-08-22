@@ -32,9 +32,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "scripts": {
-    "test:npm": "node --test npm/*.test.mjs"
-  },
+
   "optionalDependencies": {
     "@icediceice/light-tools-darwin-arm64": "0.0.0-development",
     "@icediceice/light-tools-darwin-x64": "0.0.0-development",
