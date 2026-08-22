@@ -2,6 +2,8 @@
 
 package symbol
 
+import "unsafe"
+
 import (
 	dart "github.com/UserNobody14/tree-sitter-dart/bindings/go"
 	kotlin "github.com/tree-sitter-grammars/tree-sitter-kotlin/bindings/go"
