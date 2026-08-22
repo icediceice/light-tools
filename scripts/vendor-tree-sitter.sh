@@ -18,6 +18,7 @@ copy_tree() {
   mkdir -p "$(dirname -- "$destination")"
   cp -R "$module_root/$source_dir" "$destination"
   chmod -R u+w "$destination"
+  rm -f "$destination/grammar.json" "$destination/node-types.json"
   if [ -n "$required" ] && [ ! -f "$destination/$required" ]; then
     echo "vendored source is missing $required: $destination" >&2
     exit 1
