@@ -5,44 +5,64 @@ Light's file, shell, SSH/SCP, and operations tools without its fleet control
 plane. It is one Go binary, speaks MCP over stdio, needs no database or daemon,
 and registers only `light_file` by default.
 
-## Install in three commands
+## Install from npm
 
-Release binaries include the tagged CGo tree-sitter runtime and Go, JavaScript,
-and Python grammars.
+The public package installs the matching native binary from npm itself; it does
+not run a lifecycle downloader or contact GitHub during installation.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/icediceice/light-tools/main/install.sh | sh
+npm install --global @icediceice/light-tools
 light-tools init
 claude mcp add light-tools -- light-tools
 ```
 
-`init` creates private XDG state directories and prints the exact MCP command.
-It is optional because the server initializes those directories on first run.
-For a client other than Claude Code, pass `--client` — see
-[MCP clients](#mcp-clients).
+Node 18.17 or newer is required for the small launcher. The native package is
+selected by npm from exact-version optional dependencies, so installs continue
+to work with lifecycle scripts disabled and through an npm registry mirror.
+Linux packages target glibc; Alpine/musl is rejected during installation instead
+of failing later with a dynamic-loader `ENOENT`.
 
-Windows PowerShell installs the same signed-by-checksum release assets:
+On Windows, npm creates `light-tools.cmd`. PowerShell and Command Prompt can run
+`light-tools` normally. MCP clients that start commands without a shell must use
+Command Prompt explicitly:
+
+```json
+{
+  "command": "cmd",
+  "args": ["/d", "/s", "/c", "light-tools"]
+}
+```
+
+Running `light-tools init --client print` shows the normal configuration
+contract. `init` creates private XDG state directories and is optional because
+the server initializes them on first run.
+
+Release binaries include the tagged CGo tree-sitter runtime and Go, JavaScript,
+and Python grammars. Windows ARM64 deliberately uses the portable no-grammar
+build; all five MCP tools remain available.
+
+### Native archive fallback
+
+The checksum-verifying POSIX and PowerShell installers remain available to
+operators who can access this private GitHub repository:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/icediceice/light-tools/main/install.sh | sh
+```
 
 ```powershell
 Invoke-WebRequest https://raw.githubusercontent.com/icediceice/light-tools/main/install.ps1 -OutFile install.ps1
 ./install.ps1
-light-tools init
 ```
 
-Pass `-Version 1.2.3` or `-Destination C:\Tools` to pin or relocate the
+Pass `-Version 1.2.3` or `-Destination C:\\Tools` to pin or relocate the
 PowerShell install. The POSIX equivalents are `LIGHT_TOOLS_VERSION` and
-`LIGHT_TOOLS_INSTALL_DIR`. Both installers refuse an asset that has no exact
-entry in `checksums.txt`.
+`LIGHT_TOOLS_INSTALL_DIR`. Both installers require an exact asset entry in
+`checksums.txt`. Candidate testing may use an HTTPS or loopback origin override;
+because the archive and checksum then share that origin, the override is trusted
+rather than independently authenticated.
 
-Release testing and trusted mirrors may override the candidate asset directory with
-`LIGHT_TOOLS_BASE_URL` or PowerShell's `-BaseUrl`. Overrides must use HTTPS or
-loopback HTTP and name the directory containing the six archives and
-`checksums.txt`. The checksum still detects corruption, but because both files
-come from the selected origin the installer warns that a custom origin is trusted,
-not independently verified. Leaving the override unset preserves the GitHub
-Releases URL and its default verification behavior.
-
-Maintainers should follow the tag-last process in [RELEASING.md](RELEASING.md).
+Maintainers should follow [RELEASING.md](RELEASING.md).
 
 Published binaries cover:
 
