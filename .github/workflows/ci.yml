@@ -167,5 +167,5 @@ jobs:
           docker run --rm --network none
           --volume "$GITHUB_WORKSPACE:/work:ro"
           --workdir /work
-          node:22-alpine
+          node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
           node --test npm/package.test.mjs npm/platform.test.mjs
