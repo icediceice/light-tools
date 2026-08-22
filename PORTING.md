@@ -30,6 +30,36 @@ one-slot channel shim and no post-call governance accounting.
   selectors fail before any mutation is committed.
 - `payload_version` is reserved; the current grammar is format 1.
 
+## Deterministic outbound formatter
+
+The standalone port retains only the strict, deterministic formatter semantics
+that do not depend on Light's hub retaining a raw telemetry copy:
+
+- `LIGHT_TERSE_OUTPUT` is read once at startup and enabled only by exactly
+  `1`; default output remains raw JSON text.
+- A punctuation-aware estimate and 100-token input floor avoid spending work on
+  small responses. A transformed value is used only when both estimated tokens
+  and UTF-8 bytes strictly decrease.
+- JSON is one complete document decoded with `UseNumber`. Object keys are
+  sorted. Supported grammar is scalar values, non-empty objects with recursively
+  supported values, scalar arrays, and arrays of non-empty objects with an
+  identical key set.
+- The production decoder reconstructs `map[string]any`, `[]any`,
+  `json.Number`, strings, booleans, and null. Every candidate is decoded and
+  `reflect.DeepEqual` compared with the original parsed value before emission.
+  Unsafe keys, empty containers, heterogeneous shapes, malformed/trailing JSON,
+  and ambiguous string values fall back to exact raw bytes.
+- Only a successful text block at `content[0]` is eligible. The content slice
+  is cloned; handler-owned `Result` pointers, `content[1:]`, images, errors,
+  and non-JSON text are never mutated.
+
+Deliberately excluded are `stripRedundant`, `looseToTerse`, the Light
+smart-index renderer and budget/dedup layer, grouped locate output,
+`factorRows`, and hub telemetry/F3/raw-copy machinery. Those mechanisms are
+lossy or control-plane-specific in the source environment. The terse token
+estimate also stays separate from `light_file read`'s public `tokens` field,
+which is a consumer-visible contract.
+
 ## Stable limits and edge cases
 
 - Sed refuses zero matches as `not_found` and more than one match as
