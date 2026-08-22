@@ -51,14 +51,17 @@ type connection struct {
 	proxyJump string
 }
 
+type commandRunner func(context.Context, string, []string, int, bool) (string, string, int, error)
+
 type Transport struct {
 	profiles map[string]config.RemoteProfile
 	confiner *security.Confiner
 	secrets  *secret.Vault
+	runner   commandRunner
 }
 
 func New(profiles map[string]config.RemoteProfile, confiner *security.Confiner, secrets *secret.Vault) *Transport {
-	return &Transport{profiles: profiles, confiner: confiner, secrets: secrets}
+	return &Transport{profiles: profiles, confiner: confiner, secrets: secrets, runner: runCommand}
 }
 
 func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
