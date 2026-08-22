@@ -14,11 +14,12 @@ because that state is process-local.
 
 ## Verdict
 
-The port is **functionally faithful on almost every documented contract** — the
-protocol, the read/mutation surface, the payload grammar, snapshots, secrets and
-the async lifecycle all behave as `PORTING.md` promises. Three defects are worth
-fixing before anyone relies on it, one of which is a security boundary that does
-not hold.
+The port is **functionally faithful on the deterministic standalone contracts
+documented in `PORTING.md`**. The historical defects recorded below are closed
+by the fixes section and regression tests. Remaining differences are explicit:
+the two locate engines differ on ignore/context behavior, live SSH/SCP
+interoperability requires an external host, and control-plane-only Light
+features remain intentionally absent.
 
 ## Build and test
 
