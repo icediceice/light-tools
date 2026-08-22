@@ -135,3 +135,38 @@ jobs:
         run: |
           npx --yes @modelcontextprotocol/inspector --cli light-tools --method tools/list --format json > inspector.json
           node -e "const x=require('./inspector.json'); const n=x.result.tools.map(t=>t.name); if(n.length!==1||n[0]!=='light_file') process.exit(1)"
+
+  npm-package:
+    name: npm package contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: false
+      - name: Unit and manifest contract
+        run: node --test npm/*.test.mjs
+      - name: Public package allowlist
+        run: npm pack --dry-run --json
+      - name: Pack, install, and full MCP smoke
+        run: node scripts/npm-package-smoke.mjs --require-pwsh
+
+  npm-musl:
+    name: npm musl refusal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove glibc packages fail legibly on Alpine
+        run: >-
+          docker run --rm --network none
+          --volume "$GITHUB_WORKSPACE:/work:ro"
+          --workdir /work
+          node:22-alpine
+          node --test npm/package.test.mjs npm/platform.test.mjs
