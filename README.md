@@ -16,7 +16,7 @@ light-tools init
 claude mcp add light-tools -- light-tools
 ```
 
-Node 18.17 or newer is required for the small launcher. The native package is
+Node 18.17 or newer and npm 10 or newer are required. The native package is
 selected by npm from exact-version optional dependencies, so installs continue
 to work with lifecycle scripts disabled and through an npm registry mirror.
 Linux packages target glibc; Alpine/musl is rejected during installation instead
