@@ -5,7 +5,10 @@ import (
 	"testing"
 )
 
-// Peer verify-ship probe. Untagged lane only (pure-text extractors).
+// Peer verify-ship acceptance probes, untagged (pure-text) lane.
+// The assertions below are RED today and encode the expected post-fix
+// behaviour; log-only probes document non-blocking observations.
+
 func TestPeerProbeTextLanes(t *testing.T) {
 	cases := []struct {
 		path   string
@@ -29,6 +32,8 @@ func TestPeerProbeTextLanes(t *testing.T) {
 	}
 }
 
+// G3: top-level YAML keys that open a block (the structural keys of every
+// real config file) must be addressable, not only "key: value" leaves.
 func TestPeerProbeYAMLBlockKeys(t *testing.T) {
 	source := []byte("name: CI\non:\n  push:\njobs:\n  build:\n")
 	symbols, err := Extract("ci.yml", source)
@@ -48,11 +53,15 @@ func TestPeerProbeYAMLBlockKeys(t *testing.T) {
 	}
 }
 
+// G4: hex colours and url() file extensions are not CSS selectors.
 func TestPeerProbeCSSHexColorIsNotASymbol(t *testing.T) {
 	source := []byte(".card { color: #fff; background: url(logo.svg); }\n")
 	symbols, err := Extract("theme.css", source)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if countTextSymbols(symbols, "card", KindCSSClass) != 1 {
+		t.Errorf("real selector .card lost: %#v", symbols)
 	}
 	for _, s := range symbols {
 		if s.Kind == KindCSSID && s.Name == "fff" {
@@ -64,11 +73,19 @@ func TestPeerProbeCSSHexColorIsNotASymbol(t *testing.T) {
 	}
 }
 
+// G9 (FOLLOW-UP, log only): a value carrying invalid UTF-8 before the cut
+// collapses to a bare ellipsis instead of a truncated prefix.
 func TestPeerProbeTruncateInvalidUTF8Input(t *testing.T) {
 	value := string([]byte{0xff, 0xfe}) + "abcdefghij"
-	got := truncateUTF8(value, 4)
-	t.Logf("truncateUTF8(invalid-utf8, 4) = %q", got)
-	if got == "…" {
-		t.Errorf("truncateUTF8 collapsed a 12-byte value to a bare ellipsis: %q", got)
+	t.Logf("truncateUTF8(invalid-utf8, 4) = %q", truncateUTF8(value, 4))
+}
+
+func countTextSymbols(symbols []Symbol, name, kind string) int {
+	count := 0
+	for _, symbol := range symbols {
+		if symbol.Name == name && symbol.Kind == kind {
+			count++
+		}
 	}
+	return count
 }
