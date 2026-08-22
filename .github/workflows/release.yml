@@ -20,6 +20,10 @@ on:
       - install.ps1
       - README.md
       - RELEASING.md
+      - package.json
+      - npm/**
+      - scripts/build-npm-packages.mjs
+      - scripts/npm-package-smoke.mjs
       - scripts/mcp-smoke.ps1
       - scripts/candidateserve/**
 
