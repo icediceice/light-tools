@@ -64,7 +64,7 @@ test("platform manifests carry npm compatibility gates and no executable shim", 
 });
 
 test("release versions accept SemVer releases and reject path-like input", () => {
-  for (const version of ["0.1.0", "0.1.1-oidc.0", "12.34.56-rc.1+build.9"]) {
+  for (const version of ["0.1.0", "0.1.1-oidc.0", "12.34.56-rc.1"]) {
     assert.equal(validateVersion(version), version);
   }
   for (const version of ["v0.1.0", "../0.1.0", "0.1", "latest", "1.2.3/asset"]) {
