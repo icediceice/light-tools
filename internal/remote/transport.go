@@ -287,12 +287,15 @@ func runOnce(parent context.Context, executable string, args []string, timeout t
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, args...)
-	command.Env = inheritedRemoteEnvironment()
+	command.Env = childenv.Minimal()
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()
-	if ctx.Err() == context.DeadlineExceeded {
-		return stdout.String(), stderr.String(), -1, true, ctx.Err()
+	if parentErr := parent.Err(); parentErr != nil {
+		return stdout.String(), stderr.String(), -1, errors.Is(parentErr, context.DeadlineExceeded), parentErr
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return stdout.String(), stderr.String(), -1, errors.Is(ctxErr, context.DeadlineExceeded), ctxErr
 	}
 	if exit, ok := err.(*exec.ExitError); ok {
 		return stdout.String(), stderr.String(), exit.ExitCode(), false, nil
@@ -301,14 +304,4 @@ func runOnce(parent context.Context, executable string, args []string, timeout t
 		return "", "", -1, false, err
 	}
 	return stdout.String(), stderr.String(), 0, false, nil
-}
-
-func inheritedRemoteEnvironment() []string {
-	var result []string
-	for _, item := range os.Environ() {
-		if strings.HasPrefix(item, "PATH=") || strings.HasPrefix(item, "HOME=") || strings.HasPrefix(item, "SSH_AUTH_SOCK=") || strings.HasPrefix(item, "SYSTEMROOT=") {
-			result = append(result, item)
-		}
-	}
-	return result
 }
