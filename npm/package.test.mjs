@@ -47,19 +47,15 @@ test("the committed root manifest is inert and publish-safe", () => {
 test("promotion keeps prereleases away from stable GitHub and npm pointers", () => {
   assert.match(
     promotionWorkflow,
-    /if \[\[ "\$VERSION" == \*-\* \]\]; then\s+release_flags\+=\(--prerelease\);\s+fi/,
+    /release_flags=\(--verify-tag --notes "\$notes"\)\s+if \[\[ "\$VERSION" == \*-\* \]\]; then\s+release_flags\+=\(--prerelease\)\s+fi\s+gh release create "\$TAG" "\$\{release_flags\[@\]\}" release\/\*/,
   );
   assert.match(
     promotionWorkflow,
-    /gh release create "\\$TAG" "\\$\{release_flags\[@\]\}" release\/\*/,
-  );
-  assert.match(
-    promotionWorkflow,
-    /dist_tag=latest\s+if \[\[ "\\$VERSION" == \*-\* \]\]; then\s+dist_tag=next/,
+    /dist_tag=latest\s+if \[\[ "\$VERSION" == \*-\* \]\]; then\s+dist_tag=next/,
   );
   assert.doesNotMatch(
     promotionWorkflow,
-    /gh release create "\\$TAG" --verify-tag/,
+    /gh release create "\$TAG" --verify-tag/,
   );
 });
 
