@@ -11,6 +11,8 @@ import {
 
 class FakeChild extends EventEmitter {
   killedWith = [];
+  exitCode = null;
+  signalCode = null;
 
   kill(signal) {
     this.killedWith.push(signal);
