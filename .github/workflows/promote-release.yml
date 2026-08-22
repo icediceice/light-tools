@@ -211,10 +211,11 @@ jobs:
       INPUT_VERSION: ${{ inputs.version }}
       INPUT_CHECKSUMS_SHA256: ${{ inputs.expected_checksums_sha256 }}
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
       - name: Pin trusted-publishing npm client
         run: npm install --global npm@11.19.0
       - name: Download and verify the promoted release
