@@ -20,6 +20,7 @@ import { buildPackages } from "./build-npm-packages.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const version = "0.0.0-smoke";
+const requirePwsh = process.argv.slice(2).includes("--require-pwsh");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
