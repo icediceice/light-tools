@@ -139,7 +139,7 @@ light-tools --enable-shell --enable-remote --enable-ops
 | --- | --- | --- |
 | Files | Reads, batches, cursors, symbols, images, locate, unified diff/patch preview, guarded transactional edits, snapshots | EDCR gates, plan attribution, Git checkpoints |
 | Shell | Sync and local async tasks, cancellation, bounded output, recoverable spills, secret refs | Host/node dispatch, fleet queues |
-| Remote | SSH/SCP profiles and overrides, agent inheritance, key/cert refs, timeout-only retry | Host registry, cross-host fan-out |
+| Remote | SSH/SCP profiles and overrides, shared minimal child environment, key/cert refs, SSH at-most-once execution, one timeout overwrite retry for SCP | Host registry, cross-host fan-out, credentialed live-host testing |
 | Ops | Local systemd/PM2/Docker discovery, probes, file logs, search/correlation/investigation, local async scans | Cross-host joins, shared telemetry/database state, service mutation |
 | Runtime | Direct stdio MCP, deterministic schemas, `E_*` caret diagnostics | Hub, WebSocket routing, RBAC, board/Discord, deploy orchestration |
 
