@@ -302,35 +302,42 @@ async function main() {
       mkdir(join(stateRoot, "data"), { recursive: true }),
       mkdir(join(stateRoot, "runtime"), { recursive: true }),
     ]);
-    run(
-      "pwsh",
-      [
-        "-NoProfile",
-        "-File",
-        join(repoRoot, "scripts", "mcp-smoke.ps1"),
-        "-Binary",
-        layout.shim,
-        "-ExpectedVersion",
-        version,
-        "-Workspace",
-        workspace,
-        "-SymbolMode",
-        symbolMode,
-        "-RealHome",
-        homedir(),
-      ],
-      {
-        env: {
-          ...npmEnvironment,
-          XDG_CONFIG_HOME: join(stateRoot, "config"),
-          XDG_DATA_HOME: join(stateRoot, "data"),
-          XDG_RUNTIME_DIR: join(stateRoot, "runtime"),
+    const hasPwsh = commandAvailable("pwsh", ["-NoProfile", "-Command", "exit 0"]);
+    if (!hasPwsh && requirePwsh) {
+      throw new Error("pwsh is required for the full package MCP smoke");
+    }
+    if (hasPwsh) {
+      run(
+        "pwsh",
+        [
+          "-NoProfile",
+          "-File",
+          join(repoRoot, "scripts", "mcp-smoke.ps1"),
+          "-Binary",
+          layout.shim,
+          "-ExpectedVersion",
+          version,
+          "-Workspace",
+          workspace,
+          "-SymbolMode",
+          symbolMode,
+          "-RealHome",
+          homedir(),
+        ],
+        {
+          env: {
+            ...npmEnvironment,
+            XDG_CONFIG_HOME: join(stateRoot, "config"),
+            XDG_DATA_HOME: join(stateRoot, "data"),
+            XDG_RUNTIME_DIR: join(stateRoot, "runtime"),
+          },
         },
-      },
-    );
+      );
+    }
 
     process.stdout.write(
-      `npm package smoke passed: ${host.key}, seven tarballs, ${symbolMode}\n`,
+      `npm package smoke passed: ${host.key}, seven tarballs, ${symbolMode}, ` +
+      `full_mcp=${hasPwsh ? "passed" : "skipped-no-pwsh"}\n`,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
