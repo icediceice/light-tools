@@ -73,16 +73,30 @@ func extractText(path string, source []byte) ([]Symbol, bool) {
 		seen[key] = true
 		symbols = append(symbols, textSymbol(kind, name, line))
 	}
+	cssDepth := 0
 	for _, line := range lines {
 		switch info.language {
 		case langCSS:
-			for _, match := range cssKeyframeRE.FindAllStringSubmatch(line.text, -1) {
+			selector := ""
+			if opening := strings.IndexByte(line.text, '{'); opening >= 0 {
+				selector = line.text[:opening]
+			} else if cssDepth == 0 {
+				selector = line.text
+			}
+			cssDepth += strings.Count(line.text, "{") - strings.Count(line.text, "}")
+			if cssDepth < 0 {
+				cssDepth = 0
+			}
+			if selector == "" {
+				continue
+			}
+			for _, match := range cssKeyframeRE.FindAllStringSubmatch(selector, -1) {
 				add(KindCSSKeyframes, match[1], line)
 			}
-			for _, match := range cssClassRE.FindAllStringSubmatch(line.text, -1) {
+			for _, match := range cssClassRE.FindAllStringSubmatch(selector, -1) {
 				add(KindCSSClass, match[1], line)
 			}
-			for _, match := range cssIDRE.FindAllStringSubmatch(line.text, -1) {
+			for _, match := range cssIDRE.FindAllStringSubmatch(selector, -1) {
 				add(KindCSSID, match[1], line)
 			}
 			if match := cssElementRE.FindStringSubmatch(line.text); match != nil {
