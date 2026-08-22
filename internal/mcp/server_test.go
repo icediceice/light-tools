@@ -3,8 +3,12 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/icediceice/light-tools/internal/terse"
 )
 
 func TestProtocolHandshakeAndDeterministicToolList(t *testing.T) {
