@@ -138,17 +138,54 @@ test("termination signals are forwarded and signal exits are conventional", asyn
   assert.deepEqual(child.killedWith, ["SIGTERM"]);
 });
 
-test("spawn failures reject without rewriting their cause", async () => {
+test("native start failures are actionable and preserve their cause", async () => {
+  for (const code of ["ENOENT", "EACCES", "ENOEXEC"]) {
+    const child = new FakeChild();
+    const pending = run({
+      args: [],
+      platform: "linux",
+      arch: "arm64",
+      resolve: () => "/native/package.json",
+      spawn: () => child,
+      signalSource: new EventEmitter(),
+    });
+    const failure = Object.assign(new Error(`start failed: ${code}`), { code });
+    child.emit("error", failure);
+    await assert.rejects(pending, (error) => {
+      assert.ok(error instanceof NativeBinaryError);
+      assert.equal(error.code, "E_NATIVE_BINARY_UNUSABLE");
+      assert.equal(error.cause, failure);
+      assert.match(error.message, /@icediceice\/light-tools-linux-arm64/);
+      assert.match(error.message, /npm install --global --force @icediceice\/light-tools/);
+      assert.match(error.message, /glibc/);
+      return true;
+    });
+  }
+});
+
+test("synchronous native start failures are mapped, while unrelated errors pass through", async () => {
+  const failure = Object.assign(new Error("missing executable"), { code: "ENOENT" });
+  assert.throws(
+    () => run({
+      platform: "darwin",
+      arch: "x64",
+      resolve: () => "/native/package.json",
+      spawn() {
+        throw failure;
+      },
+    }),
+    (error) => error instanceof NativeBinaryError && error.cause === failure,
+  );
+
   const child = new FakeChild();
   const pending = run({
-    args: [],
     platform: "linux",
-    arch: "arm64",
+    arch: "x64",
     resolve: () => "/native/package.json",
     spawn: () => child,
     signalSource: new EventEmitter(),
   });
-  const failure = Object.assign(new Error("permission denied"), { code: "EACCES" });
-  child.emit("error", failure);
-  await assert.rejects(pending, failure);
+  const unrelated = Object.assign(new Error("pipe failed"), { code: "EPIPE" });
+  child.emit("error", unrelated);
+  await assert.rejects(pending, (error) => error === unrelated);
 });
