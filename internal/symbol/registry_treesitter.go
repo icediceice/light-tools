@@ -104,6 +104,7 @@ var grammarRegistry = map[languageID]grammarDescriptor{
 	langC: {
 		id: langC, language: languageFrom(clang.Language), query: `
 (function_definition declarator: (function_declarator declarator: (identifier) @name)) @body
+(function_definition declarator: (function_declarator declarator: (field_identifier) @name)) @body
 (struct_specifier name: (type_identifier) @name) @body
 (enum_specifier name: (type_identifier) @name) @body
 `, kinds: map[string]string{"function_definition": KindFunction, "struct_specifier": KindStruct, "enum_specifier": KindEnum},
