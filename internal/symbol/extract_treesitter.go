@@ -4,145 +4,145 @@ package symbol
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
-	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
-	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
-)
-
-const (
-	parseWatchdog = 2 * time.Second
-	signatureCap  = 240
 )
 
 func Extract(path string, source []byte) ([]Symbol, error) {
-	language, err := languageFor(path)
+	if symbols, ok := extractText(path, source); ok {
+		return symbols, nil
+	}
+	info, err := extensionFor(path)
 	if err != nil {
 		return nil, err
 	}
+	descriptor, ok := grammarFor(info.language)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedExtension, info.language)
+	}
+	if longest := maxLineBytes(source); longest > parseMaxLineBytes {
+		return nil, fmt.Errorf("%w: longest line is %d bytes (limit %d)", ErrParseHostile, longest, parseMaxLineBytes)
+	}
+	return runParserWork(parseDeadline, func() ([]Symbol, error) {
+		return extractGrammar(descriptor, source)
+	})
+}
+
+func extractGrammar(descriptor grammarDescriptor, source []byte) ([]Symbol, error) {
 	parser := tree_sitter.NewParser()
 	defer parser.Close()
+	language := descriptor.language()
 	if err := parser.SetLanguage(language); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("set %s grammar: %w", descriptor.id, err)
 	}
-	started := time.Now()
+	parser.SetTimeoutMicros(parseTimeoutMicros)
 	tree := parser.Parse(source, nil)
 	if tree == nil {
-		return nil, fmt.Errorf("tree-sitter returned no tree")
+		return nil, fmt.Errorf("%w: %s", ErrParseTimeout, descriptor.id)
 	}
 	defer tree.Close()
-	if time.Since(started) > parseWatchdog {
-		return nil, fmt.Errorf("tree-sitter parse exceeded %s watchdog", parseWatchdog)
+	if descriptor.special != nil {
+		symbols := descriptor.special(tree.RootNode(), source)
+		sortSymbols(symbols)
+		return symbols, nil
 	}
+	query, err := tree_sitter.NewQuery(language, descriptor.query)
+	if err != nil {
+		return nil, fmt.Errorf("compile %s symbol query: %w", descriptor.id, err)
+	}
+	defer query.Close()
 
-	seen := make(map[uint]bool)
+	nameIndex, nameOK := query.CaptureIndexForName("name")
+	bodyIndex, bodyOK := query.CaptureIndexForName("body")
+	if !nameOK || !bodyOK {
+		return nil, fmt.Errorf("compile %s symbol query: required captures absent", descriptor.id)
+	}
+	cursor := tree_sitter.NewQueryCursor()
+	defer cursor.Close()
+	matches := cursor.Matches(query, tree.RootNode(), source)
+	seen := make(map[string]bool)
 	var symbols []Symbol
-	walk(tree.RootNode(), source, "", seen, &symbols)
-	sort.SliceStable(symbols, func(i, j int) bool { return symbols[i].StartByte < symbols[j].StartByte })
+	for match := matches.Next(); match != nil; match = matches.Next() {
+		var nameNode, bodyNode *tree_sitter.Node
+		for index := range match.Captures {
+			capture := &match.Captures[index]
+			switch uint(capture.Index) {
+			case nameIndex:
+				nameNode = &capture.Node
+			case bodyIndex:
+				bodyNode = &capture.Node
+			}
+		}
+		if nameNode == nil || bodyNode == nil {
+			continue
+		}
+		name := normalizeCapturedName(nameNode, source)
+		kind := descriptor.kinds[bodyNode.Kind()]
+		if name == "" || !ValidKind(kind) {
+			continue
+		}
+		if descriptor.noise[bodyNode.Kind()] && len([]rune(name)) <= 1 {
+			continue
+		}
+		identity := fmt.Sprintf("%s:%d:%d:%s", kind, nameNode.StartByte(), nameNode.EndByte(), name)
+		if seen[identity] {
+			continue
+		}
+		seen[identity] = true
+
+		emitNode := bodyNode
+		if descriptor.id == langGo && bodyNode.Kind() == "type_spec" {
+			if parent := bodyNode.Parent(); parent != nil && parent.Kind() == "type_declaration" && parent.NamedChildCount() == 1 {
+				emitNode = parent
+			}
+		}
+		parent := parentName(bodyNode, source)
+		if descriptor.id == langGo && bodyNode.Kind() == "method_declaration" {
+			parent = extractGoReceiver(firstLine(emitNode.Utf8Text(source)))
+		}
+		if descriptor.id == langPython && bodyNode.Kind() == "function_definition" && parent != "" {
+			kind = KindMethod
+		}
+		symbol := symbolFromNode(name, kind, parent, emitNode, source)
+		if symbol.StartByte < symbol.EndByte {
+			symbols = append(symbols, symbol)
+		}
+	}
+	sortSymbols(symbols)
 	return symbols, nil
 }
 
-func languageFor(path string) (*tree_sitter.Language, error) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".go":
-		return tree_sitter.NewLanguage(tree_sitter_go.Language()), nil
-	case ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx":
-		return tree_sitter.NewLanguage(tree_sitter_javascript.Language()), nil
-	case ".py":
-		return tree_sitter.NewLanguage(tree_sitter_python.Language()), nil
-	default:
-		return nil, fmt.Errorf("no tree-sitter grammar for %s", filepath.Ext(path))
-	}
-}
-
-func walk(node *tree_sitter.Node, source []byte, parent string, seen map[uint]bool, output *[]Symbol) {
-	if node == nil {
-		return
-	}
-	kind := classify(node.Kind())
-	nextParent := parent
-	if kind != "" {
-		nameNode := node.ChildByFieldName("name")
-		if nameNode == nil {
-			nameNode = recursiveName(node)
-		}
-		if nameNode != nil {
-			name := strings.TrimSpace(nameNode.Utf8Text(source))
-			if usefulName(name) && !seen[node.StartByte()] {
-				seen[node.StartByte()] = true
-				derivedParent := parent
-				if node.Kind() == "method_declaration" {
-					if receiver := node.ChildByFieldName("receiver"); receiver != nil {
-						derivedParent = strings.TrimSpace(receiver.Utf8Text(source))
-					}
-				}
-				signature := firstLine(node.Utf8Text(source))
-				*output = append(*output, Symbol{
-					Name: name, Kind: kind, Signature: signature, Comment: leadingComment(node, source),
-					Parent: derivedParent, StartLine: int(node.StartPosition().Row) + 1,
-					EndLine: int(node.EndPosition().Row) + 1, StartByte: node.StartByte(), EndByte: node.EndByte(),
-				})
-				if kind == "class" || kind == "type" {
-					nextParent = name
-				}
+func normalizeCapturedName(node *tree_sitter.Node, source []byte) string {
+	name := strings.TrimSpace(node.Utf8Text(source))
+	switch node.Kind() {
+	case "string", "template_string":
+		if len(name) >= 2 {
+			first, last := name[0], name[len(name)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') || (first == '`' && last == '`') {
+				name = name[1 : len(name)-1]
 			}
 		}
 	}
-	for index := uint(0); index < node.NamedChildCount(); index++ {
-		walk(node.NamedChild(index), source, nextParent, seen, output)
+	if name == "_" || len(name) > 256 || strings.HasPrefix(name, "<") {
+		return ""
 	}
+	return name
 }
 
-func recursiveName(node *tree_sitter.Node) *tree_sitter.Node {
-	for index := uint(0); index < node.NamedChildCount(); index++ {
-		child := node.NamedChild(index)
-		switch child.Kind() {
-		case "identifier", "type_identifier", "property_identifier":
-			return child
-		}
-		if found := recursiveName(child); found != nil {
-			return found
-		}
+func symbolFromNode(name, kind, parent string, node *tree_sitter.Node, source []byte) Symbol {
+	return Symbol{
+		Name: name, Kind: kind, Signature: firstLine(node.Utf8Text(source)),
+		Comment: leadingComment(node, source), Parent: parent,
+		StartLine: int(node.StartPosition().Row) + 1, EndLine: int(node.EndPosition().Row) + 1,
+		StartByte: node.StartByte(), EndByte: node.EndByte(),
 	}
-	return nil
-}
-
-func classify(kind string) string {
-	switch kind {
-	case "function_declaration", "function_definition":
-		return "function"
-	case "method_declaration", "method_definition":
-		return "method"
-	case "class_declaration", "class_definition":
-		return "class"
-	case "type_declaration", "type_spec":
-		return "type"
-	}
-	return ""
-}
-
-func usefulName(name string) bool {
-	if name == "" || name == "_" || len(name) > 256 {
-		return false
-	}
-	switch name {
-	case "init", "__init__", "main":
-		return true
-	}
-	return !strings.HasPrefix(name, "<")
 }
 
 func firstLine(value string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(value), "\n")
-	if len(line) > signatureCap {
-		return line[:signatureCap] + "…"
-	}
-	return line
+	return truncateUTF8(line, 240)
 }
 
 func leadingComment(node *tree_sitter.Node, source []byte) string {
@@ -153,9 +153,67 @@ func leadingComment(node *tree_sitter.Node, source []byte) string {
 	if previous.EndPosition().Row+1 < node.StartPosition().Row {
 		return ""
 	}
-	value := strings.TrimSpace(previous.Utf8Text(source))
-	if len(value) > signatureCap {
-		value = value[:signatureCap] + "…"
+	return truncateUTF8(strings.TrimSpace(previous.Utf8Text(source)), 500)
+}
+
+func parentName(node *tree_sitter.Node, source []byte) string {
+	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
+		switch ancestor.Kind() {
+		case "class_declaration", "class_definition", "class", "module", "object_definition",
+			"object_declaration", "trait_definition", "interface_declaration", "struct_item":
+			if name := directName(ancestor, source); name != "" {
+				return name
+			}
+		}
 	}
-	return value
+	return ""
+}
+
+func directName(node *tree_sitter.Node, source []byte) string {
+	if name := node.ChildByFieldName("name"); name != nil {
+		return strings.TrimSpace(name.Utf8Text(source))
+	}
+	for index := uint(0); index < node.NamedChildCount(); index++ {
+		child := node.NamedChild(index)
+		switch child.Kind() {
+		case "identifier", "type_identifier", "constant":
+			return strings.TrimSpace(child.Utf8Text(source))
+		}
+	}
+	return ""
+}
+
+func extractGoReceiver(signature string) string {
+	if !strings.HasPrefix(signature, "func (") {
+		return ""
+	}
+	rest := signature[6:]
+	end := strings.IndexByte(rest, ')')
+	if end < 0 {
+		return ""
+	}
+	parts := strings.Fields(strings.TrimSpace(rest[:end]))
+	if len(parts) == 0 {
+		return ""
+	}
+	receiver := strings.TrimPrefix(parts[len(parts)-1], "*")
+	if bracket := strings.IndexByte(receiver, '['); bracket >= 0 {
+		receiver = receiver[:bracket]
+	}
+	return receiver
+}
+
+func sortSymbols(symbols []Symbol) {
+	sort.SliceStable(symbols, func(left, right int) bool {
+		if symbols[left].StartByte != symbols[right].StartByte {
+			return symbols[left].StartByte < symbols[right].StartByte
+		}
+		if symbols[left].EndByte != symbols[right].EndByte {
+			return symbols[left].EndByte < symbols[right].EndByte
+		}
+		if symbols[left].Kind != symbols[right].Kind {
+			return symbols[left].Kind < symbols[right].Kind
+		}
+		return symbols[left].Name < symbols[right].Name
+	})
 }
