@@ -45,12 +45,14 @@ type Tool struct {
 type Server struct {
 	name    string
 	version string
+	terse   bool
 	mu      sync.RWMutex
 	tools   map[string]Tool
 }
 
-func New(name, version string) *Server {
-	return &Server{name: name, version: version, tools: make(map[string]Tool)}
+func New(name, version string, terseOutput ...bool) *Server {
+	enabled := len(terseOutput) > 0 && terseOutput[0]
+	return &Server{name: name, version: version, terse: enabled, tools: make(map[string]Tool)}
 }
 
 func (s *Server) Register(tool Tool) error {
