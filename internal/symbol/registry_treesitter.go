@@ -67,7 +67,7 @@ var grammarRegistry = map[languageID]grammarDescriptor{
 (lexical_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression)])) @body
 (variable_declaration (variable_declarator name: (identifier) @name value: [(arrow_function) (function_expression)])) @body
 (assignment_expression left: (member_expression property: (property_identifier) @name) right: [(arrow_function) (function_expression)]) @body
-(call_expression function: (member_expression) arguments: (arguments [(string) (template_string)] @name [(arrow_function) (function_expression)])) @body
+(call_expression function: [(identifier) (member_expression)] arguments: (arguments [(string) (template_string)] @name [(arrow_function) (function_expression)])) @body
 (pair key: (property_identifier) @name value: [(arrow_function) (function_expression)]) @body
 `, kinds: map[string]string{
 			"function_declaration": KindFunction, "method_definition": KindMethod, "class_declaration": KindClass,
