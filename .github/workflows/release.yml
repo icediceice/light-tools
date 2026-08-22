@@ -120,6 +120,12 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: build --clean --single-target --snapshot --id ${{ matrix.build_id }}
+      - name: Enforce 64 MiB executable ceiling
+        shell: pwsh
+        run: |
+          $binaries = @(Get-ChildItem -Path dist -Recurse -File | Where-Object { $_.Name -like "light-tools*" })
+          if ($binaries.Count -ne 1) { throw "expected one built executable, found $($binaries.Count)" }
+          if ($binaries[0].Length -gt 67108864) { throw "binary size $($binaries[0].Length) exceeds 64 MiB ceiling" }
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.os }}_${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -177,6 +183,13 @@ jobs:
             binary="$(find "artifacts/windows_$arch" -type f -name light-tools.exe | head -n 1)"
             [ -n "$binary" ] || { echo "missing binary for windows_$arch" >&2; exit 1; }
             (cd "$(dirname "$binary")" && zip "$GITHUB_WORKSPACE/release/light-tools_${VERSION}_windows_${arch}.zip" light-tools.exe)
+          done
+          for archive in release/light-tools_*; do
+            size="$(wc -c < "$archive")"
+            if [ "$size" -gt 33554432 ]; then
+              echo "archive size $size exceeds 32 MiB ceiling: $archive" >&2
+              exit 1
+            fi
           done
           (cd release && sha256sum light-tools_* > checksums.txt)
           test "$(find release -maxdepth 1 -type f | wc -l)" -eq 7
