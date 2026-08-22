@@ -143,6 +143,52 @@ func TestWatchdogCircuit(t *testing.T) {
 	}
 }
 
+func TestParentsCommentsOverloadsAndChunkFallback(t *testing.T) {
+	comment := "// " + strings.Repeat("documentation ", 60)
+	goSource := []byte("package p\n" + comment + "\nfunc (b *Box) Run() {}\n\ntype Box struct{}\n")
+	goSymbols, err := Extract("sample.go", goSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var method Symbol
+	for _, candidate := range goSymbols {
+		if candidate.Name == "Run" {
+			method = candidate
+		}
+	}
+	if method.Parent != "Box" || method.Comment == "" || len(method.Comment) > 503 || !utf8.ValidString(method.Comment) {
+		t.Fatalf("method metadata = %#v", method)
+	}
+
+	javaSource := []byte("class Box { void f() {} void f(int x) {} }\n")
+	javaSymbols, err := Extract("sample.java", javaSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if countSymbols(javaSymbols, "f", KindMethod) != 2 {
+		t.Fatalf("same-line overloads = %#v", javaSymbols)
+	}
+
+	plainJS := []byte(strings.Repeat("const value = 1;\n", 300))
+	plainSymbols, err := Extract("config.js", plainJS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plainSymbols) != 0 {
+		t.Fatalf("plain JS should retain chunk fallback, got %#v", plainSymbols)
+	}
+
+	malformed := []byte("class { function ???")
+	first, err := Extract("broken.js", malformed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Extract("broken.js", malformed)
+	if err != nil || !reflect.DeepEqual(first, second) {
+		t.Fatalf("malformed extraction differs: %#v %#v %v", first, second, err)
+	}
+}
+
 func assertSymbolInvariant(t *testing.T, source []byte, symbol Symbol) {
 	t.Helper()
 	if symbol.Name == "" || !ValidKind(symbol.Kind) {
