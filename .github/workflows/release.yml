@@ -144,6 +144,13 @@ jobs:
     outputs:
       checksums_sha256: ${{ steps.package.outputs.checksums_sha256 }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: false
       - uses: actions/download-artifact@v4
         with:
           name: binary-linux_amd64-${{ github.run_id }}-${{ github.run_attempt }}
