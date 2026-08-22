@@ -3,11 +3,11 @@ package symbol
 import "errors"
 
 var (
-	ErrUnavailable        = errors.New("tree-sitter support is not included in this build")
+	ErrUnavailable          = errors.New("tree-sitter support is not included in this build")
 	ErrUnsupportedExtension = errors.New("unsupported symbol extension")
-	ErrParseHostile       = errors.New("source rejected as parse-hostile")
-	ErrParseTimeout       = errors.New("tree-sitter parse timed out")
-	ErrParseBusy          = errors.New("tree-sitter parser is recovering from a timed-out parse")
+	ErrParseHostile         = errors.New("source rejected as parse-hostile")
+	ErrParseTimeout         = errors.New("tree-sitter parse timed out")
+	ErrParseBusy            = errors.New("tree-sitter parser is recovering from a timed-out parse")
 )
 
 const (

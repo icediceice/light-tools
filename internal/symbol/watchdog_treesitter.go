@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	parseDeadline       = 10 * time.Second
-	parseMaxLineBytes   = 8000
-	parseTimeoutMicros  = uint64(parseDeadline / time.Microsecond)
+	parseDeadline      = 10 * time.Second
+	parseMaxLineBytes  = 8000
+	parseTimeoutMicros = uint64(parseDeadline / time.Microsecond)
 )
 
 type parseResult struct {
