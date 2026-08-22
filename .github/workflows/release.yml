@@ -175,7 +175,7 @@ jobs:
         with:
           name: binary-windows_arm64-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/windows_arm64
-      - name: Package exact native assets
+      - name: Package exact native and npm assets
         id: package
         shell: bash
         env:
@@ -183,28 +183,59 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release
+          native_assets=()
           for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
             binary="$(find "artifacts/$platform" -type f -name light-tools | head -n 1)"
             [ -n "$binary" ] || { echo "missing binary for $platform" >&2; exit 1; }
             os="${platform%_*}"
             arch="${platform#*_}"
-            tar -C "$(dirname "$binary")" -czf "release/light-tools_${VERSION}_${os}_${arch}.tar.gz" "$(basename "$binary")"
+            filename="light-tools_${VERSION}_${os}_${arch}.tar.gz"
+            tar -C "$(dirname "$binary")" -czf "release/$filename" "$(basename "$binary")"
+            native_assets+=("$filename")
           done
           for arch in amd64 arm64; do
             binary="$(find "artifacts/windows_$arch" -type f -name light-tools.exe | head -n 1)"
             [ -n "$binary" ] || { echo "missing binary for windows_$arch" >&2; exit 1; }
-            (cd "$(dirname "$binary")" && zip "$GITHUB_WORKSPACE/release/light-tools_${VERSION}_windows_${arch}.zip" light-tools.exe)
+            filename="light-tools_${VERSION}_windows_${arch}.zip"
+            (cd "$(dirname "$binary")" && zip "$GITHUB_WORKSPACE/release/$filename" light-tools.exe)
+            native_assets+=("$filename")
           done
-          for archive in release/light-tools_*; do
-            size="$(wc -c < "$archive")"
-            if [ "$size" -gt 33554432 ]; then
-              echo "archive size $size exceeds 32 MiB ceiling: $archive" >&2
+
+          node scripts/build-npm-packages.mjs             --version "$VERSION"             --artifacts artifacts             --output release > "$RUNNER_TEMP/npm-packages.json"
+
+          npm_assets=(
+            "icediceice-light-tools-darwin-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-darwin-x64-${VERSION}.tgz"
+            "icediceice-light-tools-linux-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-linux-x64-${VERSION}.tgz"
+            "icediceice-light-tools-win32-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-win32-x64-${VERSION}.tgz"
+            "icediceice-light-tools-${VERSION}.tgz"
+          )
+          printf '%s\n' "${npm_assets[@]}" | sort > "$RUNNER_TEMP/expected-npm-assets.txt"
+          jq -r '.[].filename' "$RUNNER_TEMP/npm-packages.json" | sort > "$RUNNER_TEMP/actual-npm-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-npm-assets.txt" "$RUNNER_TEMP/actual-npm-assets.txt"
+
+          expected_assets=("${native_assets[@]}" "${npm_assets[@]}")
+          printf '%s\n' "${expected_assets[@]}" | sort > "$RUNNER_TEMP/expected-assets.txt"
+          find release -maxdepth 1 -type f -printf '%f\n' | sort > "$RUNNER_TEMP/actual-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-assets.txt" "$RUNNER_TEMP/actual-assets.txt"
+
+          for asset in "${expected_assets[@]}"; do
+            size="$(wc -c < "release/$asset")"
+            limit=33554432
+            if [ "$asset" = "icediceice-light-tools-${VERSION}.tgz" ]; then
+              limit=1048576
+            fi
+            if [ "$size" -gt "$limit" ]; then
+              echo "package size $size exceeds $limit-byte ceiling: $asset" >&2
               exit 1
             fi
           done
-          (cd release && sha256sum light-tools_* > checksums.txt)
-          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 7
-          test "$(wc -l < release/checksums.txt)" -eq 6
+
+          (cd release && sha256sum "${expected_assets[@]}" > checksums.txt)
+          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 14
+          test "$(wc -l < release/checksums.txt)" -eq 13
           echo "checksums_sha256=$(sha256sum release/checksums.txt | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
