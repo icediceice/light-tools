@@ -5,3 +5,5 @@ node_modules/
 /light-tools
 /inspector.json
 .env
+/.release-bootstrap/
+/.registry-smoke/
