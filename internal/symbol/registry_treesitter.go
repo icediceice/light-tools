@@ -34,13 +34,6 @@ type grammarDescriptor struct {
 	special  func(*tree_sitter.Node, []byte) []Symbol
 }
 
-func language(raw unsafeLanguage) *tree_sitter.Language {
-	return tree_sitter.NewLanguage(raw())
-}
-
-type unsafeLanguage func() unsafe.Pointer
-
-var _ = language
 
 func grammarFor(id languageID) (grammarDescriptor, bool) {
 	descriptor, ok := grammarRegistry[id]
