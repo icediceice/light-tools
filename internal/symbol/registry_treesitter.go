@@ -165,7 +165,6 @@ var grammarRegistry = map[languageID]grammarDescriptor{
 	langLua: {
 		id: langLua, language: languageFrom(lua.Language), query: `
 (function_declaration name: (identifier) @name) @body
-(local_function_statement name: (identifier) @name) @body
 `, kinds: map[string]string{"function_declaration": KindFunction, "local_function_statement": KindFunction},
 	},
 	langScala: {
