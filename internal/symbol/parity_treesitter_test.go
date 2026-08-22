@@ -51,7 +51,7 @@ func TestSemanticParityCorpus(t *testing.T) {
 		{"sample.sh", "f() { :; }\n", map[string]string{"f": KindFunction}},
 		{"sample.lua", "local function f() end\n", map[string]string{"f": KindFunction}},
 		{"sample.scala", "class Box\ntrait Item\nobject App\ndef run(): Unit = {}\n", map[string]string{"Box": KindClass, "Item": KindTrait, "App": KindObject, "run": KindFunction}},
-		{"sample.kt", "class Box { fun run() {} }\nobject App\n", map[string]string{"Box": KindClass, "run": KindFunction, "App": KindObject}},
+		{"sample.kt", "class Box { fun run() {} }\nobject App\n", map[string]string{"Box": KindClass, "run": KindMethod, "App": KindObject}},
 		{"sample.dart", "class Box { void f() {} }\nvoid g() {}\n", map[string]string{"Box": KindClass, "f": KindMethod, "g": KindFunction}},
 		{"sample.html", "<button id=\"save\" name=\"action\" onclick=\"app.save()\">Save</button>\n", map[string]string{"save": KindHTMLID, "action": KindHTMLName, "app.save": KindHTMLHandler, "Save": KindHTMLText}},
 	}
