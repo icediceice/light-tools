@@ -12,11 +12,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/icediceice/light-tools/internal/childenv"
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
 )
@@ -345,16 +345,7 @@ func shellCommand(ctx context.Context, source string) *exec.Cmd {
 }
 
 func minimalEnvironment() []string {
-	allowed := map[string]bool{"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true, "TERM": true, "TMPDIR": true, "SSH_AUTH_SOCK": true, "SYSTEMROOT": true}
-	var environment []string
-	for _, item := range os.Environ() {
-		name, _, _ := strings.Cut(item, "=")
-		if allowed[name] {
-			environment = append(environment, item)
-		}
-	}
-	sort.Strings(environment)
-	return environment
+	return childenv.Minimal()
 }
 
 func filterOutput(value, mode string, lines int, filter string) string {

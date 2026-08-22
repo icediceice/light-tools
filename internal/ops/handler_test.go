@@ -3,6 +3,8 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,5 +170,135 @@ func TestPM2RegistryLogsRespectPrivateRoots(t *testing.T) {
 	handler.registry.updated = time.Now()
 	if _, err := callOpsErr(t, handler, map[string]any{"verb": "log_window", "service": "pm2:vault"}); err == nil || !strings.Contains(err.Error(), "private") {
 		t.Fatalf("expected private PM2 log refusal, got %v", err)
+	}
+}
+
+func TestServiceListAndDeterministicProbes(t *testing.T) {
+	handler, api, _ := testLogHandler(t)
+
+	value, err := callOpsErr(t, handler, map[string]any{"verb": "list_services"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	services, ok := value.([]Service)
+	if !ok || len(services) != 2 || services[0].ID != "pm2:api" || services[1].ID != "pm2:worker" {
+		t.Fatalf("cached service list drifted: %#v", value)
+	}
+
+	value, err = callOpsErr(t, handler, map[string]any{"verb": "probe_service", "service": "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, ok := value.(Service)
+	if !ok || service.ID != "pm2:api" {
+		t.Fatalf("service probe drifted: %#v", value)
+	}
+
+	file := callOps(t, handler, map[string]any{"verb": "probe_file", "path": api})
+	if file["exists"] != true || file["size"].(int64) <= 0 {
+		t.Fatalf("file probe drifted: %#v", file)
+	}
+	missing := callOps(t, handler, map[string]any{"verb": "probe_file", "path": filepath.Join(filepath.Dir(api), "missing.log")})
+	if missing["exists"] != false || missing["error"] == "" {
+		t.Fatalf("missing-file probe drifted: %#v", missing)
+	}
+
+	process := callOps(t, handler, map[string]any{"verb": "probe_process", "pid": os.Getpid()})
+	if process["pid"] != os.Getpid() || process["alive"] != true {
+		t.Fatalf("process probe drifted: %#v", process)
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	port := listener.Addr().(*net.TCPAddr).Port
+	probed := callOps(t, handler, map[string]any{"verb": "probe_port", "port": port})
+	if probed["port"] != port || probed["listening"] != true {
+		t.Fatalf("port probe drifted: %#v", probed)
+	}
+
+	for _, request := range []map[string]any{
+		{"verb": "probe_port", "port": 0},
+		{"verb": "probe_process", "pid": 0},
+		{"verb": "unsupported"},
+	} {
+		if _, err := callOpsErr(t, handler, request); err == nil {
+			t.Fatalf("invalid ops request succeeded: %#v", request)
+		}
+	}
+}
+
+func TestAsyncTaskFailureCancellationAndCollection(t *testing.T) {
+	t.Run("failure", func(t *testing.T) {
+		store := newTaskStore()
+		id, err := store.start(func(context.Context) (any, error) {
+			return nil, errors.New("deterministic failure")
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		status := waitTaskStatus(t, store, id, "failed")
+		if status["status"] != "failed" {
+			t.Fatalf("task did not fail: %#v", status)
+		}
+		collected, err := store.action("collect", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if collected["result"] != nil || collected["error"] != "deterministic failure" {
+			t.Fatalf("failed collection drifted: %#v", collected)
+		}
+		if _, err := store.action("status", id); err == nil {
+			t.Fatal("collected failed task was not removed")
+		}
+	})
+
+	t.Run("cancellation", func(t *testing.T) {
+		store := newTaskStore()
+		started := make(chan struct{})
+		id, err := store.start(func(ctx context.Context) (any, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		<-started
+		cancelled, err := store.action("cancel", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cancelled["status"] != "cancelling" {
+			t.Fatalf("cancel did not enter cancelling: %#v", cancelled)
+		}
+		waitTaskStatus(t, store, id, "cancelled")
+		collected, err := store.action("collect", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if collected["status"] != "cancelled" || collected["result"] != nil {
+			t.Fatalf("cancelled collection drifted: %#v", collected)
+		}
+	})
+}
+
+func waitTaskStatus(t *testing.T, store *taskStore, id, want string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status, err := store.action("status", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status["status"] == want {
+			return status
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task %s did not reach %s: %#v", id, want, status)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

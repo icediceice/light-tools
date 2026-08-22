@@ -1,6 +1,6 @@
 # light-tools parity report
 
-Session date: 2026-08-16 · binary: `0.1.0-dev` built `-tags treesitter` · host: light-worker
+Session date: 2026-08-22 · binary: `0.1.0-dev` · host: light-worker
 
 Every row below is backed by a build verdict, a test verdict, or a live JSON-RPC
 transcript captured this session. Rows that could not be exercised say so
@@ -14,11 +14,12 @@ because that state is process-local.
 
 ## Verdict
 
-The port is **functionally faithful on almost every documented contract** — the
-protocol, the read/mutation surface, the payload grammar, snapshots, secrets and
-the async lifecycle all behave as `PORTING.md` promises. Three defects are worth
-fixing before anyone relies on it, one of which is a security boundary that does
-not hold.
+The port is **functionally faithful on the deterministic standalone contracts
+documented in `PORTING.md`**. The historical defects recorded below are closed
+by the fixes section and regression tests. Remaining differences are explicit:
+the two locate engines differ on ignore/context behavior, live SSH/SCP
+interoperability requires an external host, and control-plane-only Light
+features remain intentionally absent.
 
 ## Build and test
 
@@ -26,12 +27,60 @@ not hold.
 | --- | --- |
 | `go build ./...` | exit 0 |
 | `go build -tags treesitter ./...` | exit 0 (CGo tree-sitter compiles) |
-| `go test ./...` | exit 0 — 13 packages ok, 3 no test files |
+| `go test -count=1 -v ./...` | exit 0 — uncached full suite |
+| `go test -tags treesitter -count=1 -v ./...` | exit 0 — `internal/symbol` genuinely executes |
 | `go test -race -count=1 ./...` | exit 0 — no data races |
-| `go test -tags treesitter -count=1 ./...` | exit 0 — `internal/symbol` genuinely executes |
+| `go test -race -tags treesitter -count=1 ./...` | exit 0 — no races in the CGo/tree-sitter path |
 
 `-count=1` was used deliberately: the first runs reported `(cached)` for every
 package, and a cache hit is not a test run.
+
+## 2026-08-22 multilingual symbol lane
+
+The standalone extractor ports the Light-CF language coverage through a
+contract-first registry rather than copying vector-index losses. The grammar
+matrix covers Go, JavaScript, TypeScript, TSX, Python, Java, Rust, C, C++, C#,
+Ruby, PHP, Bash, Lua, Scala, Kotlin, Dart, and HTML. Untagged CSS, Markdown,
+YAML, and TOML extraction works on all six platforms.
+
+The parity corpus compiles every registered query and requires a positive
+fixture for every grammar family. It also pins grouped Go declarations,
+dedicated TSX (`Props` plus JSX-bearing `Badge`), one-rune Ruby/Lua/Dart
+declarations, exact ranges, valid UTF-8 truncation, deterministic repeats, and
+the bounded parser circuit. Public integration drives both outline and named
+symbol lookup. Installed-package smoke repeats the discriminating TSX probe on
+the five grammar-enabled platforms while preserving Windows ARM64's exact Go
+no-symbol assertion.
+
+Deliberate divergences from Light-CF are user-facing fixes: no duplicate or
+lost Go types, no invalid UTF-8 caps, no synthetic `<module>`, no quoted
+unaddressable test names, no dropped one-rune declarations, real structured
+text byte offsets, and richer class-like kinds. Syntax mutation gates,
+call/import/literal/xref extraction, embeddings, index storage, hub telemetry,
+regex fallback builds, and `.htm` remain excluded.
+
+CI rejects executables above 64 MiB and release packaging rejects compressed
+candidates above 32 MiB.
+
+## 2026-08-22 formatter and five-tool release gate
+
+| Contract | Local evidence |
+| --- | --- |
+| strict terse grammar | `internal/terse` tables cover exact UseNumber values, number-like and multiline strings, nested/scalar/tabular shapes, malformed/trailing input, unsupported fallback, determinism, and token+byte wins |
+| runtime semantic guard | every candidate is production-decoded and `reflect.DeepEqual` checked before emission |
+| MCP boundary | `TestTerseFormattingAtDispatchBoundary` covers value, pointer, and marshalled result branches without alias mutation; errors/images/plain text pass through |
+| all five registered tools | `TestAllFiveToolsThroughServeRawAndTerse` drives real `registerTools` + `Server.Serve` for file, bash, ops, SSH, and SCP |
+| child process environment | one `internal/childenv` policy covers bash/SSH/SCP; `TestRunOnceUsesMinimalEnvironmentAndRealProcess` executes the real helper with a parent-only canary |
+| remote execution | cancellation/timeout are errors, SSH is at most once, SCP gets one overwrite retry, and argv/precedence/confinement/accounting are hermetic tests |
+| installed package | `scripts/mcp-smoke.ps1` reaches all five handlers, verifies an MCP image block, uses pre-execution remote refusals, then scopes terse mode last and removes the environment flag |
+| race coverage | CI has uncached Linux race jobs for both untagged and CGo/tree-sitter builds in addition to six native uncached verbose lanes |
+
+The opt-in formatter is default-off and enabled only by
+`LIGHT_TERSE_OUTPUT=1`. It ports the deterministic estimator/floor, UseNumber
+handling, sorted keys, supported nested/scalar/homogeneous-row rendering,
+selective quoting, index-0-only clone, and only-if-smaller behavior. It
+deliberately excludes redundant stripping, loose rendering, grouped locate,
+factored rows, smart-index budget/dedup, and hub telemetry/F3/raw-copy behavior.
 
 ## Protocol and registration — PASS
 
@@ -84,7 +133,7 @@ sending `"id": null`. JSON-RPC 2.0 requires null when the id is undeterminable.
 | --- | --- | --- |
 | sync execution | `stdout`/`stderr` separated, `exit_code:3` preserved | PASS |
 | root confinement (cwd) | `path "/etc" escapes allowed roots` | PASS |
-| minimal environment | only `HOME LANG PATH PWD SHLVL SSH_AUTH_SOCK` survive | PASS (by design) |
+| minimal environment | POSIX keeps the documented allowlist; Windows now filters names case-insensitively into a non-nil minimal environment with executable, module, home, cache, temporary-directory, and system-path support | PASS (by design) |
 | timeout | **`{"exit_code":-1}` after 307 ms, no error at all** | **BUG** |
 | spill | opaque random `spill_id`, `truncated:true`, tail preview | PASS |
 | `read_block` + `line_range` | recovers exact ranges | PASS |
@@ -129,10 +178,14 @@ code genuinely backs the claim.
 
 ## Not covered
 
-- `light_ssh` / `light_scp`: registration and schemas verified; no live
-  round-trip, which would require a reachable host and a real key. UNPROVEN.
+- Live `light_ssh` / `light_scp` interoperability remains UNPROVEN because it
+  requires a reachable host and real key. Command construction, environment,
+  retry, timeout/cancellation, confinement, cleanup, direction, and byte
+  accounting are covered hermetically.
 - Payload `@find`/`@replace` sections (see above). UNPROVEN.
-- Windows/macOS behaviour; everything here is Linux amd64.
+- This hand-run report is Linux amd64. Exact-HEAD Windows/macOS evidence comes
+  from the required uncached native CI and installed-package release matrix; no
+  local cross-platform claim substitutes for those jobs.
 
 ## Fixes applied
 
@@ -156,7 +209,18 @@ real stdio, and covered by tests.
 4. **Phantom trailing line dropped** in both `readWindow` and `renderItem`; an
    empty file now reports zero lines.
 
-Two further hardening changes came out of peer review and are included:
+Three further hardening groups came out of peer review and are included:
+
+- **Self-verifying opt-in formatter** — deterministic terse output is emitted
+  only after production decode-and-compare and strict token+byte improvement;
+  raw output remains the default and every unsafe shape falls back exactly.
+- **One child environment and operation-aware remote execution** — bash, SSH,
+  and SCP use the same non-nil cross-platform allowlist. SSH no longer retries
+  arbitrary timed-out commands; SCP keeps one convergent overwrite retry.
+  Cancellation and timeout now become MCP errors instead of successful
+  `exit_code:-1` results.
+
+The earlier paging hardening is also retained:
 
 - **`expected_sha` continuation identity** — paging a file that changed between
   pages is refused rather than silently duplicating or dropping lines.
@@ -172,6 +236,10 @@ that directory.
 
 ## Still open
 
+- Locate engines retain documented differences: ripgrep honors ignore/hidden
+  rules and drops context events, while the Go fallback walks all regular files
+  except `.git` and joins context. Offsets still index the matching line even
+  when Go `text` includes context.
 - `lines` is still ignored by `log_window` (row above), tracked separately.
 - Batch item `limit:0` defaults to 120 rather than clamping to 1.
 - `readWindow` still reads the whole file before slicing; the 256 MiB refusal

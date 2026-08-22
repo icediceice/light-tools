@@ -26,7 +26,7 @@ func newTestRunner(t *testing.T) (*Runner, string) {
 func TestTimeoutIsReportedAndKeepsPartialOutput(t *testing.T) {
 	runner, root := newTestRunner(t)
 	result, err := runner.Run(context.Background(), Request{
-		Command:   "printf before; printf err >&2; sleep 5",
+		Command:   shellSource("printf before; printf err >&2; sleep 5", "[Console]::Out.Write(\"before\"); [Console]::Error.Write(\"err\"); Start-Sleep -Seconds 5"),
 		Cwd:       root,
 		TimeoutMS: 300,
 	})

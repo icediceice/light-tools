@@ -1,14 +1,85 @@
-name: Release
+name: Release candidate
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build, with or without a leading v
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/workflows/promote-release.yml
+      - .github/release-environment.json
+      - .goreleaser.yml
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - install.sh
+      - install.ps1
+      - README.md
+      - RELEASING.md
+      - package.json
+      - npm/**
+      - scripts/build-npm-packages.mjs
+      - scripts/npm-package-smoke.mjs
+      - scripts/mcp-smoke.ps1
+      - scripts/candidateserve/**
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      artifact_name: ${{ steps.release.outputs.artifact_name }}
+      tested_sha: ${{ steps.release.outputs.tested_sha }}
+    steps:
+      - name: Normalize candidate metadata and prove exact tag absence
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          TESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            version="0.0.0-rc.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+          else
+            version="${INPUT_VERSION#v}"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "invalid release version: $version" >&2
+            exit 1
+          fi
+
+          tag="v$version"
+          exact_count="$(
+            gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag" |
+              jq --arg ref "refs/tags/$tag" '[.[] | select(.ref == $ref)] | length'
+          )"
+          if [ "$exact_count" -ne 0 ]; then
+            echo "tag already exists: $tag" >&2
+            exit 1
+          fi
+
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "artifact_name=release-$version-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "tested_sha=$TESTED_SHA"
+          } >> "$GITHUB_OUTPUT"
+
   build:
+    name: build-${{ matrix.os }}_${{ matrix.arch }}
+    needs: metadata
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -21,7 +92,7 @@ jobs:
             os: linux
             arch: arm64
             build_id: light-tools
-          - runner: macos-13
+          - runner: macos-15-intel
             os: darwin
             arch: amd64
             build_id: light-tools
@@ -41,68 +112,375 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24.x"
           cache: true
-      - uses: egor-tensin/setup-mingw@v2
-        if: runner.os == 'Windows' && matrix.arch == 'amd64'
       - uses: goreleaser/goreleaser-action@v6
         env:
-          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         with:
           distribution: goreleaser
           version: "~> v2"
           args: build --clean --single-target --snapshot --id ${{ matrix.build_id }}
+      - name: Enforce 64 MiB executable ceiling
+        shell: pwsh
+        run: |
+          $binaries = @(Get-ChildItem -Path dist -Recurse -File | Where-Object { $_.Name -like "light-tools*" })
+          if ($binaries.Count -ne 1) { throw "expected one built executable, found $($binaries.Count)" }
+          if ($binaries[0].Length -gt 67108864) { throw "binary size $($binaries[0].Length) exceeds 64 MiB ceiling" }
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}_${{ matrix.arch }}
+          name: binary-${{ matrix.os }}_${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: dist/*/light-tools*
           if-no-files-found: error
+          retention-days: 7
 
-  publish:
-    needs: build
+  package:
+    needs: [metadata, build]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      checksums_sha256: ${{ steps.package.outputs.checksums_sha256 }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-      - name: Assert published version matches the tag
+          name: binary-linux_amd64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/linux_amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-linux_arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/linux_arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-darwin_amd64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/darwin_amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-darwin_arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/darwin_arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-windows_amd64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/windows_amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: binary-windows_arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/windows_arm64
+      - name: Package exact native and npm assets
+        id: package
         shell: bash
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           set -euo pipefail
-          expected="${GITHUB_REF_NAME#v}"
-          binary="$(find artifacts/linux_amd64 -type f -name light-tools | head -n 1)"
-          if [ -z "$binary" ]; then
-            echo "linux_amd64 binary is missing" >&2
-            exit 1
-          fi
-          chmod +x "$binary"
-          got="$("$binary" version)"
-          if [ "$got" != "$expected" ]; then
-            echo "binary reports '$got', tag is '$expected'" >&2
-            exit 1
-          fi
-      - name: Package native artifacts
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
           mkdir release
+          native_assets=()
           for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
             binary="$(find "artifacts/$platform" -type f -name light-tools | head -n 1)"
+            [ -n "$binary" ] || { echo "missing binary for $platform" >&2; exit 1; }
             os="${platform%_*}"
             arch="${platform#*_}"
-            tar -C "$(dirname "$binary")" -czf "release/light-tools_${version}_${os}_${arch}.tar.gz" "$(basename "$binary")"
+            filename="light-tools_${VERSION}_${os}_${arch}.tar.gz"
+            tar -C "$(dirname "$binary")" -czf "release/$filename" "$(basename "$binary")"
+            native_assets+=("$filename")
           done
           for arch in amd64 arm64; do
             binary="$(find "artifacts/windows_$arch" -type f -name light-tools.exe | head -n 1)"
-            (cd "$(dirname "$binary")" && zip "$GITHUB_WORKSPACE/release/light-tools_${version}_windows_${arch}.zip" light-tools.exe)
+            [ -n "$binary" ] || { echo "missing binary for windows_$arch" >&2; exit 1; }
+            filename="light-tools_${VERSION}_windows_${arch}.zip"
+            (cd "$(dirname "$binary")" && zip "$GITHUB_WORKSPACE/release/$filename" light-tools.exe)
+            native_assets+=("$filename")
           done
-          (cd release && sha256sum * > checksums.txt)
-      - name: Publish GitHub release
+
+          node scripts/build-npm-packages.mjs             --version "$VERSION"             --artifacts artifacts             --output release > "$RUNNER_TEMP/npm-packages.json"
+
+          npm_assets=(
+            "icediceice-light-tools-darwin-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-darwin-x64-${VERSION}.tgz"
+            "icediceice-light-tools-linux-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-linux-x64-${VERSION}.tgz"
+            "icediceice-light-tools-win32-arm64-${VERSION}.tgz"
+            "icediceice-light-tools-win32-x64-${VERSION}.tgz"
+            "icediceice-light-tools-${VERSION}.tgz"
+          )
+          printf '%s\n' "${npm_assets[@]}" | sort > "$RUNNER_TEMP/expected-npm-assets.txt"
+          jq -r '.[].filename' "$RUNNER_TEMP/npm-packages.json" | sort > "$RUNNER_TEMP/actual-npm-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-npm-assets.txt" "$RUNNER_TEMP/actual-npm-assets.txt"
+
+          expected_assets=("${native_assets[@]}" "${npm_assets[@]}")
+          printf '%s\n' "${expected_assets[@]}" | sort > "$RUNNER_TEMP/expected-assets.txt"
+          find release -maxdepth 1 -type f -printf '%f\n' | sort > "$RUNNER_TEMP/actual-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-assets.txt" "$RUNNER_TEMP/actual-assets.txt"
+
+          for asset in "${expected_assets[@]}"; do
+            size="$(wc -c < "release/$asset")"
+            limit=33554432
+            if [ "$asset" = "icediceice-light-tools-${VERSION}.tgz" ]; then
+              limit=1048576
+            fi
+            if [ "$size" -gt "$limit" ]; then
+              echo "package size $size exceeds $limit-byte ceiling: $asset" >&2
+              exit 1
+            fi
+          done
+
+          (cd release && sha256sum "${expected_assets[@]}" > checksums.txt)
+          test "$(find release -maxdepth 1 -type f | wc -l)" -eq 14
+          test "$(wc -l < release/checksums.txt)" -eq 13
+          echo "checksums_sha256=$(sha256sum release/checksums.txt | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.metadata.outputs.artifact_name }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Record candidate approval inputs
+        shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --generate-notes --verify-tag
+          VERSION: ${{ needs.metadata.outputs.version }}
+          ARTIFACT_NAME: ${{ needs.metadata.outputs.artifact_name }}
+          CHECKSUMS_SHA256: ${{ steps.package.outputs.checksums_sha256 }}
+        run: |
+          {
+            echo "### Unpublished release candidate"
+            echo
+            echo "- Version: \`$VERSION\`"
+            echo "- Candidate artifact: \`$ARTIFACT_NAME\`"
+            echo "- checksums.txt SHA-256: \`$CHECKSUMS_SHA256\`"
+            echo
+            echo "Copy the run ID, version, and checksum digest only after all six smoke jobs succeed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  smoke:
+    name: smoke-${{ matrix.os }}_${{ matrix.arch }}
+    needs: [metadata, package]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            os: linux
+            arch: amd64
+            symbol_mode: symbols
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+            symbol_mode: symbols
+          - runner: macos-15-intel
+            os: darwin
+            arch: amd64
+            symbol_mode: symbols
+          - runner: macos-14
+            os: darwin
+            arch: arm64
+            symbol_mode: symbols
+          - runner: windows-2022
+            os: windows
+            arch: amd64
+            symbol_mode: symbols
+          - runner: windows-11-arm
+            os: windows
+            arch: arm64
+            symbol_mode: no-symbol
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Download candidate (failed-only reruns are unsupported)
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.metadata.outputs.artifact_name }}
+          path: candidate
+      - name: Verify candidate identity
+        shell: pwsh
+        env:
+          EXPECTED_CHECKSUMS_SHA256: ${{ needs.package.outputs.checksums_sha256 }}
+        run: |
+          $actual = (Get-FileHash -Algorithm SHA256 -Path candidate/checksums.txt).Hash.ToLowerInvariant()
+          if ($actual -ne $env:EXPECTED_CHECKSUMS_SHA256) {
+            throw "candidate checksum manifest changed: $actual"
+          }
+      - name: Build bound candidate server
+        shell: pwsh
+        run: |
+          $name = if ($env:RUNNER_OS -eq "Windows") { "candidateserve.exe" } else { "candidateserve" }
+          $server = Join-Path $env:RUNNER_TEMP $name
+          & go build -o $server ./scripts/candidateserve
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "CANDIDATE_SERVER=$server" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install with Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          $candidate = (Resolve-Path candidate).Path
+          $destination = Join-Path $env:RUNNER_TEMP "install-windows-powershell"
+          $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+          $startInfo.FileName = $env:CANDIDATE_SERVER
+          $startInfo.Arguments = '"' + $candidate + '"'
+          $startInfo.UseShellExecute = $false
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $process = New-Object System.Diagnostics.Process
+          $process.StartInfo = $startInfo
+          try {
+            if (-not $process.Start()) { throw "candidate server did not start" }
+            $baseUrl = $process.StandardOutput.ReadLine()
+            if ([string]::IsNullOrWhiteSpace($baseUrl)) {
+              throw "candidate server did not report its bound URL: $($process.StandardError.ReadToEnd())"
+            }
+            & ./install.ps1 -Version $env:VERSION -Destination $destination -BaseUrl $baseUrl
+            if (-not (Test-Path -LiteralPath (Join-Path $destination "light-tools.exe") -PathType Leaf)) {
+              throw "Windows PowerShell installer did not create light-tools.exe"
+            }
+          }
+          finally {
+            if ($null -ne $process -and -not $process.HasExited) {
+              $process.Kill()
+              $process.WaitForExit()
+            }
+          }
+      - name: Install candidate and exercise packaged MCP server
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          SYMBOL_MODE: ${{ matrix.symbol_mode }}
+        run: |
+          $candidate = (Resolve-Path candidate).Path
+          $destination = Join-Path $env:RUNNER_TEMP "install-candidate"
+          $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+          $startInfo.FileName = $env:CANDIDATE_SERVER
+          $startInfo.Arguments = '"' + $candidate + '"'
+          $startInfo.UseShellExecute = $false
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $process = New-Object System.Diagnostics.Process
+          $process.StartInfo = $startInfo
+          try {
+            if (-not $process.Start()) { throw "candidate server did not start" }
+            $baseUrl = $process.StandardOutput.ReadLine()
+            if ([string]::IsNullOrWhiteSpace($baseUrl)) {
+              throw "candidate server did not report its bound URL: $($process.StandardError.ReadToEnd())"
+            }
+            if ($env:RUNNER_OS -eq "Windows") {
+              & ./install.ps1 -Version $env:VERSION -Destination $destination -BaseUrl $baseUrl
+              $binary = Join-Path $destination "light-tools.exe"
+            }
+            else {
+              $env:LIGHT_TOOLS_VERSION = $env:VERSION
+              $env:LIGHT_TOOLS_INSTALL_DIR = $destination
+              $env:LIGHT_TOOLS_BASE_URL = $baseUrl
+              & /bin/sh ./install.sh
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              $binary = Join-Path $destination "light-tools"
+            }
+          }
+          finally {
+            if ($null -ne $process -and -not $process.HasExited) {
+              $process.Kill()
+              $process.WaitForExit()
+            }
+          }
+
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+            throw "candidate installer did not create $binary"
+          }
+          $isolation = Join-Path $env:RUNNER_TEMP "light-tools-isolation"
+          $env:XDG_CONFIG_HOME = Join-Path $isolation "config"
+          $env:XDG_DATA_HOME = Join-Path $isolation "data"
+          $env:XDG_RUNTIME_DIR = Join-Path $isolation "runtime"
+          $workspace = Join-Path $isolation "workspace"
+          $realHome = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+          & ./scripts/mcp-smoke.ps1 -Binary $binary -ExpectedVersion $env:VERSION -Workspace $workspace -SymbolMode $env:SYMBOL_MODE -RealHome $realHome
+
+          $npmOs = if ("${{ matrix.os }}" -eq "windows") { "win32" } else { "${{ matrix.os }}" }
+          $npmArch = if ("${{ matrix.arch }}" -eq "amd64") { "x64" } else { "arm64" }
+          $rootTgz = (Resolve-Path (Join-Path $candidate "icediceice-light-tools-$($env:VERSION).tgz")).Path
+          $nativeTgz = (Resolve-Path (Join-Path $candidate "icediceice-light-tools-$npmOs-$npmArch-$($env:VERSION).tgz")).Path
+          $npmPrefix = Join-Path $env:RUNNER_TEMP "npm-prefix"
+          $npmCache = Join-Path $env:RUNNER_TEMP "npm-cache"
+          $npmUserConfig = Join-Path $env:RUNNER_TEMP "empty-npmrc"
+          New-Item -ItemType File -Force -Path $npmUserConfig | Out-Null
+          $env:npm_config_cache = $npmCache
+          $env:npm_config_userconfig = $npmUserConfig
+          $env:npm_config_audit = "false"
+          $env:npm_config_fund = "false"
+          $env:npm_config_update_notifier = "false"
+          & npm install --global --ignore-scripts --offline --prefix $npmPrefix $rootTgz $nativeTgz
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          if ($env:RUNNER_OS -eq "Windows") {
+            $npmShim = Join-Path $npmPrefix "light-tools.cmd"
+            $npmBinary = Join-Path $npmPrefix "node_modules/@icediceice/light-tools-$npmOs-$npmArch/bin/light-tools.exe"
+          }
+          else {
+            $npmShim = Join-Path $npmPrefix "bin/light-tools"
+            $npmBinary = Join-Path $npmPrefix "lib/node_modules/@icediceice/light-tools-$npmOs-$npmArch/bin/light-tools"
+          }
+          if (-not (Test-Path -LiteralPath $npmShim -PathType Leaf)) {
+            throw "npm did not create the documented shim: $npmShim"
+          }
+          if ((Get-FileHash -Algorithm SHA256 -LiteralPath $npmBinary).Hash -ne
+              (Get-FileHash -Algorithm SHA256 -LiteralPath $binary).Hash) {
+            throw "npm native binary differs from the direct release archive"
+          }
+
+          $env:NPM_SHIM = $npmShim
+          $nodeProbe = @'
+          const { spawnSync } = require("node:child_process");
+          const windows = process.platform === "win32";
+          const command = windows ? (process.env.ComSpec || "cmd.exe") : process.env.NPM_SHIM;
+          const args = windows
+            ? ["/d", "/s", "/c", process.env.NPM_SHIM, "version"]
+            : ["version"];
+          const result = spawnSync(command, args, { encoding: "utf8" });
+          if (result.status !== 0 || result.stdout.trim() !== process.env.VERSION) {
+            console.error({ status: result.status, stdout: result.stdout, stderr: result.stderr });
+            process.exit(1);
+          }
+          '@
+          & node -e $nodeProbe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $npmIsolation = Join-Path $env:RUNNER_TEMP "light-tools-npm-isolation"
+          $env:XDG_CONFIG_HOME = Join-Path $npmIsolation "config"
+          $env:XDG_DATA_HOME = Join-Path $npmIsolation "data"
+          $env:XDG_RUNTIME_DIR = Join-Path $npmIsolation "runtime"
+          $npmWorkspace = Join-Path $npmIsolation "workspace"
+          & ./scripts/mcp-smoke.ps1 -Binary $npmShim -ExpectedVersion $env:VERSION -Workspace $npmWorkspace -SymbolMode $env:SYMBOL_MODE -RealHome $realHome
+          @(
+            "run_id=${{ github.run_id }}"
+            "run_attempt=${{ github.run_attempt }}"
+            "version=$($env:VERSION)"
+            "tested_sha=${{ needs.metadata.outputs.tested_sha }}"
+            "checksums_sha256=${{ needs.package.outputs.checksums_sha256 }}"
+            "os_arch=${{ matrix.os }}_${{ matrix.arch }}"
+          ) | Set-Content -Encoding utf8 "smoke-${{ matrix.os }}_${{ matrix.arch }}.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.os }}_${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: smoke-${{ matrix.os }}_${{ matrix.arch }}.txt
+          if-no-files-found: error
+          retention-days: 7

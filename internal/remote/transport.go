@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/icediceice/light-tools/internal/childenv"
 	"github.com/icediceice/light-tools/internal/config"
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
@@ -49,14 +51,17 @@ type connection struct {
 	proxyJump string
 }
 
+type commandRunner func(context.Context, string, []string, int, bool) (string, string, int, error)
+
 type Transport struct {
 	profiles map[string]config.RemoteProfile
 	confiner *security.Confiner
 	secrets  *secret.Vault
+	runner   commandRunner
 }
 
 func New(profiles map[string]config.RemoteProfile, confiner *security.Confiner, secrets *secret.Vault) *Transport {
-	return &Transport{profiles: profiles, confiner: confiner, secrets: secrets}
+	return &Transport{profiles: profiles, confiner: confiner, secrets: secrets, runner: runCommand}
 }
 
 func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -93,7 +98,7 @@ func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	args := sshOptions(settings, false)
 	args = append(args, settings.remote, request.Command)
-	stdout, stderr, exitCode, err := runRetryTimeout(ctx, "ssh", args, request.TimeoutMS)
+	stdout, stderr, exitCode, err := t.runner(ctx, "ssh", args, request.TimeoutMS, false)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +147,7 @@ func (t *Transport) SCP(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	args := sshOptions(settings, true)
 	args = append(args, source, target)
-	stdout, stderr, exitCode, err := runRetryTimeout(ctx, "scp", args, request.TimeoutMS)
+	stdout, stderr, exitCode, err := t.runner(ctx, "scp", args, request.TimeoutMS, true)
 	if err != nil {
 		return nil, err
 	}
@@ -256,33 +261,41 @@ func isRemotePath(path string) bool {
 		return false
 	}
 	colon := strings.IndexByte(path, ':')
-	return colon > 0 && !strings.Contains(path[:colon], string(filepath.Separator))
+	return colon > 0 && !strings.ContainsAny(path[:colon], `/\\`)
 }
 
-func runRetryTimeout(ctx context.Context, executable string, args []string, timeoutMS int) (string, string, int, error) {
+type runOnceFunc func(context.Context, string, []string, time.Duration) (string, string, int, bool, error)
+
+func runCommand(ctx context.Context, executable string, args []string, timeoutMS int, retryTimeout bool) (string, string, int, error) {
+	return runCommandWith(ctx, executable, args, timeoutMS, retryTimeout, runOnce)
+}
+
+func runCommandWith(ctx context.Context, executable string, args []string, timeoutMS int, retryTimeout bool, execute runOnceFunc) (string, string, int, error) {
 	timeout := time.Duration(timeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	for attempt := 0; attempt < 2; attempt++ {
-		stdout, stderr, exitCode, timedOut, err := runOnce(ctx, executable, args, timeout)
-		if !timedOut || attempt == 1 {
-			return stdout, stderr, exitCode, err
-		}
+	stdout, stderr, exitCode, timedOut, err := execute(ctx, executable, args, timeout)
+	if !retryTimeout || !timedOut || ctx.Err() != nil {
+		return stdout, stderr, exitCode, err
 	}
-	panic("unreachable")
+	stdout, stderr, exitCode, _, err = execute(ctx, executable, args, timeout)
+	return stdout, stderr, exitCode, err
 }
 
 func runOnce(parent context.Context, executable string, args []string, timeout time.Duration) (string, string, int, bool, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, executable, args...)
-	command.Env = inheritedRemoteEnvironment()
+	command.Env = childenv.Minimal()
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()
-	if ctx.Err() == context.DeadlineExceeded {
-		return stdout.String(), stderr.String(), -1, true, ctx.Err()
+	if parentErr := parent.Err(); parentErr != nil {
+		return stdout.String(), stderr.String(), -1, errors.Is(parentErr, context.DeadlineExceeded), parentErr
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return stdout.String(), stderr.String(), -1, errors.Is(ctxErr, context.DeadlineExceeded), ctxErr
 	}
 	if exit, ok := err.(*exec.ExitError); ok {
 		return stdout.String(), stderr.String(), exit.ExitCode(), false, nil
@@ -291,14 +304,4 @@ func runOnce(parent context.Context, executable string, args []string, timeout t
 		return "", "", -1, false, err
 	}
 	return stdout.String(), stderr.String(), 0, false, nil
-}
-
-func inheritedRemoteEnvironment() []string {
-	var result []string
-	for _, item := range os.Environ() {
-		if strings.HasPrefix(item, "PATH=") || strings.HasPrefix(item, "HOME=") || strings.HasPrefix(item, "SSH_AUTH_SOCK=") || strings.HasPrefix(item, "SYSTEMROOT=") {
-			result = append(result, item)
-		}
-	}
-	return result
 }

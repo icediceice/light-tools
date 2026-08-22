@@ -5,34 +5,64 @@ Light's file, shell, SSH/SCP, and operations tools without its fleet control
 plane. It is one Go binary, speaks MCP over stdio, needs no database or daemon,
 and registers only `light_file` by default.
 
-## Install in three commands
+## Install from npm
 
-Release binaries include the tagged CGo tree-sitter runtime and Go, JavaScript,
-and Python grammars.
+The public package installs the matching native binary from npm itself; it does
+not run a lifecycle downloader or contact GitHub during installation.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/icediceice/light-tools/main/install.sh | sh
+npm install --global @icediceice/light-tools
 light-tools init
 claude mcp add light-tools -- light-tools
 ```
 
-`init` creates private XDG state directories and prints the exact MCP command.
-It is optional because the server initializes those directories on first run.
-For a client other than Claude Code, pass `--client` — see
-[MCP clients](#mcp-clients).
+Node 18.17 or newer and npm 10 or newer are required. The native package is
+selected by npm from exact-version optional dependencies, so installs continue
+to work with lifecycle scripts disabled and through an npm registry mirror.
+Linux packages target glibc; Alpine/musl is rejected during installation instead
+of failing later with a dynamic-loader `ENOENT`.
 
-Windows PowerShell installs the same signed-by-checksum release assets:
+On Windows, npm creates `light-tools.cmd`. PowerShell and Command Prompt can run
+`light-tools` normally. MCP clients that start commands without a shell must use
+Command Prompt explicitly:
+
+```json
+{
+  "command": "cmd",
+  "args": ["/d", "/s", "/c", "light-tools"]
+}
+```
+
+Running `light-tools init --client print` shows the normal configuration
+contract. `init` creates private XDG state directories and is optional because
+the server initializes them on first run.
+
+Release binaries include the tagged CGo tree-sitter runtime and Go, JavaScript,
+and Python grammars. Windows ARM64 deliberately uses the portable no-grammar
+build; all five MCP tools remain available.
+
+### Native archive fallback
+
+The checksum-verifying POSIX and PowerShell installers remain available to
+operators who can access this private GitHub repository:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/icediceice/light-tools/main/install.sh | sh
+```
 
 ```powershell
 Invoke-WebRequest https://raw.githubusercontent.com/icediceice/light-tools/main/install.ps1 -OutFile install.ps1
 ./install.ps1
-light-tools init
 ```
 
-Pass `-Version 1.2.3` or `-Destination C:\Tools` to pin or relocate the
+Pass `-Version 1.2.3` or `-Destination C:\\Tools` to pin or relocate the
 PowerShell install. The POSIX equivalents are `LIGHT_TOOLS_VERSION` and
-`LIGHT_TOOLS_INSTALL_DIR`. Both installers refuse an asset that has no exact
-entry in `checksums.txt`.
+`LIGHT_TOOLS_INSTALL_DIR`. Both installers require an exact asset entry in
+`checksums.txt`. Candidate testing may use an HTTPS or loopback origin override;
+because the archive and checksum then share that origin, the override is trusted
+rather than independently authenticated.
+
+Maintainers should follow [RELEASING.md](RELEASING.md).
 
 Published binaries cover:
 
@@ -129,7 +159,7 @@ light-tools --enable-shell --enable-remote --enable-ops
 | --- | --- | --- |
 | Files | Reads, batches, cursors, symbols, images, locate, unified diff/patch preview, guarded transactional edits, snapshots | EDCR gates, plan attribution, Git checkpoints |
 | Shell | Sync and local async tasks, cancellation, bounded output, recoverable spills, secret refs | Host/node dispatch, fleet queues |
-| Remote | SSH/SCP profiles and overrides, agent inheritance, key/cert refs, timeout-only retry | Host registry, cross-host fan-out |
+| Remote | SSH/SCP profiles and overrides, shared minimal child environment, key/cert refs, SSH at-most-once execution, one timeout overwrite retry for SCP | Host registry, cross-host fan-out, credentialed live-host testing |
 | Ops | Local systemd/PM2/Docker discovery, probes, file logs, search/correlation/investigation, local async scans | Cross-host joins, shared telemetry/database state, service mutation |
 | Runtime | Direct stdio MCP, deterministic schemas, `E_*` caret diagnostics | Hub, WebSocket routing, RBAC, board/Discord, deploy orchestration |
 
@@ -151,6 +181,29 @@ errors and schema errors retain the normal MCP `isError` tool-result envelope.
 The five request structs and schemas are checked field-for-field in tests, so a
 tool cannot be advertised without its documented arguments reaching the
 registered handler.
+
+## Opt-in terse output
+
+Set `LIGHT_TERSE_OUTPUT=1` on the MCP server process to allow deterministic
+terse text for large successful JSON tool results. The default is off; unset,
+empty, and every value other than exactly `1` preserve the handler's raw JSON
+text.
+
+The formatter touches only `content[0]` when it is text and the result is not
+an error. Images, later content blocks, plain text, malformed JSON, unsupported
+or empty shapes, and any result that does not get strictly smaller in both bytes
+and the internal punctuation-aware token estimate pass through byte-for-byte.
+The formatter parses numbers with `json.Number`, sorts object keys, renders
+supported scalar, nested, array, and homogeneous-row shapes, decodes its own
+output in production, and compares the reconstructed value with the original
+before emitting it. This preserves strings such as `"8080"`, multiline log
+content, null/empty values, and exact numeric spelling.
+
+The terse swap estimate is internal and deliberately separate from
+`light_file read`'s public `tokens` field; changing the latter would change a
+tool contract. Release tests exercise raw and terse modes through real MCP
+stdio for all five registered tools, including image passthrough and SSH/SCP
+pre-execution refusals.
 
 ## `light_file`
 
@@ -475,6 +528,36 @@ rather than silently narrowing what is readable.
 Configuration, encrypted secrets, snapshots, and runtime spills have separate
 XDG roots. Parent directories are mode 0700 and private files are mode 0600
 where Unix permissions exist.
+
+## Symbol extraction
+
+`light_file` uses a deterministic extension registry. Grammar-backed release
+builds support:
+
+| Language | Extensions |
+| --- | --- |
+| Go | `.go` |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| TypeScript / TSX | `.ts` / `.tsx` (dedicated TSX grammar) |
+| Python / Java / Rust | `.py`, `.java`, `.rs` |
+| C / C++ / C# | `.c`, `.h` / `.cpp`, `.cc`, `.cxx`, `.hpp` / `.cs` |
+| Ruby / PHP | `.rb`, `.php` |
+| Bash / Lua | `.sh`, `.bash`, `.lua` |
+| Scala / Kotlin / Dart | `.scala`, `.kt`, `.kts`, `.dart` |
+| HTML | `.html` |
+
+CSS (`.css`), Markdown (`.md`, `.markdown`), YAML (`.yaml`,
+`.yml`), and TOML (`.toml`) use pure-Go deterministic extractors and are
+available on every release platform. Windows ARM64 intentionally remains a
+CGo-free build: these four structured-text lanes work there, while
+grammar-backed files return the documented no-symbol fallback.
+
+Symbols have a closed kind vocabulary, exact line and byte ranges,
+UTF-8-safe signatures/comments, parent attribution where the grammar exposes
+it, and deterministic source ordering. Parsing rejects lines above 8000 bytes,
+uses tree-sitter's native timeout, and has a single-flight hard circuit so a
+pathological CGo parse cannot accumulate workers. Unsupported `.htm` files
+use the ordinary fixed-size outline.
 
 ## Development and release
 

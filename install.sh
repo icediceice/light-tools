@@ -27,7 +27,18 @@ esac
 extension=tar.gz
 [ "$os" = windows ] && extension=zip
 asset="light-tools_${version}_${os}_${arch}.${extension}"
-base="https://github.com/$repo/releases/download/v$version"
+base="${LIGHT_TOOLS_BASE_URL:-https://github.com/$repo/releases/download/v$version}"
+base="${base%/}"
+if [ -n "${LIGHT_TOOLS_BASE_URL:-}" ]; then
+  case "$base" in
+    https://*|http://127.0.0.1:*|http://localhost:*) ;;
+    *)
+      echo "LIGHT_TOOLS_BASE_URL must use HTTPS or loopback HTTP" >&2
+      exit 1
+      ;;
+  esac
+  echo "warning: LIGHT_TOOLS_BASE_URL is set; checksums.txt comes from the same custom origin, so this install is trusted, not independently verified" >&2
+fi
 temp_dir="$(mktemp -d)"
 trap 'rm -rf "$temp_dir"' EXIT HUP INT TERM
 

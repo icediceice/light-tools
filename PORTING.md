@@ -30,6 +30,36 @@ one-slot channel shim and no post-call governance accounting.
   selectors fail before any mutation is committed.
 - `payload_version` is reserved; the current grammar is format 1.
 
+## Deterministic outbound formatter
+
+The standalone port retains only the strict, deterministic formatter semantics
+that do not depend on Light's hub retaining a raw telemetry copy:
+
+- `LIGHT_TERSE_OUTPUT` is read once at startup and enabled only by exactly
+  `1`; default output remains raw JSON text.
+- A punctuation-aware estimate and 100-token input floor avoid spending work on
+  small responses. A transformed value is used only when both estimated tokens
+  and UTF-8 bytes strictly decrease.
+- JSON is one complete document decoded with `UseNumber`. Object keys are
+  sorted. Supported grammar is scalar values, non-empty objects with recursively
+  supported values, scalar arrays, and arrays of non-empty objects with an
+  identical key set.
+- The production decoder reconstructs `map[string]any`, `[]any`,
+  `json.Number`, strings, booleans, and null. Every candidate is decoded and
+  `reflect.DeepEqual` compared with the original parsed value before emission.
+  Unsafe keys, empty containers, heterogeneous shapes, malformed/trailing JSON,
+  and ambiguous string values fall back to exact raw bytes.
+- Only a successful text block at `content[0]` is eligible. The content slice
+  is cloned; handler-owned `Result` pointers, `content[1:]`, images, errors,
+  and non-JSON text are never mutated.
+
+Deliberately excluded are `stripRedundant`, `looseToTerse`, the Light
+smart-index renderer and budget/dedup layer, grouped locate output,
+`factorRows`, and hub telemetry/F3/raw-copy machinery. Those mechanisms are
+lossy or control-plane-specific in the source environment. The terse token
+estimate also stays separate from `light_file read`'s public `tokens` field,
+which is a consumer-visible contract.
+
 ## Stable limits and edge cases
 
 - Sed refuses zero matches as `not_found` and more than one match as
@@ -38,16 +68,45 @@ one-slot channel shim and no post-call governance accounting.
 - Locate uses `rg --json` when present, rejects glob metacharacters in the
   single-file path, retries an invalid regular expression once as a fixed
   string with a warning, and stops after 501 matches. A pure-Go scanner is the
-  fallback when ripgrep is unavailable.
+  fallback when ripgrep is unavailable. The engines do not yet claim parity:
+  ripgrep follows ignore/hidden rules and currently drops JSON context events;
+  the Go walker skips only `.git` and joins context into `text`. Match
+  offsets identify the matching line even when the Go `text` contains context.
 - A single png/jpg/jpeg/webp/gif read returns an MCP image block only when the
   decoded file is at most 9 MiB. Larger images degrade to a text description.
-- Remote execution and transfer retry exactly once, and only after a timeout.
+- SSH commands execute at most once. SCP may retry one timed-out transfer because
+  the second attempt overwrites the destination from byte zero. Parent
+  cancellation and timeout are tool errors; a nil error means `exit_code` is
+  the remote program's own status. Bash, SSH, and SCP share one non-nil minimal
+  child environment policy with case-insensitive Windows matching and original
+  variable spelling.
 - Read windows are one-based `cat -n` lines. Batch reads share an output budget
   and return exact continuation cursors rather than silently dropping content.
-- Symbol extraction deduplicates captures by body-start byte, filters low-value
-  symbols, preserves leading comments, derives Go receivers and class
-  ancestors, and watchdogs each parse. Builds without tree-sitter return a
-  graceful no-symbols response.
+- Symbol extraction is governed by one extension and kind registry. Grammar
+  builds support Go; JavaScript; distinct TypeScript and TSX; Python; Java;
+  Rust; C/C++/C#; Ruby; PHP; Bash; Lua; Scala; Kotlin; Dart; and HTML. CSS,
+  Markdown, YAML, and TOML are untagged deterministic scanners with exact byte
+  ranges, so they remain available in the CGo-free Windows ARM64 build.
+- The standalone semantic adapter intentionally corrects source-lane behavior
+  that was useful only to Light-CF's vector index: grouped Go type declarations
+  are neither collapsed nor duplicated; signatures retain the existing
+  240-byte cap and ellipsis; comments use a UTF-8-safe 500-byte cap and
+  ellipsis; quoted JavaScript test names are addressable; one-rune declarations
+  survive; structured-text offsets are real; class-like declarations retain
+  richer interface/enum/record/struct/trait/object kinds; and the synthetic
+  JavaScript `<module>` row is omitted so the chunk outline remains available.
+- Grammar queries are compiled by the parity corpus, and runtime query mismatch
+  is a typed extraction error rather than silent empty output. Captures are
+  deduplicated by declarator identity, not body-start byte, preserving grouped
+  declarations and same-line overloads. Signatures, leading comments, parents,
+  exact line/byte ranges, and deterministic ordering are consumer-visible.
+- Parsing rejects source with a line above 8000 bytes, applies tree-sitter's
+  native ten-second timeout, and runs through a single-flight hard deadline.
+  If native parsing stalls, at most one CGo worker remains active; later grammar
+  requests fail fast until it returns. There is no unbounded hash cache and no
+  `ParseWithOptions` pointer-retention path. Builds without tree-sitter return
+  pure-text symbols where applicable and the graceful no-symbol response for
+  grammar-backed files.
 - Snapshot rings live only below the snapshots root. Reaping never receives a
   broader state root. Rewrite restores the newest pre-mutation snapshot and
   applies the correction in one hash-guarded commit.
@@ -108,9 +167,12 @@ one-slot channel shim and no post-call governance accounting.
 The release matrix is Linux, macOS, and Windows on amd64 and arm64. Five lanes
 use CGo plus tree-sitter. Windows ARM64 is a separate CGo-free build and keeps
 the complete MCP/tool surface while returning the graceful no-symbol response.
-Each native CI lane executes an `initialize` plus `tools/list` transcript
-against its built binary. Release packaging remains workflow-owned; both
-installers verify an exact checksum row before extraction.
+Each native CI lane executes uncached verbose tests and an `initialize` plus
+`tools/list` transcript against its built binary. Separate Linux race jobs
+exercise both the untagged and CGo/tree-sitter paths. Release packaging runs the
+all-five installed-binary transcript in raw mode and a final scoped terse-mode
+determinism/never-larger probe; both installers verify an exact checksum row
+before extraction.
 
 This standalone server deliberately omits fleet routing, EDCR plans, RBAC,
 telemetry, shared databases, and multi-operator file-surface fences. Those are

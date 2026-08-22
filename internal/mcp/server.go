@@ -7,11 +7,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/icediceice/light-tools/internal/portable"
 	"io"
 	"runtime/debug"
 	"sort"
 	"sync"
+
+	"github.com/icediceice/light-tools/internal/portable"
+	"github.com/icediceice/light-tools/internal/terse"
 )
 
 const ProtocolVersion = "2025-06-18"
@@ -44,12 +46,14 @@ type Tool struct {
 type Server struct {
 	name    string
 	version string
+	terse   bool
 	mu      sync.RWMutex
 	tools   map[string]Tool
 }
 
-func New(name, version string) *Server {
-	return &Server{name: name, version: version, tools: make(map[string]Tool)}
+func New(name, version string, terseOutput ...bool) *Server {
+	enabled := len(terseOutput) > 0 && terseOutput[0]
+	return &Server{name: name, version: version, terse: enabled, tools: make(map[string]Tool)}
 }
 
 func (s *Server) Register(tool Tool) error {
@@ -165,19 +169,37 @@ func (s *Server) dispatch(ctx context.Context, req request) (resp response) {
 		}
 		switch typed := value.(type) {
 		case Result:
-			resp.Result = typed
+			resp.Result = s.formatResult(typed)
 		case *Result:
-			resp.Result = typed
+			if typed == nil {
+				resp.Result = typed
+			} else {
+				resp.Result = s.formatResult(*typed)
+			}
 		default:
 			encoded, err := json.Marshal(value)
 			if err != nil {
 				resp.Result = Result{Content: []Content{Text(err.Error())}, IsError: true}
 			} else {
-				resp.Result = Result{Content: []Content{Text(string(encoded))}}
+				resp.Result = s.formatResult(Result{Content: []Content{Text(string(encoded))}})
 			}
 		}
 	default:
 		resp.Error = &rpcError{Code: -32601, Message: "method not found: " + req.Method}
 	}
 	return resp
+}
+
+func (s *Server) formatResult(result Result) Result {
+	if !s.terse || result.IsError || len(result.Content) == 0 || result.Content[0].Type != "text" {
+		return result
+	}
+	formatted, changed := terse.Format([]byte(result.Content[0].Text))
+	if !changed {
+		return result
+	}
+	cloned := result
+	cloned.Content = append([]Content(nil), result.Content...)
+	cloned.Content[0].Text = string(formatted)
+	return cloned
 }

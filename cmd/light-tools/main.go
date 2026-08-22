@@ -72,7 +72,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	server := mcp.New("light-tools", version)
+	server := mcp.New("light-tools", version, os.Getenv("LIGHT_TERSE_OUTPUT") == "1")
 	if err := registerTools(server, opts, layout, configuration); err != nil {
 		fatal(err)
 	}

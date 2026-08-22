@@ -343,7 +343,11 @@ func (h *Handler) outline(request Request) (any, error) {
 		end := min(lines, start+79)
 		chunks = append(chunks, map[string]int{"start_line": start, "end_line": end})
 	}
-	return textJSON(map[string]any{"path": path, "tree_sitter": false, "note": "symbol extraction unavailable; fixed-size outline", "chunks": chunks})
+	note := "symbol extraction unavailable; fixed-size outline"
+	if extractionErr != nil {
+		note = "symbol extraction unavailable: " + extractionErr.Error() + "; fixed-size outline"
+	}
+	return textJSON(map[string]any{"path": path, "tree_sitter": false, "note": note, "chunks": chunks})
 }
 
 func (h *Handler) symbol(request Request) (any, error) {

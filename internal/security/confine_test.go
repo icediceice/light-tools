@@ -20,7 +20,12 @@ func TestConfinerAllowsConfiguredRootAndDeniesPrivateRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := confiner.Resolve(filepath.Join(public, "new.txt")); err != nil || got != filepath.Join(public, "new.txt") {
+	canonicalPublic, err := canonicalExisting(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(canonicalPublic, "new.txt")
+	if got, err := confiner.Resolve(filepath.Join(public, "new.txt")); err != nil || got != want {
 		t.Fatalf("public resolve = %q, %v", got, err)
 	}
 	for _, path := range []string{private, filepath.Join(private, "vault.enc")} {

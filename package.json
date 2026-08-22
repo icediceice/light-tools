@@ -1,0 +1,44 @@
+{
+  "name": "@icediceice/light-tools",
+  "version": "0.0.0-development",
+  "description": "Standalone Light-compatible MCP tools for local files, shell, SSH/SCP, and operations.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/icediceice/light-tools.git"
+  },
+  "homepage": "https://github.com/icediceice/light-tools#readme",
+  "bugs": {
+    "url": "https://github.com/icediceice/light-tools/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "developer-tools",
+    "tree-sitter"
+  ],
+  "bin": {
+    "light-tools": "npm/cli.mjs"
+  },
+  "files": [
+    "npm/cli.mjs",
+    "npm/platform.mjs"
+  ],
+  "engines": {
+    "node": ">=18.17.0",
+    "npm": ">=10.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+
+  "optionalDependencies": {
+    "@icediceice/light-tools-darwin-arm64": "0.0.0-development",
+    "@icediceice/light-tools-darwin-x64": "0.0.0-development",
+    "@icediceice/light-tools-linux-arm64": "0.0.0-development",
+    "@icediceice/light-tools-linux-x64": "0.0.0-development",
+    "@icediceice/light-tools-win32-arm64": "0.0.0-development",
+    "@icediceice/light-tools-win32-x64": "0.0.0-development"
+  }
+}

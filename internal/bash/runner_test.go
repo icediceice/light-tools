@@ -4,13 +4,58 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/icediceice/light-tools/internal/secret"
 )
+
+func shellSource(posix, powershell string) string {
+	if runtime.GOOS == "windows" {
+		return powershell
+	}
+	return posix
+}
+
+func TestRunnerResolvesExternalCommandAndKeepsEnvironmentMinimal(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("go must be on PATH under CI: this test is the only native Windows evidence for the light_bash environment boundary: %v", err)
+		}
+		t.Skip("go is not available on the parent PATH")
+	}
+	t.Setenv("LIGHT_TOOLS_BOUNDARY_MARKER", "must-not-leak")
+
+	root := t.TempDir()
+	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), Request{
+		Command: shellSource(
+			`go env GOCACHE; printf '%s' "$LIGHT_TOOLS_BOUNDARY_MARKER"`,
+			`& go env GOCACHE; [Console]::Out.Write([string]$env:LIGHT_TOOLS_BOUNDARY_MARKER)`,
+		),
+		Cwd: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["exit_code"] != 0 {
+		t.Fatalf("external command failed: %#v", result)
+	}
+	stdout, _ := result["stdout"].(string)
+	if strings.TrimSpace(stdout) == "" {
+		t.Fatalf("go env GOCACHE returned no cache path: %#v", result)
+	}
+	if strings.Contains(stdout, "must-not-leak") {
+		t.Fatalf("child inherited a non-allowlisted parent variable: %#v", result)
+	}
+}
 
 func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	root := t.TempDir()
@@ -24,7 +69,7 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	}
 
 	result, err := runner.Run(context.Background(), Request{
-		Command: "printf '%s' \"$TOKEN\"", Cwd: root,
+		Command: shellSource("printf '%s' \"$TOKEN\"", "[Console]::Out.Write($env:TOKEN)"), Cwd: root,
 		EnvRefs: map[string]string{"TOKEN": "token"},
 	})
 	if err != nil {
@@ -35,7 +80,7 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	}
 
 	result, err = runner.Run(context.Background(), Request{
-		Command: "value=$(cat \"$TOKEN_FILE\"); printf '%s' \"$value\"", Cwd: root,
+		Command: shellSource("value=$(cat \"$TOKEN_FILE\"); printf '%s' \"$value\"", "[Console]::Out.Write((Get-Content -Raw $env:TOKEN_FILE))"), Cwd: root,
 		FileRefs: map[string]string{"TOKEN_FILE": "token"},
 	})
 	if err != nil {

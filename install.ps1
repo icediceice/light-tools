@@ -1,7 +1,8 @@
 param(
     [string]$Version = $env:LIGHT_TOOLS_VERSION,
     [string]$Destination = $env:LIGHT_TOOLS_INSTALL_DIR,
-    [string]$Repository = $env:LIGHT_TOOLS_REPO
+    [string]$Repository = $env:LIGHT_TOOLS_REPO,
+    [string]$BaseUrl = $env:LIGHT_TOOLS_BASE_URL
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +29,20 @@ switch ($architecture) {
 }
 
 $asset = "light-tools_{0}_windows_{1}.zip" -f $Version, $arch
-$base = "https://github.com/{0}/releases/download/v{1}" -f $Repository, $Version
+if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+    $base = "https://github.com/{0}/releases/download/v{1}" -f $Repository, $Version
+}
+else {
+    $base = $BaseUrl.TrimEnd("/")
+    $baseUri = $null
+    $isAbsolute = [Uri]::TryCreate($base, [UriKind]::Absolute, [ref]$baseUri)
+    $isHttps = $isAbsolute -and $baseUri.Scheme -eq "https"
+    $isLoopbackHttp = $isAbsolute -and $baseUri.Scheme -eq "http" -and ($baseUri.Host -eq "127.0.0.1" -or $baseUri.Host -eq "localhost")
+    if (-not ($isHttps -or $isLoopbackHttp)) {
+        throw "BaseUrl must use HTTPS or loopback HTTP."
+    }
+    Write-Warning "BaseUrl is set; checksums.txt comes from the same custom origin, so this install is trusted, not independently verified."
+}
 $tempDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("light-tools-" + [guid]::NewGuid().ToString("N"))
 $archive = Join-Path $tempDirectory $asset
 $checksumFile = Join-Path $tempDirectory "checksums.txt"
