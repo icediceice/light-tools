@@ -194,7 +194,7 @@ $enabledRequests = @(
 )
 $enabledArguments = @("--enable-shell", "--enable-remote", "--enable-ops")
 $enabledResponses = @(Invoke-McpTranscript -ServerArguments $enabledArguments -Requests $enabledRequests)
-if ($enabledResponses.Count -ne 6 -or $enabledResponses[0].result.protocolVersion -ne "2025-06-18") {
+if ($enabledResponses.Count -ne 10 -or $enabledResponses[0].result.protocolVersion -ne "2025-06-18") {
     throw "fully enabled profile did not initialize"
 }
 $enabledTools = @($enabledResponses[1].result.tools | ForEach-Object { $_.name })
