@@ -163,7 +163,7 @@ jobs:
           diff -u expected-files.txt actual-files.txt
           awk '{print $2}' release/checksums.txt | sed 's/^\*//' | sort > manifest-assets.txt
           diff -u expected-assets.txt manifest-assets.txt
-          test "$(wc -l < release/checksums.txt)" -eq 6
+          test "$(wc -l < release/checksums.txt)" -eq 13
           (cd release && sha256sum --strict -c checksums.txt)
 
       - name: Atomically create the tested tag and publish exact assets
