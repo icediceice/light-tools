@@ -251,7 +251,11 @@ func TestTransportRunnerSeamCapturesSSHAndSCPContracts(t *testing.T) {
 	if len(calls) != 2 || calls[1].executable != "scp" || !calls[1].retry {
 		t.Fatalf("SCP retry mode drifted: %#v", calls)
 	}
-	if got := calls[1].args; len(got) < 2 || got[len(got)-2] != local || got[len(got)-1] != "deploy@example:/tmp/artifact" {
+	resolvedLocal, err := confiner.Resolve(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := calls[1].args; len(got) < 2 || got[len(got)-2] != resolvedLocal || got[len(got)-1] != "deploy@example:/tmp/artifact" {
 		t.Fatalf("SCP direction or path drifted: %#v", calls[1].args)
 	}
 
