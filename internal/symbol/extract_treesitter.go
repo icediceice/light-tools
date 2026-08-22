@@ -165,6 +165,10 @@ func leadingComment(node *tree_sitter.Node, source []byte) string {
 func parentName(node *tree_sitter.Node, source []byte) string {
 	for ancestor := node.Parent(); ancestor != nil; ancestor = ancestor.Parent() {
 		switch ancestor.Kind() {
+		case "impl_item":
+			if target := ancestor.ChildByFieldName("type"); target != nil {
+				return strings.TrimSpace(target.Utf8Text(source))
+			}
 		case "class_declaration", "class_definition", "class", "module", "object_definition",
 			"object_declaration", "trait_definition", "interface_declaration", "struct_item",
 			"class_specifier", "struct_specifier":
