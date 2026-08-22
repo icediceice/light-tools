@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   NativePackageError,
+  isMain,
   resolveNativeBinary,
   run,
   signalExitCode,
