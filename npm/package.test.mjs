@@ -56,6 +56,15 @@ test("the committed root manifest is inert and publish-safe", () => {
   ));
 });
 
+test("pull-request workflows build and record the exact pushed head", () => {
+  const exactHead = "${{ github.event.pull_request.head.sha || github.sha }}";
+  assert.equal(countLiteral(ciWorkflow, "ref: " + exactHead), 5);
+  assert.equal(countLiteral(releaseWorkflow, "ref: " + exactHead), 3);
+  assert.ok(releaseWorkflow.includes("TESTED_SHA: " + exactHead));
+  assert.ok(releaseWorkflow.includes('echo "tested_sha=$TESTED_SHA"'));
+  assert.equal(releaseWorkflow.includes("tested_sha=$GITHUB_SHA"), false);
+});
+
 test("promotion keeps prereleases away from stable GitHub and npm pointers", () => {
   assert.match(
     promotionWorkflow,
