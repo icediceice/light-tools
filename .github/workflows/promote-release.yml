@@ -15,6 +15,11 @@ on:
         description: SHA-256 of checksums.txt copied from the green candidate run
         required: true
         type: string
+      publish_npm:
+        description: Publish the seven checksum-bound npm packages after GitHub promotion
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
