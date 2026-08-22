@@ -214,11 +214,16 @@ async function main() {
 
     const versionResult = invokeShim(layout.shim, ["version"], {
       env: npmEnvironment,
+      allowFailure: true,
     });
-    if (versionResult.stdout.trim() !== version) {
-      throw new Error(
-        `wrapper version mismatch: expected ${version}, got ${versionResult.stdout.trim()}`,
-      );
+    if (versionResult.status !== 0 || versionResult.stdout.trim() !== version) {
+      throw new Error(JSON.stringify({
+        message: "wrapper version mismatch",
+        expected: version,
+        status: versionResult.status,
+        stdout: versionResult.stdout.trim(),
+        stderr: versionResult.stderr.trim(),
+      }));
     }
 
     const transcript = [
