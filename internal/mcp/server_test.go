@@ -131,3 +131,122 @@ func TestDuplicateRegistrationRejected(t *testing.T) {
 		t.Fatal("duplicate tool registration succeeded")
 	}
 }
+
+func TestTerseFormattingAtDispatchBoundary(t *testing.T) {
+	raw := `{"content":"` + strings.Repeat("word ", 120) + `","status":"ok","port":"8080"}`
+	original := &Result{Content: []Content{Text(raw), Text("second-content")}}
+	server := New("test", "1", true)
+	handlers := map[string]func(context.Context, json.RawMessage) (any, error){
+		"value":   func(context.Context, json.RawMessage) (any, error) { return *original, nil },
+		"pointer": func(context.Context, json.RawMessage) (any, error) { return original, nil },
+		"default": func(context.Context, json.RawMessage) (any, error) {
+			return map[string]any{"content": strings.Repeat("word ", 120), "status": "ok", "port": "8080"}, nil
+		},
+	}
+	for name, handler := range handlers {
+		if err := server.Register(Tool{Name: name, Handler: handler}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var first string
+	for _, name := range []string{"value", "pointer", "default"} {
+		response := server.dispatch(context.Background(), request{
+			JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+			Params: json.RawMessage(`{"name":"` + name + `","arguments":{}}`),
+		})
+		result, ok := response.Result.(Result)
+		if !ok {
+			t.Fatalf("%s returned %#v", name, response.Result)
+		}
+		if len(result.Content) == 0 || result.Content[0].Text == raw {
+			t.Fatalf("%s did not format content[0]: %#v", name, result)
+		}
+		decoded, err := terse.Decode([]byte(result.Content[0].Text))
+		if err != nil {
+			t.Fatalf("%s emitted invalid terse: %v", name, err)
+		}
+		var want any
+		decoder := json.NewDecoder(strings.NewReader(raw))
+		decoder.UseNumber()
+		if err := decoder.Decode(&want); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(decoded, want) {
+			t.Fatalf("%s changed semantics\nwant %#v\n got %#v", name, want, decoded)
+		}
+		if name != "default" {
+			if len(result.Content) != 2 || result.Content[1].Text != "second-content" {
+				t.Fatalf("%s changed content[1+]: %#v", name, result.Content)
+			}
+		}
+		if first == "" {
+			first = result.Content[0].Text
+		} else if result.Content[0].Text != first {
+			t.Fatalf("%s emitted nondeterministic terse\nfirst %q\n  got %q", name, first, result.Content[0].Text)
+		}
+	}
+	if original.Content[0].Text != raw || original.Content[1].Text != "second-content" {
+		t.Fatalf("dispatch mutated handler-owned result: %#v", original)
+	}
+}
+
+func TestTerseFormattingPassthroughCases(t *testing.T) {
+	raw := `{"content":"` + strings.Repeat("word ", 120) + `"}`
+	cases := []struct {
+		name    string
+		enabled bool
+		handler func(context.Context, json.RawMessage) (any, error)
+		want    Result
+	}{
+		{name: "disabled", handler: func(context.Context, json.RawMessage) (any, error) {
+			return Result{Content: []Content{Text(raw)}}, nil
+		}, want: Result{Content: []Content{Text(raw)}}},
+		{name: "tool-error", enabled: true, handler: func(context.Context, json.RawMessage) (any, error) {
+			return nil, errors.New(raw)
+		}, want: Result{Content: []Content{Text(raw)}, IsError: true}},
+		{name: "error-result", enabled: true, handler: func(context.Context, json.RawMessage) (any, error) {
+			return Result{Content: []Content{Text(raw)}, IsError: true}, nil
+		}, want: Result{Content: []Content{Text(raw)}, IsError: true}},
+		{name: "image-first", enabled: true, handler: func(context.Context, json.RawMessage) (any, error) {
+			return Result{Content: []Content{Image([]byte("image"), "image/png"), Text(raw)}}, nil
+		}, want: Result{Content: []Content{Image([]byte("image"), "image/png"), Text(raw)}}},
+		{name: "plain-text", enabled: true, handler: func(context.Context, json.RawMessage) (any, error) {
+			return Result{Content: []Content{Text(strings.Repeat("plain text ", 120))}}, nil
+		}, want: Result{Content: []Content{Text(strings.Repeat("plain text ", 120))}}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			server := New("test", "1", test.enabled)
+			if err := server.Register(Tool{Name: "sample", Handler: test.handler}); err != nil {
+				t.Fatal(err)
+			}
+			response := server.dispatch(context.Background(), request{
+				JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+				Params: json.RawMessage(`{"name":"sample","arguments":{}}`),
+			})
+			result, ok := response.Result.(Result)
+			if !ok || !reflect.DeepEqual(result, test.want) {
+				t.Fatalf("got %#v, want %#v", response.Result, test.want)
+			}
+		})
+	}
+}
+
+func TestTerseFormattingHandlesNilResultPointer(t *testing.T) {
+	server := New("test", "1", true)
+	if err := server.Register(Tool{Name: "nil", Handler: func(context.Context, json.RawMessage) (any, error) {
+		var result *Result
+		return result, nil
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	response := server.dispatch(context.Background(), request{
+		JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+		Params: json.RawMessage(`{"name":"nil","arguments":{}}`),
+	})
+	result, ok := response.Result.(*Result)
+	if !ok || result != nil {
+		t.Fatalf("typed nil result changed: %#v", response.Result)
+	}
+}
