@@ -73,7 +73,7 @@ jobs:
             echo "version=$version"
             echo "tag=$tag"
             echo "artifact_name=release-$version-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-            echo "tested_sha=$GITHUB_SHA"
+            echo "tested_sha=$TESTED_SHA"
           } >> "$GITHUB_OUTPUT"
 
   build:
