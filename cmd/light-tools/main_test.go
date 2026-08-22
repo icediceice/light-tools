@@ -555,3 +555,161 @@ func TestVaultUIResetClearsOnlyPasswordVerifier(t *testing.T) {
 		t.Fatalf("ui-reset accepted extra argument: %v", err)
 	}
 }
+
+func TestAllFiveToolsThroughServeRawAndTerse(t *testing.T) {
+	root := t.TempDir()
+	layout := state.Layout{
+		Config: filepath.Join(root, "config"), Secrets: filepath.Join(root, "secrets"),
+		Snapshots: filepath.Join(root, "snapshots"), Spills: filepath.Join(root, "spills"),
+	}
+	for _, path := range []string{layout.Config, layout.Secrets, layout.Snapshots, layout.Spills} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	probe := filepath.Join(root, "serve-probe.log")
+	content := strings.Repeat("word ", 120)
+	if err := os.WriteFile(probe, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configuration := config.Config{
+		AllowedRoots: []string{root},
+		LogRoots:     []string{root},
+		Remote:       map[string]config.RemoteProfile{},
+	}
+
+	raw := runAllFiveTranscript(t, layout, configuration, probe, content, false)
+	firstTerse := runAllFiveTranscript(t, layout, configuration, probe, content, true)
+	secondTerse := runAllFiveTranscript(t, layout, configuration, probe, content, true)
+
+	for _, name := range []string{"light_file", "light_bash", "light_ops"} {
+		rawResult, terseResult := raw[name], firstTerse[name]
+		if rawResult.IsError || terseResult.IsError {
+			t.Fatalf("%s success probe returned error: raw=%#v terse=%#v", name, rawResult, terseResult)
+		}
+		if len(rawResult.Content) != 1 || len(terseResult.Content) != 1 {
+			t.Fatalf("%s returned unexpected content: raw=%#v terse=%#v", name, rawResult, terseResult)
+		}
+		want := decodeJSONResult(t, rawResult.Content[0].Text)
+		if terseResult.Content[0].Text == rawResult.Content[0].Text {
+			t.Fatalf("%s representative payload did not exercise terse output", name)
+		}
+		if len(terseResult.Content[0].Text) >= len(rawResult.Content[0].Text) {
+			t.Fatalf("%s terse output did not shrink: %d >= %d", name, len(terseResult.Content[0].Text), len(rawResult.Content[0].Text))
+		}
+		got, err := terse.Decode([]byte(terseResult.Content[0].Text))
+		if err != nil {
+			t.Fatalf("%s emitted invalid terse: %v", name, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s terse semantics drifted\nwant %#v\n got %#v", name, want, got)
+		}
+		if !reflect.DeepEqual(terseResult, secondTerse[name]) {
+			t.Fatalf("%s terse output was not deterministic\nfirst %#v\nsecond %#v", name, terseResult, secondTerse[name])
+		}
+	}
+
+	for _, name := range []string{"light_ssh", "light_scp"} {
+		if !raw[name].IsError || !firstTerse[name].IsError {
+			t.Fatalf("%s refusal probe did not return a tool error: raw=%#v terse=%#v", name, raw[name], firstTerse[name])
+		}
+		if !reflect.DeepEqual(raw[name], firstTerse[name]) || !reflect.DeepEqual(firstTerse[name], secondTerse[name]) {
+			t.Fatalf("%s error envelope was formatted or unstable", name)
+		}
+	}
+}
+
+func runAllFiveTranscript(t *testing.T, layout state.Layout, configuration config.Config, probe, content string, terseOutput bool) map[string]mcp.Result {
+	t.Helper()
+	server := mcp.New("test", "1", terseOutput)
+	if err := registerTools(server, options{enableShell: true, enableRemote: true, enableOps: true}, layout, configuration); err != nil {
+		t.Fatal(err)
+	}
+	command := "printf '%s' '" + content + "'"
+	if runtime.GOOS == "windows" {
+		command = "[Console]::Out.Write('" + content + "')"
+	}
+	calls := []struct {
+		name      string
+		arguments map[string]any
+	}{
+		{name: "light_file", arguments: map[string]any{"verb": "read", "path": probe, "offset": 0, "limit": 20}},
+		{name: "light_bash", arguments: map[string]any{"command": command, "cwd": filepath.Dir(probe), "timeout_ms": 30000}},
+		{name: "light_ops", arguments: map[string]any{"verb": "log_window", "path": probe}},
+		{name: "light_ssh", arguments: map[string]any{"command": "must-not-execute"}},
+		{name: "light_scp", arguments: map[string]any{"src": probe, "dst": filepath.Join(filepath.Dir(probe), "also-local")}},
+	}
+
+	requests := []map[string]any{
+		{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": map[string]any{}},
+	}
+	for index, call := range calls {
+		requests = append(requests, map[string]any{
+			"jsonrpc": "2.0", "id": index + 2, "method": "tools/call",
+			"params": map[string]any{"name": call.name, "arguments": call.arguments},
+		})
+	}
+	var input strings.Builder
+	for _, request := range requests {
+		encoded, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		input.Write(encoded)
+		input.WriteByte('\n')
+	}
+	var output strings.Builder
+	if err := server.Serve(context.Background(), strings.NewReader(input.String()), &output); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != len(requests) {
+		t.Fatalf("got %d responses for %d requests: %s", len(lines), len(requests), output.String())
+	}
+
+	var listed struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &listed); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, tool := range listed.Result.Tools {
+		names = append(names, tool.Name)
+	}
+	wantNames := []string{"light_bash", "light_file", "light_ops", "light_scp", "light_ssh"}
+	if !reflect.DeepEqual(names, wantNames) {
+		t.Fatalf("all-five list drifted: got %v want %v", names, wantNames)
+	}
+
+	results := make(map[string]mcp.Result, len(calls))
+	for index, call := range calls {
+		var envelope struct {
+			Result mcp.Result `json:"result"`
+			Error  any        `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(lines[index+1]), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Error != nil {
+			t.Fatalf("%s returned protocol error: %#v", call.name, envelope.Error)
+		}
+		results[call.name] = envelope.Result
+	}
+	return results
+}
+
+func decodeJSONResult(t *testing.T, text string) any {
+	t.Helper()
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		t.Fatalf("raw result is not JSON: %v\n%s", err, text)
+	}
+	return value
+}
