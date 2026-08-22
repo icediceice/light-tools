@@ -14,10 +14,22 @@ import {
 const rootPackage = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
+const ciWorkflow = await readFile(
+  new URL("../.github/workflows/ci.yml", import.meta.url),
+  "utf8",
+);
+const releaseWorkflow = await readFile(
+  new URL("../.github/workflows/release.yml", import.meta.url),
+  "utf8",
+);
 const promotionWorkflow = await readFile(
   new URL("../.github/workflows/promote-release.yml", import.meta.url),
   "utf8",
 );
+
+function countLiteral(text, needle) {
+  return text.split(needle).length - 1;
+}
 
 const platformNames = [
   "@icediceice/light-tools-darwin-arm64",
