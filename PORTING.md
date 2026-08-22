@@ -82,10 +82,31 @@ which is a consumer-visible contract.
   variable spelling.
 - Read windows are one-based `cat -n` lines. Batch reads share an output budget
   and return exact continuation cursors rather than silently dropping content.
-- Symbol extraction deduplicates captures by body-start byte, filters low-value
-  symbols, preserves leading comments, derives Go receivers and class
-  ancestors, and watchdogs each parse. Builds without tree-sitter return a
-  graceful no-symbols response.
+- Symbol extraction is governed by one extension and kind registry. Grammar
+  builds support Go; JavaScript; distinct TypeScript and TSX; Python; Java;
+  Rust; C/C++/C#; Ruby; PHP; Bash; Lua; Scala; Kotlin; Dart; and HTML. CSS,
+  Markdown, YAML, and TOML are untagged deterministic scanners with exact byte
+  ranges, so they remain available in the CGo-free Windows ARM64 build.
+- The standalone semantic adapter intentionally corrects source-lane behavior
+  that was useful only to Light-CF's vector index: grouped Go type declarations
+  are neither collapsed nor duplicated; signatures retain the existing
+  240-byte cap and ellipsis; comments use a UTF-8-safe 500-byte cap and
+  ellipsis; quoted JavaScript test names are addressable; one-rune declarations
+  survive; structured-text offsets are real; class-like declarations retain
+  richer interface/enum/record/struct/trait/object kinds; and the synthetic
+  JavaScript `<module>` row is omitted so the chunk outline remains available.
+- Grammar queries are compiled by the parity corpus, and runtime query mismatch
+  is a typed extraction error rather than silent empty output. Captures are
+  deduplicated by declarator identity, not body-start byte, preserving grouped
+  declarations and same-line overloads. Signatures, leading comments, parents,
+  exact line/byte ranges, and deterministic ordering are consumer-visible.
+- Parsing rejects source with a line above 8000 bytes, applies tree-sitter's
+  native ten-second timeout, and runs through a single-flight hard deadline.
+  If native parsing stalls, at most one CGo worker remains active; later grammar
+  requests fail fast until it returns. There is no unbounded hash cache and no
+  `ParseWithOptions` pointer-retention path. Builds without tree-sitter return
+  pure-text symbols where applicable and the graceful no-symbol response for
+  grammar-backed files.
 - Snapshot rings live only below the snapshots root. Reaping never receives a
   broader state root. Rewrite restores the newest pre-mutation snapshot and
   applies the correction in one hash-guarded commit.
