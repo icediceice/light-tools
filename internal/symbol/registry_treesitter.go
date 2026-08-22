@@ -112,6 +112,12 @@ var grammarRegistry = map[languageID]grammarDescriptor{
 	langCPP: {
 		id: langCPP, language: languageFrom(cpplang.Language), query: `
 (function_definition declarator: (function_declarator declarator: (identifier) @name)) @body
+(function_definition declarator: (function_declarator declarator: (field_identifier) @name)) @body
+(function_definition declarator: (function_declarator declarator: (qualified_identifier scope: (_) @parent name: [(identifier) (destructor_name) (operator_name)] @name))) @body
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (qualified_identifier scope: (_) @parent name: (identifier) @name)))) @body
+(function_definition declarator: (pointer_declarator (function_declarator declarator: (qualified_identifier scope: (_) @parent name: (identifier) @name)))) @body
+(function_definition declarator: (reference_declarator (function_declarator declarator: (qualified_identifier scope: (_) @parent name: (identifier) @name)))) @body
+(function_definition declarator: (pointer_declarator (function_declarator declarator: (identifier) @name))) @body
 (class_specifier name: (type_identifier) @name) @body
 (struct_specifier name: (type_identifier) @name) @body
 (enum_specifier name: (type_identifier) @name) @body
