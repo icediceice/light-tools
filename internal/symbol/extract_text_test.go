@@ -2,7 +2,9 @@ package symbol
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestTextExtractorsArePlatformIndependent(t *testing.T) {
@@ -33,9 +35,26 @@ func TestTextExtractorsArePlatformIndependent(t *testing.T) {
 	}
 }
 
+func TestLargeMarkdownExtractionIsLinearEnough(t *testing.T) {
+	var source strings.Builder
+	for index := 0; index < 5000; index++ {
+		source.WriteString("## Heading\n")
+	}
+	started := time.Now()
+	symbols, err := Extract("CHANGELOG.md", []byte(source.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(symbols) != 5000 {
+		t.Fatalf("headings = %d", len(symbols))
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("markdown extraction took %s", elapsed)
+	}
+}
+
 func TestUnsupportedAndGrammarOnlyExtensions(t *testing.T) {
 	if _, err := Extract("notes.txt", []byte("hello")); !errors.Is(err, ErrUnsupportedExtension) {
 		t.Fatalf("unsupported extension error = %v", err)
 	}
-
 }
