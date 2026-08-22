@@ -21,7 +21,6 @@ func shellSource(posix, powershell string) string {
 	return posix
 }
 
-
 func TestRunnerResolvesExternalCommandAndKeepsEnvironmentMinimal(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		if os.Getenv("CI") != "" {
@@ -57,7 +56,6 @@ func TestRunnerResolvesExternalCommandAndKeepsEnvironmentMinimal(t *testing.T) {
 		t.Fatalf("child inherited a non-allowlisted parent variable: %#v", result)
 	}
 }
-
 
 func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	root := t.TempDir()
