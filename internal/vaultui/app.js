@@ -235,11 +235,166 @@
     token = "";
     sessionStorage.removeItem("light-vault-session");
     clearSecretDraft();
+    showView("vault");
     show(pairView);
     notice("Vault locked. Restart the terminal command to pair again.");
   });
 
   byId("refresh").addEventListener("click", loadVault);
+  byId("settings-refresh").addEventListener("click", () => loadSettings());
+  byId("telemetry-refresh").addEventListener("click", () => loadTelemetry());
+
+  // ---- Settings view -------------------------------------------------
+
+  // The toggles reflect ONLY the UI-owned markers. Launch withholding is not
+  // observable from this process; tools/list stays authoritative.
+  async function loadSettings() {
+    try {
+      const state = await api("/api/settings");
+      renderSettings(state.tools || []);
+    } catch {
+      notice("Settings could not be loaded.", true);
+    }
+  }
+
+  function renderSettings(tools) {
+    const container = byId("settings-tools");
+    container.replaceChildren();
+    if (!tools.length) {
+      container.append(empty("No tools are known to this UI."));
+      return;
+    }
+    for (const tool of tools) {
+      const row = document.createElement("div");
+      row.className = "row toggle-row";
+      const main = document.createElement("div");
+      main.className = "row-main";
+      const title = document.createElement("div");
+      title.className = "row-title";
+      title.textContent = tool.name;
+      const meta = document.createElement("div");
+      meta.className = "row-meta";
+      meta.textContent = tool.disabled
+        ? "Withheld by this UI at the next MCP start"
+        : "Registered, as far as this UI can see";
+      main.append(title, meta);
+
+      const toggle = document.createElement("label");
+      toggle.className = "switch";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = Boolean(tool.disabled);
+      input.setAttribute("aria-label", "Withhold " + tool.name);
+      const slider = document.createElement("span");
+      slider.className = "slider";
+      slider.setAttribute("aria-hidden", "true");
+      toggle.append(input, slider);
+      input.addEventListener("change", async () => {
+        const withheld = input.checked;
+        notice("");
+        try {
+          await api("/api/settings/tools", {
+            method: "POST",
+            body: JSON.stringify({ tool: tool.name, disabled: withheld })
+          });
+          notice(withheld
+            ? tool.name + " will be withheld at the next MCP start."
+            : tool.name + " marker removed; it registers at the next MCP start unless launch arguments withhold it.");
+          await loadSettings();
+        } catch {
+          input.checked = !withheld;
+          notice("The setting could not be saved.", true);
+        }
+      });
+      row.append(main, toggle);
+      container.append(row);
+    }
+  }
+
+  // ---- Telemetry view --------------------------------------------------
+
+  async function loadTelemetry() {
+    try {
+      renderTelemetry(await api("/api/telemetry"));
+    } catch {
+      notice("Telemetry could not be loaded.", true);
+    }
+  }
+
+  function renderTelemetry(totals) {
+    const cards = byId("telemetry-cards");
+    cards.replaceChildren();
+    cards.append(
+      card("Terse output", (Number(totals.terse_tokens_saved) || 0).toLocaleString() + " tokens", "saved by terse result formatting"),
+      card("Read dedup", formatBytes(Number(totals.dedup_bytes_saved) || 0), "not re-sent for repeated reads"),
+      card("Writing", formatBytes(Number(totals.write_bytes_saved) || 0), "vs. sending a full rewrite")
+    );
+
+    const warnings = byId("telemetry-warnings");
+    warnings.replaceChildren();
+    const list = totals.warnings || [];
+    if (!list.length) {
+      warnings.append(empty("All retained snapshots are healthy."));
+    } else {
+      for (const warning of list) {
+        const row = document.createElement("div");
+        row.className = "row";
+        const meta = document.createElement("div");
+        meta.className = "row-meta";
+        meta.textContent = warning;
+        row.append(meta);
+        warnings.append(row);
+      }
+    }
+
+    const calls = byId("telemetry-calls");
+    calls.replaceChildren();
+    const entries = Object.entries(totals.calls || {}).sort((left, right) => right[1] - left[1]);
+    if (!entries.length) {
+      calls.append(empty("No tool calls recorded yet."));
+      return;
+    }
+    for (const [name, count] of entries) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const title = document.createElement("div");
+      title.className = "row-title";
+      title.textContent = name;
+      const meta = document.createElement("div");
+      meta.className = "row-meta";
+      meta.textContent = Number(count).toLocaleString() + " calls";
+      row.append(title, meta);
+      calls.append(row);
+    }
+  }
+
+  function card(title, value, label) {
+    const element = document.createElement("div");
+    element.className = "card";
+    const heading = document.createElement("div");
+    heading.className = "card-title";
+    heading.textContent = title;
+    const amount = document.createElement("div");
+    amount.className = "card-value";
+    amount.textContent = value;
+    const detail = document.createElement("div");
+    detail.className = "card-label";
+    detail.textContent = label;
+    element.append(heading, amount, detail);
+    return element;
+  }
+
+  function formatBytes(count) {
+    if (count < 1024) return count.toLocaleString() + " B";
+    const units = ["KiB", "MiB", "GiB", "TiB"];
+    let value = count;
+    for (const unit of units) {
+      value /= 1024;
+      if (value < 1024 || unit === units[units.length - 1]) {
+        return value.toLocaleString(undefined, { maximumFractionDigits: 1 }) + " " + unit;
+      }
+    }
+  }
 
   async function loadVault() {
     notice("");
