@@ -224,6 +224,57 @@ protects nothing.
 registered at all, so it cannot be called and then apologised for. An unknown
 name in `--disable-tool` is refused at startup rather than silently ignored.
 
+## The compression layer
+
+Light tools are designed around JIT and dynamic-recompilation principles: expose
+only the information required for the current execution path, as late as
+possible, while preserving the semantics needed to continue safely.
+
+Context is the scarce resource, and a tool that returns everything it knows
+spends that resource on the caller's behalf without being asked. But the naive
+fix — truncate, summarise, elide — trades a budget problem for a correctness
+problem, because the caller cannot tell the difference between "this is all of
+it" and "this is the part you were shown". So every reduction here is paired
+with a way back, and refuses itself when it cannot prove the reduction is safe.
+
+**Outbound encoding is lossless or it does not happen.** Structured results above
+a size floor are re-rendered into a compact form — below that floor the
+bookkeeping costs more than it saves, so the original is returned untouched. The
+compact candidate is then *decoded back and compared to the original value for
+exact structural equality*. If the round trip does not reproduce the input, or if
+the "compact" rendering is not genuinely smaller in both bytes and estimated
+tokens, the candidate is discarded and the raw payload goes out unchanged. There
+is no lossy mode to fall back to, and no threshold at which fidelity is traded
+for size. Errors are never re-encoded: a diagnostic is the one payload whose
+exact shape the caller may be matching on.
+
+**Oversized output is paged, not truncated.** A command that produces more than
+the inline limit gets a summarised body plus a full indexed spill written to
+disk. The complete bytes stay retrievable verbatim by line range, or searchable
+by pattern, for the life of the spill. A caller that already knows what it is
+looking for can declare anchors up front and have those lines kept in the inline
+body. The distinction that matters: nothing was discarded, so the decision to
+read more is made later, by the caller, on evidence — which is the point of
+deferring it.
+
+**Re-reads collapse against content, not against paths.** A ledger keyed on
+context, path, and content hash returns a short stub when a read would deliver
+bytes that were already delivered in the same context window. Keying on the hash
+rather than the path is what makes it safe: an edited file always
+re-materialises, because its hash no longer matches. It is disabled entirely when
+no context key is supplied, and an explicit force flag always re-sends. The
+invariant is narrow and deliberate — it can only ever elide content the caller
+demonstrably already holds.
+
+Taken together these are the same discipline as the argument repair described
+above, pointed the other way. Inbound, the layer reconstructs the call the caller
+meant and reports what it changed. Outbound, it emits the smallest form that
+provably still means what the original meant, and keeps the remainder
+addressable. Neither direction is allowed to guess, because a layer that quietly
+guesses is worse than the raw surface it replaced: the failure it introduces is
+invisible at the call site and surfaces later, in a decision made on incomplete
+information the caller believed was complete.
+
 ## How much this is worth
 
 Two different measurements, kept apart on purpose.
