@@ -18,6 +18,10 @@ type Layout struct {
 	Secrets   string
 	Snapshots string
 	Spills    string
+	// Telemetry holds local-only aggregate snapshots. It is a peer of the other
+	// data roots rather than nested under Config because it carries retention
+	// and pruning behaviour settings do not.
+	Telemetry string
 }
 
 // Resolve returns and creates the XDG-backed store roots. No configuration file
