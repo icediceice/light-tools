@@ -8,11 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/icediceice/light-tools/internal/secret"
+	"github.com/icediceice/light-tools/internal/settings"
+	"github.com/icediceice/light-tools/internal/telemetry"
 )
 
 type testUI struct {
