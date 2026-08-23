@@ -170,8 +170,7 @@ func TestWriteSavingsMeasuredOncePerCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	replacement := "brand new line"
-	if _, err := handler.mutate(nil, Request{Verb: "sed", Path: path, Find: strPtr("line 1500"), Replace: strPtr(replacement)}.mutation()); err != nil {
+	if _, err := handler.mutate(context.Background(), Request{Verb: "sed", Path: path, Find: strPtr("line 1500"), Replace: strPtr("brand new line")}.mutation()); err != nil {
 		t.Fatal(err)
 	}
 	if len(recorder.writes) != 1 {
