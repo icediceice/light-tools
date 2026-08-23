@@ -94,16 +94,25 @@
   // MOVED into whichever overlay needs them, then handed back on close. One
   // hardened reader serves both the add and the edit overlay, so the UTF-8
   // check, the size cap and the sequence guard cannot drift apart.
+  //
+  // These handles are captured ONCE, deliberately. An overlay calls adoptImport
+  // while it is still DETACHED, which takes these nodes out of the document
+  // tree, so a getElementById lookup after that point returns null.
+  const importHome = byId("secret-import-home");
+  const importField = byId("secret-file-field");
+  const importRow = byId("secret-import");
+  const importName = byId("secret-import-name");
+  const importSize = byId("secret-import-size");
+  const importFile = byId("secret-file");
 
   function renderPendingImport() {
-    const container = byId("secret-import");
     const active = pendingImport !== null;
-    container.classList.toggle("hidden", !active);
+    importRow.classList.toggle("hidden", !active);
     if (activeValueInput) {
       activeValueInput.disabled = active;
     }
-    byId("secret-import-name").textContent = active ? pendingImport.name : "";
-    byId("secret-import-size").textContent = active
+    importName.textContent = active ? pendingImport.name : "";
+    importSize.textContent = active
       ? pendingImport.size.toLocaleString() + " bytes ready to save"
       : "";
   }
@@ -111,7 +120,7 @@
   function discardImport(reason = "") {
     importSequence += 1;
     pendingImport = null;
-    byId("secret-file").value = "";
+    importFile.value = "";
     renderPendingImport();
     if (reason) {
       notice(reason, true);
@@ -120,15 +129,13 @@
 
   function adoptImport(node, valueInput, labelText) {
     activeValueInput = valueInput;
-    const field = byId("secret-file-field");
-    field.firstElementChild.textContent = labelText;
-    node.append(field, byId("secret-import"));
+    importField.firstElementChild.textContent = labelText;
+    node.append(importField, importRow);
     renderPendingImport();
   }
 
   function releaseImport() {
-    const home = byId("secret-import-home");
-    home.append(byId("secret-file-field"), byId("secret-import"));
+    importHome.append(importField, importRow);
     activeValueInput = null;
   }
 
