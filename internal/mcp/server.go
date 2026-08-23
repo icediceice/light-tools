@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/icediceice/light-tools/internal/portable"
+	"github.com/icediceice/light-tools/internal/telemetry"
 	"github.com/icediceice/light-tools/internal/terse"
 )
 
