@@ -238,15 +238,11 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, *rend
 		fmt.Fprintf(&builder, "%6d\t%s\n", index+1, lines[index])
 	}
 	fmt.Fprintf(&builder, "[meta total_lines=%d bytes=%d tokens=%d next_offset=%d continued=%t]\n", len(lines), len(data), estimateTokens(data), end, end < len(lines))
-	section := builder.String()
-	if h.cache.ShouldElide(epoch, path, hash, force) {
-		stub := header + fmt.Sprintf("[dedup] sha256:%s\n", hash)
-		if saved := len(section) - len(stub); saved > 0 {
-			h.observe(func(recorder telemetry.Recorder) { recorder.RecordDedupBytes(saved) })
-		}
-		return stub, nil
-	}
-	return section, nil
+	return builder.String(), &renderedWindow{
+		path: path,
+		hash: hash,
+		stub: header + fmt.Sprintf("[dedup] sha256:%s\n", hash),
+	}, nil
 }
 
 func (h *Handler) readWindow(path string, offset, limit int, epoch string, force bool, expectedSHA string) (any, error) {
