@@ -266,33 +266,39 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 	}
 	content := builder.String()
 
-	// The dedup ledger keys on the whole-file hash, so paging an unchanged file
-	// would elide page 2 as an already-seen read. Fold the span into the key.
-	if h.cache.ShouldElide(epoch, path, fmt.Sprintf("%s#%d-%d", hash, offset, end), force) {
-		return mcp.Result{Content: []mcp.Content{mcp.Text(fmt.Sprintf("[dedup] %s sha256:%s lines %d-%d", path, hash, offset, end))}}, nil
-	}
-
+	// The response is fully determined, with no side effects, before the ledger
+	// decides: the bounded payload the caller would have received is what a
+	// dedup hit is credited against, and the spill store (a durable write) is
+	// consulted only once elision has declined. In the rare oversized-line case
+	// the sizing below uses the truncated content, so any credit is conservative.
 	result := map[string]any{
 		"path": path, "content": content, "total_lines": len(lines), "bytes": len(data),
 		"tokens": estimateTokens(data), "sha256": hash, "continued": end < len(lines), "next_offset": end,
 	}
-	// An oversized single line is handed to the SAME spill store light_bash
-	// uses, rather than a bespoke error: the caller recovers it verbatim with
-	// output_mode:read_block.
 	if len(content) > readBudget {
-		if h.spills != nil {
-			id, spillErr := h.spills.Store([]byte(content))
-			if spillErr == nil {
-				result["spill_id"] = id
-				result["truncated"] = true
-				result["content"] = content[:safeUTF8Boundary(content, readBudget)]
-				result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget; full page stored — recover it with light_bash output_mode:read_block spill:" + id
-				return textJSON(result)
-			}
-		}
 		result["truncated"] = true
 		result["content"] = content[:safeUTF8Boundary(content, readBudget)]
 		result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget and was truncated"
+	}
+	// The dedup ledger keys on the whole-file hash, so paging an unchanged file
+	// would elide page 2 as an already-seen read. Fold the span into the key.
+	if h.cache.ShouldElide(epoch, path, fmt.Sprintf("%s#%d-%d", hash, offset, end), force) {
+		stub := mcp.Result{Content: []mcp.Content{mcp.Text(fmt.Sprintf("[dedup] %s sha256:%s lines %d-%d", path, hash, offset, end))}}
+		if prospective, err := json.Marshal(result); err == nil {
+			if saved := len(prospective) - len(stub.Content[0].Text); saved > 0 {
+				h.recorder.RecordDedupBytes(saved)
+			}
+		}
+		return stub, nil
+	}
+	// An oversized single line is handed to the SAME spill store light_bash
+	// uses, rather than a bespoke error: the caller recovers it verbatim with
+	// output_mode:read_block.
+	if len(content) > readBudget && h.spills != nil {
+		if id, spillErr := h.spills.Store([]byte(content)); spillErr == nil {
+			result["spill_id"] = id
+			result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget; full page stored — recover it with light_bash output_mode:read_block spill:" + id
+		}
 	}
 	return textJSON(result)
 }
