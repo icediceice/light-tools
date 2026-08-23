@@ -98,6 +98,37 @@
         </div>
         <div id="secrets" class="stack"></div>
       </section>
+      </div>
+
+      <section id="settings-view" class="hidden">
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Tool availability</h2>
+            <button id="settings-refresh" class="secondary" type="button">Refresh</button>
+          </div>
+          <p class="hint">These controls add withholding at the next MCP start. Launch arguments may withhold more and are not visible here — tools/list is authoritative.</p>
+          <div id="settings-tools" class="stack"></div>
+        </section>
+      </section>
+
+      <section id="telemetry-view" class="hidden">
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Savings</h2>
+            <button id="telemetry-refresh" class="secondary" type="button">Refresh</button>
+          </div>
+          <div id="telemetry-cards" class="cards"></div>
+          <p class="hint">Totals are a persisted lower bound: snapshots flush periodically, and the most recent activity may not be on disk yet. Older sessions are pruned by retention.</p>
+          <div id="telemetry-warnings" class="stack"></div>
+        </section>
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Usage</h2>
+          </div>
+          <p class="hint">Call counts are usage, not savings.</p>
+          <div id="telemetry-calls" class="stack"></div>
+        </section>
+      </section>
     </section>
   </main>
   <script src="/app.js" defer></script>
