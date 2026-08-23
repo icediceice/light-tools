@@ -204,6 +204,7 @@ func (h *Handler) rewrite(ctx context.Context, mutation fileop.Mutation) (any, e
 	})
 	if err == nil {
 		h.cache.Invalidate(path)
+		h.recordWriteSavings(carriedBytes(mutation), transformed.Data)
 	}
 	return map[string]any{"commit": result, "spans": transformed.Spans, "numbered": numbered(transformed.Data)}, err
 }
