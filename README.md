@@ -70,7 +70,7 @@ If they are all there:
    re-enable my native file and terminal tools whenever light-tools is not
    available, so that a missing or crashed server can never leave you with no
    tools at all. Show me what you wrote and how you tested it.
-2. Only once that guard works, prefer light-tools over your built-in tools:
+2. Only once that guard works, take away native tools and write how to use light-tools into your agent.md or claude.md or which ever .md that is your start config :
    read, list, search or edit a file with light_file; run a command with
    light_bash; touch a remote host with light_ssh or light_scp; inspect a
    service, port or log with light_ops.
