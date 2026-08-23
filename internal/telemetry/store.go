@@ -281,26 +281,28 @@ func (s *Store) prune() {
 			}
 		}
 	}
-	var victims []string
+	// Retention decides first, then the hard cap chooses among what retention
+	// kept, so a session expired by retention is never counted (and evicted)
+	// twice by the cap branch.
+	victims := make(map[string]bool)
 	for session := range newest {
-		if session == s.session {
-			continue // never prune the live session
-		}
-		if now.Sub(modTimes[session]) > retention {
-			victims = append(victims, session)
+		if session != s.session && now.Sub(modTimes[session]) > retention {
+			victims[session] = true
 		}
 	}
-	if retained := len(newest) - len(victims); retained > sessionCap {
+	if kept := len(newest) - len(victims); kept > sessionCap {
 		var survivors []string
 		for session := range newest {
-			if session != s.session {
+			if session != s.session && !victims[session] {
 				survivors = append(survivors, session)
 			}
 		}
 		sort.Slice(survivors, func(i, j int) bool { return modTimes[survivors[i]].Before(modTimes[survivors[j]]) })
-		victims = append(victims, survivors[:retained-sessionCap]...)
+		for _, session := range survivors[:kept-sessionCap] {
+			victims[session] = true
+		}
 	}
-	for _, session := range victims {
+	for session := range victims {
 		for generation := int64(1); generation <= newest[session]; generation++ {
 			_ = os.Remove(snapshotPath(s.dir, session, generation))
 		}
