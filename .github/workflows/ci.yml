@@ -120,6 +120,35 @@ jobs:
           arguments+=(./...)
           go "${arguments[@]}"
 
+  race:
+    name: Race (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: untagged
+            tags: ""
+          - name: treesitter
+            tags: treesitter
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - name: Uncached race test
+        shell: bash
+        run: |
+          arguments=(test -race -count=1 -v)
+          if [[ -n "${{ matrix.tags }}" ]]; then arguments+=("-tags=${{ matrix.tags }}"); fi
+          arguments+=(./...)
+          go "${arguments[@]}"
+
   inspector:
     runs-on: ubuntu-24.04
     steps:
