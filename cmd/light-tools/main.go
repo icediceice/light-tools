@@ -94,12 +94,19 @@ func main() {
 	flag.BoolVar(&retiredOps, "enable-ops", false, "deprecated no-op: light_ops is registered by default")
 	flag.Parse()
 	warnRetiredFlags(os.Stderr, retiredShell, retiredRemote, retiredOps)
-	opts, err := newOptions(disabledTools)
+	// The layout resolves BEFORE the withheld set is decided: persisted markers
+	// live under the config root, and their union with the launch flags is the
+	// registration posture.
+	layout, err := state.Resolve()
 	if err != nil {
 		fatal(err)
 	}
-
-	layout, err := state.Resolve()
+	toolSettings := settings.New(layout.Config, toolNames)
+	persistedDisabled, err := toolSettings.LoadDisabled()
+	if err != nil {
+		fatal(err)
+	}
+	opts, err := newOptions(disabledTools, persistedDisabled)
 	if err != nil {
 		fatal(err)
 	}
