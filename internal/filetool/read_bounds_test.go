@@ -64,6 +64,151 @@ func writeLines(t *testing.T, root, name string, count int) string {
 	return path
 }
 
+// captureRecorder records savings for assertions.
+type captureRecorder struct {
+	calls    []string
+	dedup    []int
+	writes   []int
+}
+
+func (c *captureRecorder) RecordCall(tool string)      { c.calls = append(c.calls, tool) }
+func (c *captureRecorder) RecordTerseTokens(int)        {}
+func (c *captureRecorder) RecordDedupBytes(saved int)   { c.dedup = append(c.dedup, saved) }
+func (c *captureRecorder) RecordWriteBytes(saved int)   { c.writes = append(c.writes, saved) }
+
+func recorderHandler(t *testing.T) (*Handler, *captureRecorder, string) {
+	t.Helper()
+	root := t.TempDir()
+	confiner, err := security.NewConfiner([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &captureRecorder{}
+	handler, err := New(Options{
+		Confiner: confiner, SnapshotRoot: filepath.Join(root, ".snap"), Recorder: recorder,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler, recorder, root
+}
+
+// A repeated bounded read records ONLY the bounded delta: the response it
+// suppressed, never the size of the whole source file.
+func TestDedupRecordsOnlyTheBoundedDelta(t *testing.T) {
+	handler, recorder, root := recorderHandler(t)
+	path := writeLines(t, root, "wide.txt", 5000)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	window := Request{Path: path, Offset: 0, Limit: 10, ContextEpoch: "epoch-1"}
+	if _, err := handler.readWindow(path, 0, 10, "epoch-1", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.dedup) != 0 {
+		t.Fatalf("first observation recorded savings: %v", recorder.dedup)
+	}
+	// The identical window repeats: elided, and the credit is bounded by the
+	// response that would have been returned.
+	stub, err := handler.readWindow(path, 0, 10, "epoch-1", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.dedup) != 1 {
+		t.Fatalf("elision did not record exactly one delta: %v", recorder.dedup)
+	}
+	saved := recorder.dedup[0]
+	if saved <= 0 {
+		t.Fatalf("delta = %d", saved)
+	}
+	encoded, err := json.Marshal(stub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved >= int(info.Size()) {
+		t.Fatalf("delta %d credits the whole %d-byte file rather than the bounded response", saved, info.Size())
+	}
+	if saved+200 < len(encoded) { // stub + modest response overhead must cover the credit
+		t.Fatalf("delta %d is implausibly larger than a stubbed response", saved)
+	}
+	_ = window
+}
+
+// A repeated batch item elides with the rendered section as its baseline.
+func TestBatchItemDedupRecordsSectionDelta(t *testing.T) {
+	handler, recorder, root := recorderHandler(t)
+	path := writeLines(t, root, "item.txt", 800)
+	item := Item{Path: path, Offset: 0, Limit: 5}
+	if _, err := handler.renderItem(item, "epoch-2", false); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.dedup) != 0 {
+		t.Fatalf("first observation recorded savings: %v", recorder.dedup)
+	}
+	section, err := handler.renderItem(item, "epoch-2", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(section, "[dedup]") {
+		t.Fatalf("second render did not elide: %q", section)
+	}
+	if len(recorder.dedup) != 1 || recorder.dedup[0] <= 0 {
+		t.Fatalf("elision delta = %v", recorder.dedup)
+	}
+}
+
+// Write savings are measured once per commit against the postimage: a tiny
+// edit to a large file credits (approximately) the file, and a write that
+// carries its whole content credits nothing.
+func TestWriteSavingsMeasuredOncePerCommit(t *testing.T) {
+	handler, recorder, root := recorderHandler(t)
+	path := writeLines(t, root, "target.txt", 3000)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := "brand new line"
+	if _, err := handler.mutate(nil, Request{Verb: "sed", Path: path, Find: strPtr("line 1500"), Replace: strPtr(replacement)}.mutation()); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.writes) != 1 {
+		t.Fatalf("sed commit recorded %d entries: %v", len(recorder.writes), recorder.writes)
+	}
+	if recorder.writes[0] < int(info.Size())-1024 {
+		t.Fatalf("sed credit %d does not track the %d-byte postimage", recorder.writes[0], info.Size())
+	}
+
+	// A write carries its full content: no credit.
+	recorder.writes = nil
+	fresh := filepath.Join(root, "fresh.txt")
+	content := strings.Repeat("payload ", 64)
+	if _, err := handler.mutate(nil, Request{Verb: "write", Path: fresh, Content: strPtr(content)}.mutation()); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.writes) != 0 {
+		t.Fatalf("full write credited savings: %v", recorder.writes)
+	}
+
+	// Two same-path edits in ONE batch commit exactly once.
+	recorder.writes = nil
+	result, err := handler.mutateBatch(nil, []mutation{
+		{Verb: fileop.VerbEdit, Path: path, StartLine: 10, NewString: strPtr("first")},
+		{Verb: fileop.VerbEdit, Path: path, StartLine: 20, NewString: strPtr("second")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = result
+	if len(recorder.writes) != 1 {
+		t.Fatalf("grouped edits recorded %d entries (want one per commit): %v", len(recorder.writes), recorder.writes)
+	}
+}
+
+func strPtr(value string) *string { return &value }
+
 // A caller-supplied limit was previously honoured verbatim: limit:999999
 // returned 1,109,187 bytes in one response.
 func TestHugeLimitIsClampedAndContinues(t *testing.T) {
