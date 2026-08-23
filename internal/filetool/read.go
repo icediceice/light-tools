@@ -287,7 +287,7 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 		stub := mcp.Result{Content: []mcp.Content{mcp.Text(fmt.Sprintf("[dedup] %s sha256:%s lines %d-%d", path, hash, offset, end))}}
 		if prospective, err := json.Marshal(result); err == nil {
 			if saved := len(prospective) - len(stub.Content[0].Text); saved > 0 {
-				h.recorder.RecordDedupBytes(saved)
+				h.observe(func(recorder telemetry.Recorder) { recorder.RecordDedupBytes(saved) })
 			}
 		}
 		return stub, nil
