@@ -92,6 +92,27 @@ The retired `--enable-shell`, `--enable-remote`, and `--enable-ops` flags still
 parse so existing configurations keep launching, but they gate nothing and warn
 on stderr.
 
+## Settings and savings telemetry
+
+`light-tools vault ui` grew two views alongside the vault:
+
+- **Settings** — per-tool toggles that withhold a tool at the *next* MCP start.
+  A toggle writes one zero-byte marker under the config root; it only ever adds
+  withholding. The registration posture is the union of the launch flags and
+  these markers: a tool disabled by `--disable-tool` stays withheld no matter
+  what the UI says, and launch arguments are not visible to the UI —
+  `tools/list` stays authoritative.
+- **Telemetry** — local-only aggregates of what light-tools' bounded
+  representations saved: terse-output tokens, read-dedup bytes, and writing
+  bytes measured against sending a full rewrite, plus per-tool call counts.
+  Totals are a persisted lower bound, and the data never leaves the machine:
+  aggregates only, no paths, arguments, commands, hostnames, or usernames, and
+  no network component of any kind. Opt out with `DO_NOT_TRACK=1` or a
+  non-empty `LIGHT_NO_TELEMETRY`.
+
+Exact metric definitions and endpoints: [docs/REFERENCE.md](docs/REFERENCE.md).
+Telemetry privacy specifics: [SECURITY.md](SECURITY.md).
+
 ## Platforms
 
 | OS | amd64 | arm64 | Symbol extraction |
