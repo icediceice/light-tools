@@ -14,6 +14,7 @@ import (
 	"github.com/icediceice/light-tools/internal/readcache"
 	"github.com/icediceice/light-tools/internal/security"
 	"github.com/icediceice/light-tools/internal/snapshot"
+	"github.com/icediceice/light-tools/internal/telemetry"
 )
 
 // spillStore is the subset of the shared spill store filetool needs. Declaring
