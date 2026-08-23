@@ -392,10 +392,13 @@ func scanTotals(dir string) (totals Totals, superseded bool, err error) {
 		}
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			if os.IsNotExist(err) {
-				// The writer removed this snapshot after the listing — a
-				// supersession or a prune. Report it up so the caller rescans
-				// rather than warning about a healthy store.
+			if isTransientReadError(err) {
+				// The writer removed or is replacing this snapshot after the
+				// listing — a supersession or a prune. Report it up so the
+				// caller rescans rather than warning about a healthy store.
+				// Windows signals the replacing case as a sharing violation
+				// rather than ENOENT, which is why this is not a bare
+				// os.IsNotExist check.
 				return totals, true, nil
 			}
 			totals.Warnings = append(totals.Warnings, fmt.Sprintf("%s: unreadable (%v)", entry.Name(), err))

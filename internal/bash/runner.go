@@ -1,7 +1,6 @@
 package bash
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -50,6 +49,10 @@ type Runner struct {
 	// surface. Nil disables the protected lane, which leaves every modeled
 	// glob on the confirm fence rather than running it unbacked.
 	captures *snapshot.Vault
+	// captureLimit is the per-stream in-memory ceiling for command output.
+	// Zero means captureLimit. It is a field rather than a bare constant so a
+	// test can drive the truncation path without generating 24 MiB.
+	captureLimit int
 }
 
 func NewRunner(roots []string, spillRoot string, secrets *secret.Vault, captures *snapshot.Vault) (*Runner, error) {
@@ -268,8 +271,8 @@ func (r *Runner) runSync(ctx context.Context, request Request, guard *globGuard)
 	command.Dir = resolvedCwd
 	command.Env = minimalEnvironment()
 	configureProcess(command)
-	var stdout, stderr bytes.Buffer
-	command.Stdout, command.Stderr = &stdout, &stderr
+	stdout, stderr := newBoundedBuffer(r.captureLimit), newBoundedBuffer(r.captureLimit)
+	command.Stdout, command.Stderr = stdout, stderr
 
 	values, cleanup, err := r.injectSecrets(command, request)
 	if err != nil {
@@ -306,6 +309,16 @@ func (r *Runner) runSync(ctx context.Context, request Request, guard *globGuard)
 		stderrText = filterOutput(stderrText, request.OutputMode, request.Lines, request.Filter)
 	}
 	result := map[string]any{"stdout": stdoutText, "stderr": stderrText, "exit_code": exitCode}
+	if dropped := stdout.Dropped() + stderr.Dropped(); dropped > 0 {
+		// Deliberately NOT the same signal as "truncated" below. That one says
+		// the output moved to a spill and is recoverable in full. These bytes
+		// are gone: the command outran the in-memory bound and they were never
+		// retained. Reporting them separately keeps the caller from reading a
+		// capped result as a complete one.
+		result["output_capped"] = true
+		result["dropped_bytes"] = dropped
+		result["capture_limit_bytes"] = stdout.Limit()
+	}
 	if timedOut {
 		// Partial stdout/stderr is kept deliberately: it is usually the only
 		// evidence of where the command hung.

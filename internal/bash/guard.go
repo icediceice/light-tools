@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -440,7 +441,28 @@ func shellRewrites(raw string) bool {
 // Every word is re-quoted, which is safe precisely because shellRewrites has
 // already excluded the operands whose expansion carried meaning: after word
 // splitting there is nothing left for the shell to do but pass them through.
+// pinCommand rewrites the command to name the captured paths literally, so the
+// shell cannot re-expand the pattern onto a different set between the snapshot
+// and the effect.
+//
+// It emits POSIX shell syntax: every word is single-quoted, the command name
+// included. PowerShell — the shell runSync uses on Windows — parses a leading
+// quoted string as a string literal rather than a command, so a pinned command
+// there never executes at all. The mutation silently does nothing while the
+// caller is told the surface was captured, which is strictly worse than not
+// pinning.
+//
+// Rewriting into PowerShell instead would mean modelling cmdlet parameter
+// binding — Remove-Item takes -Filter positionally at index 1, so a naive
+// `& 'rm' 'a' 'b'` deletes nothing and a wrong guess deletes the wrong files.
+// That is not a trade worth taking inside a safety feature. On Windows we keep
+// the capture, which is the substantial protection because it is what makes the
+// mutation revertible, and let the shell expand the original pattern itself,
+// accepting the narrower re-expansion window.
 func pinCommand(plan globPlan, groups [][]surfaceEntry) string {
+	if runtime.GOOS == "windows" {
+		return ""
+	}
 	replacement := make(map[int][]string, len(plan.Operands))
 	for position, index := range plan.Operands {
 		paths := make([]string, 0, len(groups[position]))

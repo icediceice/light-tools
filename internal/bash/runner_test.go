@@ -114,7 +114,11 @@ func TestProtectableGlobRunsOnFirstContactAndReverts(t *testing.T) {
 	}
 	for _, name := range []string{"a.tmp", "b.tmp"} {
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
-			t.Fatalf("the command did not run on first contact: %s still present (%v)", name, err)
+			// Report what the shell actually did. A bare "still present" sent
+			// this to CI three times without saying whether the command failed,
+			// never ran, or ran against the wrong paths.
+			t.Fatalf("the command did not run on first contact: %s still present (%v)\n  exit_code=%v\n  stdout=%q\n  stderr=%q",
+				name, err, result["exit_code"], result["stdout"], result["stderr"])
 		}
 	}
 
@@ -133,6 +137,30 @@ func TestProtectableGlobRunsOnFirstContactAndReverts(t *testing.T) {
 		if string(data) != name {
 			t.Fatalf("revert restored wrong bytes for %s: %q", name, data)
 		}
+	}
+}
+
+// The pin is POSIX shell syntax, and PowerShell parses a leading quoted word as
+// a string literal rather than a command. Pinning on Windows therefore turned a
+// captured mutation into a silent no-op: the capture succeeded, the caller was
+// told the surface was protected, and the files were still there. The capture
+// still happens on Windows; only the rewrite is withheld.
+func TestPinIsWithheldOnWindowsWherePowerShellCannotRunIt(t *testing.T) {
+	plan, ok := planGlobMutation("rm *.tmp")
+	if !ok {
+		t.Fatal("rm *.tmp must be recognised as a modeled glob mutation")
+	}
+	groups := [][]surfaceEntry{{{Path: "/tmp/a.tmp"}, {Path: "/tmp/b.tmp"}}}
+	pinned := pinCommand(plan, groups)
+
+	if runtime.GOOS == "windows" {
+		if pinned != "" {
+			t.Fatalf("Windows must not pin; PowerShell cannot invoke %q as a command", pinned)
+		}
+		return
+	}
+	if !strings.Contains(pinned, "'/tmp/a.tmp'") || !strings.Contains(pinned, "'/tmp/b.tmp'") {
+		t.Fatalf("the POSIX pin dropped its captured paths: %q", pinned)
 	}
 }
 

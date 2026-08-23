@@ -9,86 +9,8 @@ your agent already has, but windowed, deduplicated, snapshotted and bounded, so
 results stay small enough that the agent can keep working instead of drowning in
 its own output.
 
-## Install
-
-```sh
-npm install --global @factor-i-o/light-tools
-```
-
-Node 18.17+ and npm 10+. The native binary arrives as an exact-version optional
-dependency, so installs work with lifecycle scripts disabled and through a
-registry mirror.
-
-Or build it:
-
-```sh
-go install -tags treesitter github.com/icediceice/light-tools/cmd/light-tools@latest
-```
-
-## Set up your agent
-
-Two prompts, in order. The restart between them is required: light-tools is a
-stdio server with no daemon, so your harness does not spawn it until it
-restarts, and until then there is nothing to list and nothing to switch to.
-
-**Prompt 1 — install and register.** Paste this to your coding agent:
-
-```text
-Install and wire up light-tools for yourself, then stop and tell me to restart you.
-
-1. Run: npm install --global @factor-i-o/light-tools
-2. Run: light-tools init --client claude
-   (or --client antigravity, or --client print to see the config without
-   writing anything). If your harness is not one of those, add this to its MCP
-   config yourself:
-     {"mcpServers":{"light-tools":{"command":"light-tools"}}}
-   On Windows a harness that starts processes without a shell needs:
-     {"command":"cmd","args":["/d","/s","/c","light-tools"]}
-3. Do NOT change any tool permissions yet. Stop here and tell me to restart you.
-```
-
-Now restart your harness.
-
-> **⚠️ Read this before prompt 2. Blocking your agent's native tools without a
-> working fallback can strand it.** If light-tools is ever unavailable — not
-> installed, failed to start, a bad config — an agent that has already denied its
-> own file and terminal tools has no way to inspect or repair anything, including
-> the config that broke it. You are the only one who can recover it at that point.
-> Prompt 2 therefore asks the agent to build the fallback *first* and verify it,
-> and to leave the native tools alone if it cannot.
-
-**Prompt 2 — verify, then hand over.** Paste this after the restart:
-
-```text
-List your tools. You should see five: light_file, light_bash, light_ssh,
-light_scp, light_ops.
-
-If they are all there:
-
-1. First, add a fallback guard for THIS harness, using whatever mechanism it
-   supports (a hook, a permission rule, a startup check — your call). It must
-   re-enable my native file and terminal tools whenever light-tools is not
-   available, so that a missing or crashed server can never leave you with no
-   tools at all. Show me what you wrote and how you tested it.
-2. Only once that guard works, take away native tools and write how to use light-tools into your agent.md or claude.md or which ever .md that is your start config :
-   read, list, search or edit a file with light_file; run a command with
-   light_bash; touch a remote host with light_ssh or light_scp; inspect a
-   service, port or log with light_ops.
-3. If one of the five is missing, it was withheld on purpose. Say so instead of
-   falling back to a native tool or asking me to run it by hand.
-
-If you cannot build a working fallback, leave my native tools enabled and tell
-me why.
-```
-
-`light-tools init` writes the configuration a known client expects; `--dry-run`
-prints instead of writing.
-
-**What persists:** the binary and the config do — install and `init` are
-one-time. The server process does not: your harness spawns it per session and it
-exits with the harness, so there is no daemon to manage. The one exception is
-`light-tools vault ui`, a foreground command you keep running while the page is
-open.
+Not sure? Ask your agent to read this README and compare light-tools against the
+file/shell tools it currently has.
 
 ## The tools
 
@@ -295,6 +217,87 @@ reported as a persisted lower bound rather than extrapolated into a rate.
 The honest summary is that the two agree in direction and are not the same
 claim: the large number belongs to the stack, and the small one is what this
 binary measured about itself.
+
+## Install
+
+```sh
+npm install --global @factor-i-o/light-tools
+```
+
+Node 18.17+ and npm 10+. The native binary arrives as an exact-version optional
+dependency, so installs work with lifecycle scripts disabled and through a
+registry mirror.
+
+Or build it:
+
+```sh
+go install -tags treesitter github.com/icediceice/light-tools/cmd/light-tools@latest
+```
+
+## Set up your agent
+
+Two prompts, in order. The restart between them is required: light-tools is a
+stdio server with no daemon, so your harness does not spawn it until it
+restarts, and until then there is nothing to list and nothing to switch to.
+
+**Prompt 1 — install and register.** Paste this to your coding agent:
+
+```text
+Install and wire up light-tools for yourself, then stop and tell me to restart you.
+
+1. Run: npm install --global @factor-i-o/light-tools
+2. Run: light-tools init --client claude
+   (or --client antigravity, or --client print to see the config without
+   writing anything). If your harness is not one of those, add this to its MCP
+   config yourself:
+     {"mcpServers":{"light-tools":{"command":"light-tools"}}}
+   On Windows a harness that starts processes without a shell needs:
+     {"command":"cmd","args":["/d","/s","/c","light-tools"]}
+3. Do NOT change any tool permissions yet. Stop here and tell me to restart you.
+```
+
+Now restart your harness.
+
+> **⚠️ Read this before prompt 2. Blocking your agent's native tools without a
+> working fallback can strand it.** If light-tools is ever unavailable — not
+> installed, failed to start, a bad config — an agent that has already denied its
+> own file and terminal tools has no way to inspect or repair anything, including
+> the config that broke it. You are the only one who can recover it at that point.
+> Prompt 2 therefore asks the agent to build the fallback *first* and verify it,
+> and to leave the native tools alone if it cannot.
+
+**Prompt 2 — verify, then hand over.** Paste this after the restart:
+
+```text
+List your tools. You should see five: light_file, light_bash, light_ssh,
+light_scp, light_ops.
+
+If they are all there:
+
+1. First, add a fallback guard for THIS harness, using whatever mechanism it
+   supports (a hook, a permission rule, a startup check — your call). It must
+   re-enable my native file and terminal tools whenever light-tools is not
+   available, so that a missing or crashed server can never leave you with no
+   tools at all. Show me what you wrote and how you tested it.
+2. Only once that guard works, take away native tools and write how to use light-tools into your agent.md or claude.md or which ever .md that is your start config :
+   read, list, search or edit a file with light_file; run a command with
+   light_bash; touch a remote host with light_ssh or light_scp; inspect a
+   service, port or log with light_ops.
+3. If one of the five is missing, it was withheld on purpose. Say so instead of
+   falling back to a native tool or asking me to run it by hand.
+
+If you cannot build a working fallback, leave my native tools enabled and tell
+me why.
+```
+
+`light-tools init` writes the configuration a known client expects; `--dry-run`
+prints instead of writing.
+
+**What persists:** the binary and the config do — install and `init` are
+one-time. The server process does not: your harness spawns it per session and it
+exits with the harness, so there is no daemon to manage. The one exception is
+`light-tools vault ui`, a foreground command you keep running while the page is
+open.
 
 ## Telemetry
 

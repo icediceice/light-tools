@@ -65,10 +65,27 @@ zero-byte marker files written by the UI's Settings view. The UI can never
 re-enable what launch arguments withhold. Treat the launch arguments in your MCP
 client configuration as the boundary they are.
 
-The shell wildcard guard stops a first lexical filename-glob request and
-requires one identical retry. It does not classify danger, inspect scripts,
-expand variables, or understand a program's own pattern syntax; a wildcard from
-`$VAR`, command substitution or `find` is outside its view.
+The shell wildcard guard runs in two lanes, decided by whether the expanded
+surface can be backed up.
+
+A surface it can fully protect is snapshotted before anything runs, executes on
+first contact, and returns a capture id that restores every path it touched.
+The executed command is pinned to the captured paths, so the shell cannot
+re-expand the pattern onto a different set between the snapshot and the effect.
+
+A surface it cannot protect — a directory, an invalid-UTF-8 name, a
+multi-source `mv`, or a missing snapshot vault — does not run at all. It returns
+the fully expanded surface, the reason protection was unavailable, and an 8-hex
+digest binding that command, that working directory and those paths together.
+Only an identical call carrying that digest runs, and it runs unprotected: no
+snapshot is taken, and the shell expands the pattern itself rather than
+receiving pinned paths. A digest naming a different surface is refused rather
+than reinterpreted.
+
+The guard sees only an unquoted, lexical filename glob on a mutator it models.
+It does not classify danger, inspect scripts, expand variables, or understand a
+program's own pattern syntax; a wildcard from `$VAR`, command substitution or
+`find` is outside its view.
 
 ## Telemetry
 
