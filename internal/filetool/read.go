@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/icediceice/light-tools/internal/mcp"
+	"github.com/icediceice/light-tools/internal/telemetry"
 
 	"github.com/icediceice/light-tools/internal/symbol"
 )
