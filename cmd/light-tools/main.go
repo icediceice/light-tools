@@ -104,7 +104,12 @@ func main() {
 		fatal(err)
 	}
 	server := mcp.New("light-tools", version, os.Getenv("LIGHT_TERSE_OUTPUT") == "1")
-	if err := registerTools(server, opts, layout, configuration); err != nil {
+	// The telemetry store is constructed once; its env check never re-runs on a
+	// hot path. A nil store (opt-out) is a valid no-op recorder.
+	recorder := telemetry.New(layout.Telemetry)
+	server.SetRecorder(recorder)
+	defer recorder.Close()
+	if err := registerTools(server, opts, layout, configuration, recorder); err != nil {
 		fatal(err)
 	}
 	if err := server.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
