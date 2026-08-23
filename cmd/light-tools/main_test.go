@@ -108,7 +108,7 @@ func TestRegistrationWithholdsOnlyDisabledTools(t *testing.T) {
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			opts, err := newOptions(test.disabled)
+			opts, err := newOptions(test.disabled, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
