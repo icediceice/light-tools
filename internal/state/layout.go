@@ -43,8 +43,9 @@ func Resolve() (Layout, error) {
 		Secrets:   filepath.Join(dataBase, "light-tools-secrets"),
 		Snapshots: filepath.Join(dataBase, "light-tools-snapshots"),
 		Spills:    filepath.Join(runtimeBase, "light-tools-spills"),
+		Telemetry: filepath.Join(dataBase, "light-tools-telemetry"),
 	}
-	for _, root := range []string{layout.Config, layout.Secrets, layout.Snapshots, layout.Spills} {
+	for _, root := range []string{layout.Config, layout.Secrets, layout.Snapshots, layout.Spills, layout.Telemetry} {
 		if err := initializeStore(root); err != nil {
 			return Layout{}, err
 		}
