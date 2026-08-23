@@ -20,6 +20,7 @@ import (
 	"github.com/icediceice/light-tools/internal/ops"
 	"github.com/icediceice/light-tools/internal/remote"
 	"github.com/icediceice/light-tools/internal/secret"
+	"github.com/icediceice/light-tools/internal/settings"
 	"github.com/icediceice/light-tools/internal/state"
 	"github.com/icediceice/light-tools/internal/terse"
 )
