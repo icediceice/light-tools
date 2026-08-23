@@ -209,16 +209,17 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, *rend
 		if matchCount == 0 {
 			builder.WriteString("[no symbol matches]\n")
 		}
-		return builder.String(), nil
+		return builder.String(), nil, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	hash := hashBytes(data)
-	// The bounded window is rendered BEFORE the ledger decision so a dedup hit
-	// can be credited with exactly the response bytes it suppressed. Deciding
-	// first would credit the whole file whenever a narrow window repeated.
+	// The window section is rendered in full and returned with its ledger key;
+	// the decision itself happens in readItems, where the shared batch budget
+	// is known. Deciding on the raw section here would credit bytes the bounded
+	// response could never have carried.
 	lines := splitLines(data)
 	offset, limit := item.Offset, item.Limit
 	if offset < 0 {
