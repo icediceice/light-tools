@@ -113,7 +113,9 @@ func main() {
 
 func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config) error {
 	secretVault := secret.New(layout.Secrets)
-	deniedRoots := []string{layout.Secrets, layout.Snapshots, layout.Spills}
+	// Telemetry is denied too: a writable telemetry root would let light_file
+	// fabricate session-v1-*.json snapshots the vault UI renders as measured data.
+	deniedRoots := []string{layout.Secrets, layout.Snapshots, layout.Spills, layout.Telemetry}
 	confiner, err := security.NewConfiner(configuration.AllowedRoots, deniedRoots)
 	if err != nil {
 		return err
