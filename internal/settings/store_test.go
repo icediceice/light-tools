@@ -66,6 +66,9 @@ func TestUnknownNamesAreRefusedOnBothPaths(t *testing.T) {
 	if err := store.SetDisabled("light_shell", true); err == nil {
 		t.Fatal("SetDisabled accepted an unknown tool")
 	}
+	if err := os.MkdirAll(filepath.Join(root, "disabled-tools"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "disabled-tools", "light_shell"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
