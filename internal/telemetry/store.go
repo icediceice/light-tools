@@ -130,14 +130,32 @@ func (s *Store) RecordCall(tool string) {
 	s.mu.Unlock()
 }
 
-func (s *Store) RecordTerseTokens(saved int) { s.recordTotal(&s.current.TerseTokensSaved, saved) }
+// Each Record method guards the nil receiver itself: the address-of argument
+// below is evaluated at the call site, so recordTotal's own nil check cannot
+// save a nil caller from dereferencing s.current.
+func (s *Store) RecordTerseTokens(saved int) {
+	if s == nil {
+		return
+	}
+	s.recordTotal(&s.current.TerseTokensSaved, saved)
+}
 
-func (s *Store) RecordDedupBytes(saved int) { s.recordTotal(&s.current.DedupBytesSaved, saved) }
+func (s *Store) RecordDedupBytes(saved int) {
+	if s == nil {
+		return
+	}
+	s.recordTotal(&s.current.DedupBytesSaved, saved)
+}
 
-func (s *Store) RecordWriteBytes(saved int) { s.recordTotal(&s.current.WriteBytesSaved, saved) }
+func (s *Store) RecordWriteBytes(saved int) {
+	if s == nil {
+		return
+	}
+	s.recordTotal(&s.current.WriteBytesSaved, saved)
+}
 
 func (s *Store) recordTotal(field *int64, saved int) {
-	if s == nil || saved <= 0 {
+	if saved <= 0 {
 		return
 	}
 	s.mu.Lock()
