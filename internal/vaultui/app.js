@@ -216,7 +216,10 @@
         body: JSON.stringify({ password })
       });
       show(vaultView);
+      showView("vault");
       await loadVault();
+      loadSettings();
+      loadTelemetry();
     } catch (error) {
       const busy = String(error.message).includes("busy");
       notice(busy ? "Password verification is busy. Try once more." : "Password setup or login failed.", true);
