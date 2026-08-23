@@ -63,7 +63,7 @@ type snapshot struct {
 // that owns every byte of telemetry disk I/O. A nil *Store is a valid no-op
 // Recorder: New returns nil when telemetry is disabled.
 type Store struct {
-	dir    string
+	dir     string
 	session string
 
 	mu             sync.Mutex
