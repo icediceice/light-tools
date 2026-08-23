@@ -358,8 +358,8 @@ func TestSettingsEndpointsManageExactlyOneMarker(t *testing.T) {
 			Name     string `json:"name"`
 			Disabled bool   `json:"disabled"`
 		} `json:"tools"`
-		UIDisabled                 []string `json:"ui_disabled"`
-		LaunchWithholdingObserved  bool     `json:"launch_withholding_observable"`
+		UIDisabled                []string `json:"ui_disabled"`
+		LaunchWithholdingObserved bool     `json:"launch_withholding_observable"`
 	}
 	if err := json.Unmarshal(body, &state); err != nil {
 		t.Fatal(err)

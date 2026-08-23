@@ -68,15 +68,15 @@ func writeLines(t *testing.T, root, name string, count int) string {
 
 // captureRecorder records savings for assertions.
 type captureRecorder struct {
-	calls    []string
-	dedup    []int
-	writes   []int
+	calls  []string
+	dedup  []int
+	writes []int
 }
 
-func (c *captureRecorder) RecordCall(tool string)      { c.calls = append(c.calls, tool) }
-func (c *captureRecorder) RecordTerseTokens(int)        {}
-func (c *captureRecorder) RecordDedupBytes(saved int)   { c.dedup = append(c.dedup, saved) }
-func (c *captureRecorder) RecordWriteBytes(saved int)   { c.writes = append(c.writes, saved) }
+func (c *captureRecorder) RecordCall(tool string)     { c.calls = append(c.calls, tool) }
+func (c *captureRecorder) RecordTerseTokens(int)      {}
+func (c *captureRecorder) RecordDedupBytes(saved int) { c.dedup = append(c.dedup, saved) }
+func (c *captureRecorder) RecordWriteBytes(saved int) { c.writes = append(c.writes, saved) }
 
 func recorderHandler(t *testing.T) (*Handler, *captureRecorder, string) {
 	t.Helper()

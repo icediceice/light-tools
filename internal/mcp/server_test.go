@@ -252,18 +252,18 @@ type captureRecorder struct {
 	terseTokens []int
 }
 
-func (c *captureRecorder) RecordCall(tool string)          { c.calls = append(c.calls, tool) }
-func (c *captureRecorder) RecordTerseTokens(saved int)     { c.terseTokens = append(c.terseTokens, saved) }
-func (c *captureRecorder) RecordDedupBytes(int)            {}
-func (c *captureRecorder) RecordWriteBytes(int)            {}
+func (c *captureRecorder) RecordCall(tool string)      { c.calls = append(c.calls, tool) }
+func (c *captureRecorder) RecordTerseTokens(saved int) { c.terseTokens = append(c.terseTokens, saved) }
+func (c *captureRecorder) RecordDedupBytes(int)        {}
+func (c *captureRecorder) RecordWriteBytes(int)        {}
 
 // panicRecorder fails like a broken sink: every method panics.
 type panicRecorder struct{}
 
-func (panicRecorder) RecordCall(string)        { panic("recorder exploded") }
-func (panicRecorder) RecordTerseTokens(int)    { panic("recorder exploded") }
-func (panicRecorder) RecordDedupBytes(int)     { panic("recorder exploded") }
-func (panicRecorder) RecordWriteBytes(int)     { panic("recorder exploded") }
+func (panicRecorder) RecordCall(string)     { panic("recorder exploded") }
+func (panicRecorder) RecordTerseTokens(int) { panic("recorder exploded") }
+func (panicRecorder) RecordDedupBytes(int)  { panic("recorder exploded") }
+func (panicRecorder) RecordWriteBytes(int)  { panic("recorder exploded") }
 
 // A recorder panic and a failing (blocked) writer must both leave the RPC
 // result byte-identical to a server with no recorder at all.
@@ -302,7 +302,7 @@ func TestRecorderFailuresLeaveResultsByteIdentical(t *testing.T) {
 
 	want := build(nil)
 	for name, recorder := range map[string]telemetry.Recorder{
-		"panic":  panicRecorder{},
+		"panic":   panicRecorder{},
 		"blocked": store,
 	} {
 		if got := build(recorder); got != want {
