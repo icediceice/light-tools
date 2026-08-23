@@ -21,9 +21,19 @@ type testUI struct {
 	token  string
 }
 
+// testTools mirrors the production tool-name surface for settings assertions.
+var testTools = []string{"light_bash", "light_file", "light_ops", "light_scp", "light_ssh"}
+
 func newTestUI(t *testing.T, root string) *testUI {
 	t.Helper()
-	server, err := New(secret.New(root), secret.NewPasswordAuth(root))
+	server, err := New(Options{
+		Vault: secret.New(root), Auth: secret.NewPasswordAuth(root),
+		Tools:    testTools,
+		Settings: settings.New(root, testTools),
+		Telemetry: func() (telemetry.Totals, error) {
+			return telemetry.Load(filepath.Join(root, "telemetry"))
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
