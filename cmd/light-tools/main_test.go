@@ -644,7 +644,7 @@ func TestAllFiveToolsThroughServeRawAndTerse(t *testing.T) {
 func runAllFiveTranscript(t *testing.T, layout state.Layout, configuration config.Config, probe, content string, terseOutput bool) map[string]mcp.Result {
 	t.Helper()
 	server := mcp.New("test", "1", terseOutput)
-	if err := registerTools(server, options{}, layout, configuration); err != nil {
+	if err := registerTools(server, options{}, layout, configuration, nil); err != nil {
 		t.Fatal(err)
 	}
 	command := "printf '%s' '" + content + "'"
