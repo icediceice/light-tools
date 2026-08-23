@@ -120,6 +120,7 @@ jobs:
           arguments+=(./...)
           go "${arguments[@]}"
 
+  race:
   inspector:
     runs-on: ubuntu-24.04
     steps:
