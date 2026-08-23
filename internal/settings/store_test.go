@@ -30,7 +30,10 @@ func TestSetDisabledRoundTripsSingleMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows reports 0666 for a file created 0600: the ACL, not the mode bits,
+	// carries the restriction there. Assert the mode only where it is meaningful
+	// rather than weakening it everywhere.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("marker mode = %o", info.Mode().Perm())
 	}
 	if info.Size() != 0 {
