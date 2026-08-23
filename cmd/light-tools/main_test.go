@@ -157,6 +157,119 @@ func TestNewOptionsRejectsUnknownToolName(t *testing.T) {
 	}
 }
 
+// Markers persist withholding ACROSS launches, and the launch flags add their
+// own: the registration posture is the union of both sources.
+func TestNewOptionsUnionsLaunchFlagsAndPersistedMarkers(t *testing.T) {
+	cases := []struct {
+		name      string
+		launch    []string
+		persisted map[string]bool
+		want      []string
+	}{
+		{name: "union", launch: []string{"light_scp"}, persisted: map[string]bool{"light_ops": true}, want: []string{"light_ops", "light_scp"}},
+		{name: "launch_only", launch: []string{"light_bash"}, want: []string{"light_bash"}},
+		{name: "persisted_only", persisted: map[string]bool{"light_ssh": true}, want: []string{"light_ssh"}},
+		{name: "same_tool_both_sources", launch: []string{"light_bash"}, persisted: map[string]bool{"light_bash": true}, want: []string{"light_bash"}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			opts, err := newOptions(test.launch, test.persisted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for name, withheld := range opts.disabled {
+				if withheld {
+					got = append(got, name)
+				}
+			}
+			sort.Strings(got)
+			if strings.Join(got, ",") != strings.Join(test.want, ",") {
+				t.Fatalf("withheld = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+// Flags always win: the API can only manage markers, and removing a marker
+// cannot re-enable a tool the launch arguments withhold.
+func TestLaunchWithholdingCannotBeReEnabledByMarkers(t *testing.T) {
+	root := t.TempDir()
+	store := settings.New(root, toolNames)
+	if err := store.SetDisabled("light_bash", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDisabled("light_bash", false); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := store.LoadDisabled()
+	if err != nil || len(persisted) != 0 {
+		t.Fatalf("markers after re-enable = %#v err=%v", persisted, err)
+	}
+	opts, err := newOptions([]string{"light_bash"}, persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opts.disabled["light_bash"] {
+		t.Fatal("absent marker re-enabled a flag-withheld tool")
+	}
+}
+
+// The full next-start path: markers written by the vault UI withhold tools at
+// MCP registration exactly as launch flags do.
+func TestRegistrationHonorsPersistedMarkers(t *testing.T) {
+	root := t.TempDir()
+	layout := state.Layout{
+		Config: filepath.Join(root, "config"), Secrets: filepath.Join(root, "secrets"),
+		Snapshots: filepath.Join(root, "snapshots"), Spills: filepath.Join(root, "spills"),
+	}
+	for _, path := range []string{layout.Config, layout.Secrets, layout.Snapshots, layout.Spills} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := settings.New(layout.Config, toolNames)
+	if err := store.SetDisabled("light_ops", true); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := store.LoadDisabled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, err := newOptions([]string{"light_scp"}, persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := mcp.New("test", "1")
+	configuration := config.Config{AllowedRoots: []string{root}, Remote: map[string]config.RemoteProfile{}}
+	if err := registerTools(server, opts, layout, configuration, nil); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n")
+	if err := server.Serve(context.Background(), input, &output); err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(output.String()), &response); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tool := range response.Result.Tools {
+		got = append(got, tool.Name)
+	}
+	want := []string{"light_bash", "light_file", "light_ssh"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("tools/list = %v, want %v (light_ops by marker, light_scp by flag)", got, want)
+	}
+}
+
 func captureStdout(t *testing.T, run func() error) string {
 	t.Helper()
 	reader, writer, err := os.Pipe()
