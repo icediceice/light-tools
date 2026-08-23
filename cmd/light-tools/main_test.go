@@ -113,7 +113,7 @@ func TestRegistrationWithholdsOnlyDisabledTools(t *testing.T) {
 				t.Fatal(err)
 			}
 			server := mcp.New("test", "1")
-			if err := registerTools(server, opts, layout, configuration); err != nil {
+			if err := registerTools(server, opts, layout, configuration, nil); err != nil {
 				t.Fatal(err)
 			}
 			var output strings.Builder
