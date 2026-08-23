@@ -420,5 +420,5 @@ func scanTotals(dir string) (totals Totals, superseded bool, err error) {
 		totals.DedupBytesSaved += entry.data.DedupBytesSaved
 		totals.WriteBytesSaved += entry.data.WriteBytesSaved
 	}
-	return totals, nil
+	return totals, false, nil
 }
