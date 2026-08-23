@@ -120,6 +120,13 @@ func (h *Handler) batchEdit(ctx context.Context, mutations []fileop.Mutation) (a
 		return nil, err
 	}
 	h.cache.Invalidate(path)
+	// One commit, one measurement: the whole batch's wire payload against the
+	// single postimage it produced, so grouped edits cannot double-count.
+	carried := 0
+	for _, mutation := range mutations {
+		carried += carriedBytes(mutation)
+	}
+	h.recordWriteSavings(carried, transformed.Data)
 	return map[string]any{"commit": result, "spans": transformed.Spans, "numbered": numbered(transformed.Data)}, nil
 }
 
