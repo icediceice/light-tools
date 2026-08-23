@@ -1,0 +1,45 @@
+{
+  "name": "@factor-i-o/light-tools",
+  "version": "0.0.0-development",
+  "description": "Standalone MCP server giving any agent bounded file, shell, SSH/SCP, and service-log tools. Every tool is registered by default; withhold one with --disable-tool.",
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/icediceice/light-tools.git"
+  },
+  "homepage": "https://github.com/icediceice/light-tools#readme",
+  "bugs": {
+    "url": "https://github.com/icediceice/light-tools/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "developer-tools",
+    "tree-sitter"
+  ],
+  "bin": {
+    "light-tools": "npm/cli.mjs"
+  },
+  "files": [
+    "npm/cli.mjs",
+    "npm/platform.mjs",
+    "AGENT-SETUP.md"
+  ],
+  "engines": {
+    "node": ">=18.17.0",
+    "npm": ">=10.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+
+  "optionalDependencies": {
+    "@factor-i-o/light-tools-darwin-arm64": "0.0.0-development",
+    "@factor-i-o/light-tools-darwin-x64": "0.0.0-development",
+    "@factor-i-o/light-tools-linux-arm64": "0.0.0-development",
+    "@factor-i-o/light-tools-linux-x64": "0.0.0-development",
+    "@factor-i-o/light-tools-win32-arm64": "0.0.0-development",
+    "@factor-i-o/light-tools-win32-x64": "0.0.0-development"
+  }
+}

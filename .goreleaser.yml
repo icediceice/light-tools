@@ -1,0 +1,35 @@
+version: 2
+project_name: light-tools
+
+builds:
+  - id: light-tools
+    main: ./cmd/light-tools
+    binary: light-tools
+    env:
+      - CGO_ENABLED=1
+    tags:
+      - treesitter
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{ trimprefix .Env.RELEASE_VERSION "v" }}
+
+  - id: light-tools-windows-arm64
+    main: ./cmd/light-tools
+    binary: light-tools
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ trimprefix .Env.RELEASE_VERSION "v" }}

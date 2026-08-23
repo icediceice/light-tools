@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Light Vault</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <p class="eyebrow">Light MCP</p>
+        <h1>Secret Vault</h1>
+        <p class="subtitle">Names and groups are visible here. Saved values are write-only.</p>
+      </div>
+      <button id="logout" class="secondary hidden" type="button">Lock</button>
+    </header>
+
+    <section id="message" class="message hidden" role="status" aria-live="polite"></section>
+
+    <section id="pair-view" class="panel hidden">
+      <h2>Pair this browser</h2>
+      <p>Copy the one-time code shown in the terminal that opened this page.</p>
+      <form id="pair-form">
+        <label>Pairing code
+          <input id="pair-code" autocomplete="one-time-code" required placeholder="ABCD-2345">
+        </label>
+        <button type="submit">Pair browser</button>
+      </form>
+    </section>
+
+    <section id="password-view" class="panel hidden">
+      <h2 id="password-title">Unlock vault</h2>
+      <p id="password-help">Enter your vault UI password.</p>
+      <form id="password-form">
+        <label>Password
+          <input id="password" type="password" autocomplete="current-password" minlength="8" required>
+        </label>
+        <button id="password-submit" type="submit">Unlock</button>
+      </form>
+    </section>
+
+    <section id="vault-view" class="hidden">
+      <nav class="views" aria-label="Views">
+        <button id="view-vault" class="view-tab active" type="button">Vault</button>
+        <button id="view-settings" class="view-tab" type="button">Settings</button>
+        <button id="view-telemetry" class="view-tab" type="button">Telemetry</button>
+      </nav>
+
+      <div id="vault-panel">
+        <div class="toolbar">
+          <span class="tb-label">Vault</span>
+          <span id="vault-count" class="tb-count"></span>
+          <span class="tb-spacer"></span>
+          <input id="vault-filter" class="tb-search mono" type="search" placeholder="filter secrets…" aria-label="Filter secrets">
+          <button id="refresh" class="shelf-act" type="button">Refresh</button>
+        </div>
+
+        <div id="shelves"></div>
+
+        <p class="hint">A value is sent once and is never returned by this page. Open a card to replace it.</p>
+
+        <!-- The overlay ADOPTS these live nodes and hands them back when it
+             closes, so one hardened import flow serves both the add and the
+             edit overlay instead of each building its own. -->
+        <div id="secret-import-home" hidden>
+          <label class="field" id="secret-file-field"><span>Import from a key or certificate file</span>
+            <input id="secret-file" type="file" accept=".pem,.key,.pub,.crt,.cer,.cert,text/plain">
+          </label>
+          <div id="secret-import" class="import-row hidden" role="status">
+            <div class="row-main">
+              <div id="secret-import-name" class="row-title"></div>
+              <div id="secret-import-size" class="row-meta"></div>
+            </div>
+            <button id="secret-import-discard" class="btn ghost" type="button">Discard file</button>
+          </div>
+        </div>
+      </div>
+
+      <section id="settings-view" class="hidden">
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Tool availability</h2>
+            <button id="settings-refresh" class="secondary" type="button">Refresh</button>
+          </div>
+          <p class="hint">These controls add withholding at the next MCP start. Launch arguments may withhold more and are not visible here — tools/list is authoritative.</p>
+          <div id="settings-tools" class="stack"></div>
+        </section>
+      </section>
+
+      <section id="telemetry-view" class="hidden">
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Savings</h2>
+            <button id="telemetry-refresh" class="secondary" type="button">Refresh</button>
+          </div>
+          <div id="telemetry-cards" class="cards"></div>
+          <p class="hint">Totals are a persisted lower bound: snapshots flush periodically, and the most recent activity may not be on disk yet. Older sessions are pruned by retention.</p>
+          <div id="telemetry-warnings" class="stack"></div>
+        </section>
+        <section class="panel">
+          <div class="section-heading">
+            <h2>Usage</h2>
+          </div>
+          <p class="hint">Call counts are usage, not savings.</p>
+          <div id="telemetry-calls" class="stack"></div>
+        </section>
+      </section>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>

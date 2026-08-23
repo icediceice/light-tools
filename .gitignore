@@ -1,0 +1,9 @@
+.DS_Store
+node_modules/
+*.log
+/dist/
+/light-tools
+/inspector.json
+.env
+/.release-bootstrap/
+/.registry-smoke/

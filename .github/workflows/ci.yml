@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            os: linux
+            arch: amd64
+            cgo: "1"
+            tags: treesitter
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+            cgo: "1"
+            tags: treesitter
+          - runner: macos-15-intel
+            os: darwin
+            arch: amd64
+            cgo: "1"
+            tags: treesitter
+          - runner: macos-14
+            os: darwin
+            arch: arm64
+            cgo: "1"
+            tags: treesitter
+          - runner: windows-2022
+            os: windows
+            arch: amd64
+            cgo: "1"
+            tags: treesitter
+          - runner: windows-11-arm
+            os: windows
+            arch: arm64
+            cgo: "0"
+            tags: ""
+    runs-on: ${{ matrix.runner }}
+    env:
+      CGO_ENABLED: ${{ matrix.cgo }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - name: Build MCP artifact
+        shell: pwsh
+        run: |
+          $binaryName = if ($env:RUNNER_OS -eq "Windows") { "light-tools.exe" } else { "light-tools" }
+          $binary = Join-Path $env:RUNNER_TEMP $binaryName
+          $arguments = @("build")
+          if ("${{ matrix.tags }}" -ne "") { $arguments += "-tags=${{ matrix.tags }}" }
+          $arguments += @("-o", $binary, "./cmd/light-tools")
+          & go @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "LIGHT_TOOLS_BINARY=$binary" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $size = (Get-Item -LiteralPath $binary).Length
+          if ($size -gt 67108864) { throw "binary size $size exceeds 64 MiB ceiling" }
+      - name: Test
+        shell: pwsh
+        run: |
+          $arguments = @("test", "-count=1", "-v")
+          if ("${{ matrix.tags }}" -ne "") { $arguments += "-tags=${{ matrix.tags }}" }
+          $arguments += "./..."
+          & go @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: MCP initialize and tools/list transcript
+        shell: pwsh
+        run: |
+          $requests = @(
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}',
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+          )
+          $responses = @($requests | & $env:LIGHT_TOOLS_BINARY | ForEach-Object { $_ | ConvertFrom-Json })
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($responses.Count -ne 2) { throw "expected two MCP responses" }
+          if ($responses[0].result.protocolVersion -ne "2025-06-18") { throw "initialize failed" }
+          $names = @($responses[1].result.tools | ForEach-Object { $_.name })
+          $expected = @("light_bash", "light_file", "light_ops", "light_scp", "light_ssh")
+          if ($null -ne (Compare-Object $names $expected -SyncWindow 0)) { throw "unexpected tools/list: $names" }
+
+  race:
+    name: Race (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: untagged
+            tags: ""
+          - name: treesitter
+            tags: treesitter
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - name: Uncached race test
+        shell: bash
+        run: |
+          arguments=(test -race -count=1 -v)
+          if [[ -n "${{ matrix.tags }}" ]]; then arguments+=("-tags=${{ matrix.tags }}"); fi
+          arguments+=(./...)
+          go "${arguments[@]}"
+
+  inspector:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install artifact into a clean PATH directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          go build -tags treesitter -o "$RUNNER_TEMP/bin/light-tools" ./cmd/light-tools
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: MCP Inspector tools/list smoke
+        run: |
+          npx --yes @modelcontextprotocol/inspector --cli light-tools --method tools/list --format json > inspector.json
+          node -e 'const x=require("./inspector.json"); const n=x.result.tools.map(t=>t.name); const want=["light_bash","light_file","light_ops","light_scp","light_ssh"]; if(n.join(",")!==want.join(",")) { console.error("tools/list =", n); process.exit(1); }'
+
+  npm-package:
+    name: npm package contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Unit and manifest contract
+        run: node --test npm/*.test.mjs
+      - name: Public package allowlist
+        run: npm pack --dry-run --json
+      - name: Pack, install, and full MCP smoke
+        run: node scripts/npm-package-smoke.mjs --require-pwsh
+
+  npm-musl:
+    name: npm musl refusal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove glibc packages fail legibly on Alpine
+        run: >-
+          docker run --rm --network none
+          --volume "$GITHUB_WORKSPACE:/work:ro"
+          --workdir /work
+          node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+          node --test npm/package.test.mjs npm/platform.test.mjs
