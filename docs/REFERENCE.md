@@ -411,9 +411,11 @@ Exact metric definitions:
   estimate of the terse replacement.
 - **Read-dedup bytes** — recorded only when the dedup ledger elides a repeated
   read: the bounded response payload the caller would have received minus the
-  dedup stub, measured on the response, never the source file. For a batch item
-  the baseline is the rendered item section; in the rare oversized-single-line
-  case the baseline is the truncated content, so the credit is conservative.
+  dedup stub, measured on the response, never the source file. For a batch
+  item the baseline is the contribution that item could have made within the
+  remaining shared batch budget — the batch ceiling applies to the
+  counterfactual too, so a huge repeated item is credited with at most the
+  bytes the bounded response could have carried.
 - **Writing bytes** — measured once per COMMIT for `write`, `edit`, `sed`, and
   `rewrite`: `max(0, len(postimage) - payload bytes that commit actually
   carried)` — the counterfactual bytes a full rewrite would have had to send to
