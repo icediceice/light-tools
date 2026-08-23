@@ -29,6 +29,23 @@
     logoutButton.classList.toggle("hidden", !token);
   }
 
+  function showView(name) {
+    for (const key of Object.keys(viewTabs)) {
+      viewTabs[key].classList.toggle("active", key === name);
+    }
+    vaultPanel.classList.toggle("hidden", name !== "vault");
+    settingsView.classList.toggle("hidden", name !== "settings");
+    telemetryView.classList.toggle("hidden", name !== "telemetry");
+  }
+
+  for (const key of Object.keys(viewTabs)) {
+    viewTabs[key].addEventListener("click", () => {
+      showView(key);
+      if (key === "settings") loadSettings();
+      if (key === "telemetry") loadTelemetry();
+    });
+  }
+
   function notice(text, error = false) {
     message.textContent = text;
     message.classList.toggle("error", error);
