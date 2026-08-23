@@ -146,11 +146,14 @@ func TestRegistrationWithholdsOnlyDisabledTools(t *testing.T) {
 // loudly at startup instead of quietly registering the surface the operator
 // meant to withhold.
 func TestNewOptionsRejectsUnknownToolName(t *testing.T) {
-	if _, err := newOptions([]string{"light_bash", "light_shell"}); err == nil {
+	if _, err := newOptions([]string{"light_bash", "light_shell"}, nil); err == nil {
 		t.Fatal("newOptions accepted an unknown tool name")
 	}
-	if _, err := newOptions(toolNames); err != nil {
+	if _, err := newOptions(toolNames, nil); err != nil {
 		t.Fatalf("newOptions rejected the full known set: %v", err)
+	}
+	if _, err := newOptions(nil, map[string]bool{"light_shell": true}); err == nil {
+		t.Fatal("newOptions accepted an unknown tool name from a persisted marker")
 	}
 }
 
