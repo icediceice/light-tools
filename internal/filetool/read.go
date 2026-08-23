@@ -205,7 +205,7 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, error
 	if h.cache.ShouldElide(epoch, path, hash, force) {
 		stub := header + fmt.Sprintf("[dedup] sha256:%s\n", hash)
 		if saved := len(section) - len(stub); saved > 0 {
-			h.recorder.RecordDedupBytes(saved)
+			h.observe(func(recorder telemetry.Recorder) { recorder.RecordDedupBytes(saved) })
 		}
 		return stub, nil
 	}
