@@ -141,7 +141,7 @@ jobs:
       - name: MCP Inspector tools/list smoke
         run: |
           npx --yes @modelcontextprotocol/inspector --cli light-tools --method tools/list --format json > inspector.json
-          node -e 'const x=require("./inspector.json"); const n=x.result.tools.map(t=>t.name); const want=["light_file"]; if(n.join(",")!==want.join(",")) { console.error("tools/list =", n); process.exit(1); }'
+          node -e 'const x=require("./inspector.json"); const n=x.result.tools.map(t=>t.name); const want=["light_bash","light_file","light_ops","light_scp","light_ssh"]; if(n.join(",")!==want.join(",")) { console.error("tools/list =", n); process.exit(1); }'
 
   npm-package:
     name: npm package contract
