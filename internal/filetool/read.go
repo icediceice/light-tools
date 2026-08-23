@@ -179,9 +179,9 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, error
 		return "", err
 	}
 	hash := hashBytes(data)
-	if h.cache.ShouldElide(epoch, path, hash, force) {
-		return header + fmt.Sprintf("[dedup] sha256:%s\n", hash), nil
-	}
+	// The bounded window is rendered BEFORE the ledger decision so a dedup hit
+	// can be credited with exactly the response bytes it suppressed. Deciding
+	// first would credit the whole file whenever a narrow window repeated.
 	lines := splitLines(data)
 	offset, limit := item.Offset, item.Limit
 	if offset < 0 {
@@ -200,7 +200,15 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, error
 		fmt.Fprintf(&builder, "%6d\t%s\n", index+1, lines[index])
 	}
 	fmt.Fprintf(&builder, "[meta total_lines=%d bytes=%d tokens=%d next_offset=%d continued=%t]\n", len(lines), len(data), estimateTokens(data), end, end < len(lines))
-	return builder.String(), nil
+	section := builder.String()
+	if h.cache.ShouldElide(epoch, path, hash, force) {
+		stub := header + fmt.Sprintf("[dedup] sha256:%s\n", hash)
+		if saved := len(section) - len(stub); saved > 0 {
+			h.recorder.RecordDedupBytes(saved)
+		}
+		return stub, nil
+	}
+	return section, nil
 }
 
 func (h *Handler) readWindow(path string, offset, limit int, epoch string, force bool, expectedSHA string) (any, error) {
