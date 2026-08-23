@@ -105,7 +105,6 @@ func TestDedupRecordsOnlyTheBoundedDelta(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	window := Request{Path: path, Offset: 0, Limit: 10, ContextEpoch: "epoch-1"}
 	if _, err := handler.readWindow(path, 0, 10, "epoch-1", false, ""); err != nil {
 		t.Fatal(err)
 	}
