@@ -71,6 +71,23 @@ tool such as `find` is outside its view. The receipt is process-local, expires,
 and is not an authorization token. Explicit filenames are intentionally not
 fenced.
 
+Savings telemetry is local-only aggregates: per-tool call counts, terse tokens
+saved, read-dedup bytes saved, and write-payload bytes saved. It has no network
+component of any kind — nothing is transmitted, and no crash reporter, symbol
+upload, or update check exists. It never records a path, argument, command,
+hostname, or username; the only identifiers are tool names. Snapshots live in a
+separate XDG root (mode 0700, files 0600) as cumulative per-session JSON and are
+pruned by retention and a session cap. The vault UI reads them read-only behind
+the same pairing-plus-password gate as the vault. Opt out entirely with
+`DO_NOT_TRACK=1` or a non-empty `LIGHT_NO_TELEMETRY`; with either set, no
+telemetry code records or writes anything.
+
+Tool-withholding markers are zero-byte files under the config root named for the
+tool. They only ever ADD withholding, unioned with the launch flags, so the UI
+can never re-enable what launch arguments withhold — see
+[docs/REFERENCE.md](docs/REFERENCE.md) for the exact union rule and metric
+definitions.
+
 This is a single-user server. It does not include Light's EDCR approval,
 multi-file surface confirmation, RBAC, fleet dispatch, or audit machinery.
 Those omissions must not be interpreted as isolation from the account running
