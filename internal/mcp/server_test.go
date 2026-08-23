@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/icediceice/light-tools/internal/telemetry"
 	"github.com/icediceice/light-tools/internal/terse"
 )
 
