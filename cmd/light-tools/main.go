@@ -305,7 +305,17 @@ func runVault(args []string) error {
 }
 
 func runVaultUI(layout state.Layout, vault *secret.Vault) error {
-	server, err := vaultui.New(vault, secret.NewPasswordAuth(layout.Secrets))
+	// The UI is a SEPARATE process from the MCP server: it never sees the
+	// launch flags, so its settings view manages markers only and says launch
+	// withholding is not observable. Telemetry is read-only aggregation.
+	server, err := vaultui.New(vaultui.Options{
+		Vault: vault, Auth: secret.NewPasswordAuth(layout.Secrets),
+		Tools:    toolNames,
+		Settings: settings.New(layout.Config, toolNames),
+		Telemetry: func() (telemetry.Totals, error) {
+			return telemetry.Load(layout.Telemetry)
+		},
+	})
 	if err != nil {
 		return err
 	}
