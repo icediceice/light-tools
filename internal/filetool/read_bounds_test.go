@@ -134,7 +134,6 @@ func TestDedupRecordsOnlyTheBoundedDelta(t *testing.T) {
 	if saved+200 < len(encoded) { // stub + modest response overhead must cover the credit
 		t.Fatalf("delta %d is implausibly larger than a stubbed response", saved)
 	}
-	_ = window
 }
 
 // A repeated batch item elides with the rendered section as its baseline.
