@@ -26,15 +26,36 @@ import (
 
 const captureDirectory = "captures"
 
+// Kinds a capture can restore. A symlink is not a file with link-shaped
+// content: the delete matrix admits symlinks as the ONLY hazard, so a revert
+// that turns one back into a regular file has changed the filesystem rather
+// than restored it.
+const (
+	kindFile    = "file"
+	kindSymlink = "symlink"
+)
+
 type CaptureEntry struct {
 	Path string `json:"path"`
 	// Existed distinguishes "we snapshotted bytes" from "this path was absent
 	// at capture time" — a modeled mv destination. Reverting the latter means
 	// removing the file, not restoring content.
-	Existed     bool   `json:"existed"`
-	SHA256      string `json:"sha256,omitempty"`
-	AfterSHA256 string `json:"after_sha256,omitempty"`
-	Mode        uint32 `json:"mode,omitempty"`
+	Existed bool   `json:"existed"`
+	Kind    string `json:"kind,omitempty"`
+	// LinkTarget carries the whole preimage of a symlink; SHA256 carries the
+	// preimage of a regular file. Exactly one is set on an entry that existed.
+	LinkTarget string `json:"link_target,omitempty"`
+	SHA256     string `json:"sha256,omitempty"`
+	// Blob names this capture's OWN copy of the preimage, under
+	// captures/<id>/. The per-path ring keeps only three versions and deletes
+	// what it evicts, so a handle that resolved through the ring stopped
+	// working after three later snapshots of the same path — the capture has
+	// to own its bytes to keep the promise the terminal printed.
+	Blob            string `json:"blob,omitempty"`
+	AfterKind       string `json:"after_kind,omitempty"`
+	AfterLinkTarget string `json:"after_link_target,omitempty"`
+	AfterSHA256     string `json:"after_sha256,omitempty"`
+	Mode            uint32 `json:"mode,omitempty"`
 }
 
 type CaptureRecord struct {
@@ -57,7 +78,7 @@ func NewCaptureID() string {
 // record has to describe the whole surface or a revert cannot undo a creation.
 func (v *Vault) CaptureSurface(id, command string, paths []string) (CaptureRecord, error) {
 	record := CaptureRecord{ID: id, Command: command, Created: time.Now().UTC()}
-	for _, path := range paths {
+	for index, path := range paths {
 		clean := filepath.Clean(path)
 		info, err := os.Lstat(clean)
 		if os.IsNotExist(err) {
@@ -67,6 +88,20 @@ func (v *Vault) CaptureSurface(id, command string, paths []string) (CaptureRecor
 		if err != nil {
 			return CaptureRecord{}, err
 		}
+		// Lstat, then read the link ITSELF. Reading through it stored the
+		// target's bytes under the link's path, which restored as a regular
+		// file — and a dangling link failed the read outright, refusing the
+		// whole command over a path the matrix had already admitted.
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(clean)
+			if err != nil {
+				return CaptureRecord{}, err
+			}
+			record.Entries = append(record.Entries, CaptureEntry{
+				Path: clean, Existed: true, Kind: kindSymlink, LinkTarget: target,
+			})
+			continue
+		}
 		data, err := os.ReadFile(clean)
 		if err != nil {
 			return CaptureRecord{}, err
@@ -74,14 +109,41 @@ func (v *Vault) CaptureSurface(id, command string, paths []string) (CaptureRecor
 		if err := v.Capture(clean, data, info.Mode()); err != nil {
 			return CaptureRecord{}, err
 		}
+		blob, err := v.writeCaptureBlob(id, index, data)
+		if err != nil {
+			return CaptureRecord{}, err
+		}
 		record.Entries = append(record.Entries, CaptureEntry{
-			Path: clean, Existed: true, SHA256: hash(data), Mode: uint32(info.Mode().Perm()),
+			Path: clean, Existed: true, Kind: kindFile, SHA256: hash(data),
+			Blob: blob, Mode: uint32(info.Mode().Perm()),
 		})
 	}
 	if err := v.writeCapture(record); err != nil {
 		return CaptureRecord{}, err
 	}
 	return record, nil
+}
+
+// stateOf describes what is on disk now in the same terms the capture recorded.
+// An unreadable or absent path is the empty state, which is exactly what a
+// completed delete should look like.
+func stateOf(path string) (kind, fingerprint string) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", ""
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return "", ""
+		}
+		return kindSymlink, target
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	return kindFile, hash(data)
 }
 
 // SealCapture records what the command actually left behind. It is called after
@@ -93,14 +155,18 @@ func (v *Vault) SealCapture(id string) error {
 		return err
 	}
 	for index, entry := range record.Entries {
-		data, err := os.ReadFile(entry.Path)
-		if err != nil {
-			// Absent after the command is the normal outcome of a delete; the
-			// empty AfterSHA256 records exactly that.
-			record.Entries[index].AfterSHA256 = ""
-			continue
+		// Absent after the command is the normal outcome of a delete; the
+		// empty after-state records exactly that.
+		kind, fingerprint := stateOf(entry.Path)
+		record.Entries[index].AfterKind = kind
+		record.Entries[index].AfterSHA256 = ""
+		record.Entries[index].AfterLinkTarget = ""
+		switch kind {
+		case kindSymlink:
+			record.Entries[index].AfterLinkTarget = fingerprint
+		case kindFile:
+			record.Entries[index].AfterSHA256 = fingerprint
 		}
-		record.Entries[index].AfterSHA256 = hash(data)
 	}
 	return v.writeCapture(record)
 }
@@ -166,12 +232,12 @@ func (v *Vault) RestoreCapture(id string, force bool) ([]RestoreResult, error) {
 	}
 	results := make([]RestoreResult, 0, len(record.Entries))
 	for _, entry := range record.Entries {
-		current, readErr := os.ReadFile(entry.Path)
-		currentSHA := ""
-		if readErr == nil {
-			currentSHA = hash(current)
+		currentKind, currentFingerprint := stateOf(entry.Path)
+		afterKind, afterFingerprint := entry.AfterKind, entry.AfterSHA256
+		if afterKind == kindSymlink {
+			afterFingerprint = entry.AfterLinkTarget
 		}
-		if !force && currentSHA != entry.AfterSHA256 {
+		if !force && (currentKind != afterKind || currentFingerprint != afterFingerprint) {
 			results = append(results, RestoreResult{
 				Path: entry.Path, Action: "skipped", Skipped: true,
 				Reason: "changed since the captured command ran — pass force:true to overwrite",
@@ -179,7 +245,7 @@ func (v *Vault) RestoreCapture(id string, force bool) ([]RestoreResult, error) {
 			continue
 		}
 		if !entry.Existed {
-			if readErr != nil {
+			if currentKind == "" {
 				results = append(results, RestoreResult{Path: entry.Path, Action: "absent"})
 				continue
 			}
@@ -189,15 +255,33 @@ func (v *Vault) RestoreCapture(id string, force bool) ([]RestoreResult, error) {
 			results = append(results, RestoreResult{Path: entry.Path, Action: "removed"})
 			continue
 		}
-		if currentSHA == entry.SHA256 {
+		wantKind, wantFingerprint := entry.Kind, entry.SHA256
+		if wantKind == kindSymlink {
+			wantFingerprint = entry.LinkTarget
+		}
+		if currentKind == wantKind && currentFingerprint == wantFingerprint {
 			results = append(results, RestoreResult{Path: entry.Path, Action: "unchanged"})
 			continue
 		}
-		data, mode, err := v.loadBySHA(entry.Path, entry.SHA256)
-		if err != nil {
+		if err := os.MkdirAll(filepath.Dir(entry.Path), 0o700); err != nil {
 			return results, err
 		}
-		if err := os.MkdirAll(filepath.Dir(entry.Path), 0o700); err != nil {
+		// Clear whatever is there first. Writing over a symlink would follow it
+		// and corrupt the target instead of replacing the link.
+		if currentKind != "" {
+			if err := os.Remove(entry.Path); err != nil && !os.IsNotExist(err) {
+				return results, err
+			}
+		}
+		if wantKind == kindSymlink {
+			if err := os.Symlink(entry.LinkTarget, entry.Path); err != nil {
+				return results, err
+			}
+			results = append(results, RestoreResult{Path: entry.Path, Action: "restored"})
+			continue
+		}
+		data, mode, err := v.loadPreimage(id, entry)
+		if err != nil {
 			return results, err
 		}
 		if err := os.WriteFile(entry.Path, data, mode); err != nil {
@@ -206,6 +290,22 @@ func (v *Vault) RestoreCapture(id string, force bool) ([]RestoreResult, error) {
 		results = append(results, RestoreResult{Path: entry.Path, Action: "restored"})
 	}
 	return results, nil
+}
+
+// loadPreimage prefers the capture's own copy and falls back to the per-path
+// ring. The fallback is what keeps records written before captures owned their
+// bytes restorable; it is not a substitute, because the ring evicts.
+func (v *Vault) loadPreimage(id string, entry CaptureEntry) ([]byte, os.FileMode, error) {
+	if entry.Blob != "" {
+		data, err := os.ReadFile(v.captureBlobPath(id, entry.Blob))
+		if err == nil {
+			return data, os.FileMode(entry.Mode), nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, 0, err
+		}
+	}
+	return v.loadBySHA(entry.Path, entry.SHA256)
 }
 
 // loadBySHA walks the path's ring for the exact preimage this capture pinned.
@@ -223,6 +323,27 @@ func (v *Vault) loadBySHA(path, sha string) ([]byte, os.FileMode, error) {
 		return v.Load(path, entry.Version)
 	}
 	return nil, 0, fmt.Errorf("captured preimage for %s is no longer in the ring", path)
+}
+
+// writeCaptureBlob stores this capture's own copy of one preimage. The name is
+// index-scoped so the same path appearing twice in a surface keeps both.
+func (v *Vault) writeCaptureBlob(id string, index int, data []byte) (string, error) {
+	if err := validCaptureID(id); err != nil {
+		return "", err
+	}
+	directory := filepath.Join(v.root, captureDirectory, id)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("%d.blob", index)
+	if err := os.WriteFile(filepath.Join(directory, name), data, 0o600); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func (v *Vault) captureBlobPath(id, blob string) string {
+	return filepath.Join(v.root, captureDirectory, id, filepath.Base(blob))
 }
 
 func (v *Vault) capturePath(id string) string {

@@ -231,9 +231,9 @@ func TestTerseFormattingPassthroughCases(t *testing.T) {
 		{name: "error-result", enabled: true, handler: func(context.Context, json.RawMessage) (any, error) {
 			return Result{Content: []Content{Text(raw)}, IsError: true}, nil
 		}, want: Result{Content: []Content{Text(raw)}, IsError: true}},
-		{name: "image-first", enabled: true, handler: func(context.Context, json.RawMessage) (any, error) {
-			return Result{Content: []Content{Image([]byte("image"), "image/png"), Text(raw)}}, nil
-		}, want: Result{Content: []Content{Image([]byte("image"), "image/png"), Text(raw)}}},
+		{name: "image-only", enabled: true, handler: func(context.Context, json.RawMessage) (any, error) {
+			return Result{Content: []Content{Image([]byte("image"), "image/png")}}, nil
+		}, want: Result{Content: []Content{Image([]byte("image"), "image/png")}}},
 		{name: "plain-text", enabled: true, handler: func(context.Context, json.RawMessage) (any, error) {
 			return Result{Content: []Content{Text(strings.Repeat("plain text ", 120))}}, nil
 		}, want: Result{Content: []Content{Text(strings.Repeat("plain text ", 120))}}},
@@ -263,6 +263,40 @@ func TestTerseFormattingPassthroughCases(t *testing.T) {
 				t.Fatalf("got %#v, want %#v", response.Result, test.want)
 			}
 		})
+	}
+}
+
+// Compaction eligibility is a property of the CONTENT, not of its position.
+//
+// This case used to sit in the passthrough table above: formatResult inspected
+// only Content[0], so an image at index 0 exempted the whole result and a text
+// block behind it kept its full size. That was an artifact of the check, not a
+// protection — the identical payload at index 0 was compacted, and nothing about
+// an accompanying image makes its sibling text costlier to compact or riskier to
+// touch. Making the rule positional again would also re-open the regression that
+// prompted this: repair warnings ride at index 0, which would silently exempt
+// every repaired call from terse output.
+func TestTerseFormattingCompactsTextSittingBehindAnImage(t *testing.T) {
+	raw := `{"content":"` + strings.Repeat("word ", 120) + `"}`
+	server := New("test", "1", true)
+	if err := server.Register(Tool{Name: "sample", Handler: func(context.Context, json.RawMessage) (any, error) {
+		return Result{Content: []Content{Image([]byte("image"), "image/png"), Text(raw)}}, nil
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	response := server.dispatch(context.Background(), request{
+		JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+		Params: json.RawMessage(`{"name":"sample","arguments":{}}`),
+	})
+	result, ok := response.Result.(Result)
+	if !ok || len(result.Content) != 2 {
+		t.Fatalf("got %#v, want an image plus a text block", response.Result)
+	}
+	if result.Content[0].Type != "image" || result.Content[0].Data != "aW1hZ2U=" {
+		t.Fatalf("the image block was disturbed: %#v", result.Content[0])
+	}
+	if result.Content[1].Text == raw {
+		t.Fatalf("text behind an image was left uncompacted: %#v", result.Content[1])
 	}
 }
 
@@ -388,5 +422,36 @@ func TestTerseFormattingHandlesNilResultPointer(t *testing.T) {
 	result, ok := response.Result.(*Result)
 	if !ok || result != nil {
 		t.Fatalf("typed nil result changed: %#v", response.Result)
+	}
+}
+
+func TestAcceptanceRepairWarningsDoNotBypassTerseFormatting(t *testing.T) {
+	raw := `{"content":"` + strings.Repeat("word ", 120) + `","status":"ok"}`
+	server := New("test", "1", true)
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"path": map[string]any{"type": "string"},
+		},
+		"additionalProperties": false,
+	}
+	if err := server.Register(Tool{
+		Name: "sample", InputSchema: schema,
+		Handler: func(context.Context, json.RawMessage) (any, error) {
+			return Result{Content: []Content{Text(raw)}}, nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	response := server.dispatch(context.Background(), request{
+		JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+		Params: json.RawMessage(`{"name":"sample","arguments":{"pth":"/tmp/x"}}`),
+	})
+	result, ok := response.Result.(Result)
+	if !ok || len(result.Content) != 2 {
+		t.Fatalf("unexpected repaired result: %#v", response.Result)
+	}
+	if result.Content[1].Text == raw {
+		t.Fatalf("repair warning caused the actual payload to bypass terse formatting: %#v", result.Content)
 	}
 }

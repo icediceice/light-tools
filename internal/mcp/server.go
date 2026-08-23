@@ -226,21 +226,41 @@ func (s *Server) dispatch(ctx context.Context, req request) (resp response) {
 	return resp
 }
 
+// formatResult compacts EVERY eligible text block, not just the first one.
+// Repair warnings ride in front of the handler's payload, so inspecting only
+// Content[0] would silently exempt every repaired call from terse output — the
+// calls that are already costing the model a mistake are exactly the ones that
+// should not also lose the compaction.
 func (s *Server) formatResult(result Result) Result {
-	if !s.terse || result.IsError || len(result.Content) == 0 || result.Content[0].Type != "text" {
-		return result
-	}
-	formatted, changed := terse.Format([]byte(result.Content[0].Text))
-	if !changed {
+	if !s.terse || result.IsError || len(result.Content) == 0 {
 		return result
 	}
 	cloned := result
-	cloned.Content = append([]Content(nil), result.Content...)
-	cloned.Content[0].Text = string(formatted)
+	compacted := false
+	saved := 0
+	for index, content := range result.Content {
+		if content.Type != "text" {
+			continue
+		}
+		formatted, changed := terse.Format([]byte(content.Text))
+		if !changed {
+			continue
+		}
+		// Clone lazily: a result nothing compacts is returned untouched.
+		if !compacted {
+			cloned.Content = append([]Content(nil), result.Content...)
+			compacted = true
+		}
+		cloned.Content[index].Text = string(formatted)
+		saved += terse.EstimateTokens([]byte(content.Text)) - terse.EstimateTokens(formatted)
+	}
+	if !compacted {
+		return result
+	}
 	// Only a finished, swapped-in clone counts: measure what the caller would
 	// have received against what it received, once, after the decision.
 	s.observe(func(recorder telemetry.Recorder) {
-		recorder.RecordTerseTokens(terse.EstimateTokens([]byte(result.Content[0].Text)) - terse.EstimateTokens(formatted))
+		recorder.RecordTerseTokens(saved)
 	})
 	return cloned
 }

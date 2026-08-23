@@ -75,11 +75,16 @@ var toolVerbs = map[string]verbCatalog{
 			"write": true, "edit": true, "sed": true, "rename": true, "rewrite": true, "vault_restore": true,
 		},
 	},
+	// light_bash and light_ops both dispatch their async lifecycle verbs ahead
+	// of their main switch, so those verbs are easy to leave out of the catalog
+	// here — and leaving them out makes the "Valid verbs" list the tool prints
+	// actively wrong, not merely incomplete.
 	"light_bash": {verbs: []string{"status", "collect", "cancel"}},
 	"light_ops": {verbs: []string{
 		"list_services", "probe_service", "probe_port", "probe_process", "probe_file",
 		"log_grep", "log_correlate", "log_investigate",
 		"log_window", "log_trace", "log_search", "log_errors", "log_since",
+		"status", "collect", "cancel",
 	}},
 }
 
@@ -203,7 +208,13 @@ func UnknownVerbMessage(toolName, given string) string {
 	}
 	vocabulary := append([]string(nil), catalog.verbs...)
 	sort.Strings(vocabulary)
-	if match, distance := nearest(given, catalog.verbs); match != "" && distance <= repairThreshold(given) {
+	// The closest match is reported even when it is too far to COERCE. The two
+	// decisions answer different questions: coercion has to be conservative
+	// because it acts on the model's behalf, but a diagnostic that withholds the
+	// nearest verb just to stay quiet costs the correction turn this whole layer
+	// exists to save. A tie still names nothing — nearest() returns no match — so
+	// the message never invents a winner between equidistant candidates.
+	if match, _ := nearest(given, catalog.verbs); match != "" {
 		return fmt.Sprintf("%s: unsupported verb %q — did you mean %q? Valid verbs: %s",
 			toolName, given, match, strings.Join(vocabulary, ", "))
 	}

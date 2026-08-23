@@ -2,6 +2,7 @@ package bash
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,6 +132,52 @@ func TestProtectableGlobRunsOnFirstContactAndReverts(t *testing.T) {
 		}
 		if string(data) != name {
 			t.Fatalf("revert restored wrong bytes for %s: %q", name, data)
+		}
+	}
+}
+
+// Pinning rewrites the command to name the captured paths literally, so the
+// quoting has to survive the shell exactly. A path carrying a space or an
+// apostrophe is where a naive rewrite stops being a no-op and starts deleting
+// something the caller never named.
+func TestPinnedSurfaceSurvivesAwkwardFilenames(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX quoting rules")
+	}
+	runner, vault, root := newGuardRunner(t)
+	names := []string{"plain.tmp", "with space.tmp", "it's.tmp", "dollar$sign.tmp"}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bystander := filepath.Join(root, "keep.txt")
+	if err := os.WriteFile(bystander, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), Request{Command: "rm *.tmp", Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["protection"] != "capture-backed" {
+		t.Fatalf("awkward but ordinary filenames left the protected lane: %#v", result)
+	}
+	for _, name := range names {
+		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
+			t.Fatalf("pinned command did not remove %q: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(bystander); err != nil {
+		t.Fatalf("pinned command reached a path outside the captured surface: %v", err)
+	}
+	captureID, _ := result["capture_id"].(string)
+	if _, err := vault.RestoreCapture(captureID, false); err != nil {
+		t.Fatalf("revert failed: %v", err)
+	}
+	for _, name := range names {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil || string(data) != name {
+			t.Fatalf("revert did not restore %q: data=%q err=%v", name, data, err)
 		}
 	}
 }
@@ -303,5 +350,86 @@ func TestGoModuleErrorAnnotation(t *testing.T) {
 	}
 	if got := annotateGoModuleError("ordinary error"); got != "ordinary error" {
 		t.Fatalf("ordinary error changed: %s", got)
+	}
+}
+
+func TestAcceptanceConfirmCannotAuthorizeChangedCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("acceptance case uses POSIX rm flags")
+	}
+	runner, _, root := newGuardRunner(t)
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := runner.Run(context.Background(), Request{Command: "rm *", Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, _ := preview["surface_digest"].(string)
+	changed, err := runner.Run(context.Background(), Request{Command: "rm -rf *", Cwd: root, Confirm: digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed["protection"] != "refused" {
+		t.Fatalf("confirm for a different command was accepted: %#v", changed)
+	}
+	if _, err := os.Stat(filepath.Join(root, "keep.txt")); err != nil {
+		t.Fatalf("changed command ran under stale authorization: %v", err)
+	}
+}
+
+func TestAcceptanceRefusalReturnsCompleteSurface(t *testing.T) {
+	runner, _, root := newGuardRunner(t)
+	if err := os.Mkdir(filepath.Join(root, "blocker"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 25; index++ {
+		name := filepath.Join(root, fmt.Sprintf("item-%02d.tmp", index))
+		if err := os.WriteFile(name, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := runner.Run(context.Background(), Request{Command: "rm *", Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	surface, _ := result["surface"].([]string)
+	count, _ := result["surface_count"].(int)
+	if len(surface) != count {
+		t.Fatalf("surface was truncated: returned=%d expanded=%d surface=%v", len(surface), count, surface)
+	}
+}
+
+func TestAcceptanceCapturedSurfaceCannotDriftBeforeExecution(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("acceptance case uses POSIX rm")
+	}
+	runner, vault, root := newGuardRunner(t)
+	first := filepath.Join(root, "first.tmp")
+	second := filepath.Join(root, "second.tmp")
+	if err := os.WriteFile(first, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Command: "rm *.tmp", Cwd: root}
+	guard, refusal, err := runner.prepareGlobGuard(request)
+	if err != nil || refusal != nil || guard == nil {
+		t.Fatalf("guard preparation failed: guard=%#v refusal=%#v err=%v", guard, refusal, err)
+	}
+	if err := os.WriteFile(second, []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, runErr := runner.runSync(context.Background(), request, guard)
+	result, runErr = runner.sealGuard(guard, result, runErr)
+	if runErr != nil || result["protection"] != "capture-backed" {
+		t.Fatalf("protected run failed: result=%#v err=%v", result, runErr)
+	}
+	if _, err := vault.RestoreCapture(guard.CaptureID, false); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(second); err != nil || string(data) != "second" {
+		t.Fatalf("path added after capture was deleted outside the revert surface: data=%q err=%v", data, err)
 	}
 }

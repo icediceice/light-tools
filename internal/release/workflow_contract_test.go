@@ -188,3 +188,23 @@ func TestWorkflowsDeclareNoDuplicateJobKeys(t *testing.T) {
 		}
 	}
 }
+
+// The premium matrix legs (macOS bills at 10x, Windows at 2x) are held back to
+// non-PR events, and select_matrix's own comment names push-to-main AND
+// workflow_dispatch as the two lanes that schedule them. A trigger list missing
+// workflow_dispatch does not fail loudly: the PR lane keeps working, the main
+// lane keeps working, and the manual cross-platform validation simply cannot be
+// started — which is discovered only when someone needs it before a release.
+func TestCiWorkflowCanBeDispatchedManually(t *testing.T) {
+	source := workflow(t, "ci.yml")
+	triggers, _, found := strings.Cut(source, "\npermissions:")
+	if !found {
+		t.Fatal("ci.yml has no permissions block to bound the trigger list")
+	}
+	if !strings.Contains(triggers, "\n  workflow_dispatch:") {
+		t.Fatalf("ci.yml gates premium runners on workflow_dispatch but never declares that trigger:\n%s", triggers)
+	}
+	if !strings.Contains(source, "github.event_name") {
+		t.Fatal("ci.yml no longer branches the matrix on the event name")
+	}
+}

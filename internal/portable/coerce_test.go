@@ -201,6 +201,41 @@ func TestUnknownVerbMessageNamesTheClosestMatchAndTheVocabulary(t *testing.T) {
 	}
 }
 
+// A verb too far to coerce is exactly the case where the model has the least
+// idea what the vocabulary is, so withholding the nearest candidate there costs
+// the correction turn the diagnostic exists to save.
+func TestUnknownVerbMessageNamesTheClosestMatchEvenBeyondTheCoercionThreshold(t *testing.T) {
+	// Four edits from log_errors, against a threshold of three: far enough that
+	// coercing it would be a guess, close enough that naming it is a real hint.
+	const given = "log_errorsxxxx"
+	repaired, warnings := repair(t, "light_ops", `{"verb":"`+given+`"}`)
+	if repaired["verb"] != given {
+		t.Fatalf("a verb beyond the threshold must NOT be coerced: %#v (%v)", repaired, warnings)
+	}
+	message := UnknownVerbMessage("light_ops", given)
+	if !strings.Contains(message, "log_errors") {
+		t.Fatalf("the closest match is missing beyond the coercion threshold: %s", message)
+	}
+	if !strings.Contains(message, "list_services") {
+		t.Fatalf("the vocabulary is missing: %s", message)
+	}
+}
+
+// The async lifecycle verbs dispatch ahead of each handler's main switch, which
+// is precisely why they were missing from the catalog: nothing in the main
+// switch mentions them. A vocabulary that omits an accepted verb is not merely
+// incomplete, it tells the model the verb is invalid.
+func TestUnknownVerbVocabularyIncludesTheAsyncLifecycleVerbs(t *testing.T) {
+	for _, tool := range []string{"light_ops", "light_bash"} {
+		message := UnknownVerbMessage(tool, "definitelynotaverb")
+		for _, verb := range []string{"status", "collect", "cancel"} {
+			if !strings.Contains(message, verb) {
+				t.Fatalf("%s vocabulary omits the accepted verb %q: %s", tool, verb, message)
+			}
+		}
+	}
+}
+
 // The repair only pays off if the warning REACHES the model — a silently fixed
 // call teaches nothing and the same malformed shape comes back next turn.
 func TestWarningsRideBackOnTheResult(t *testing.T) {
@@ -270,5 +305,26 @@ func TestVerbCatalogsAreSaneAndDisjointFromTheirDestructiveSet(t *testing.T) {
 				t.Fatalf("%s marks %q destructive but does not list it", tool, verb)
 			}
 		}
+	}
+}
+
+func TestAcceptanceOpsLifecycleVerbTyposAreRepairable(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"verb": map[string]any{"type": "string"},
+		},
+		"additionalProperties": false,
+	}
+	repaired, warnings, err := Repair("light_ops", schema, json.RawMessage(`{"verb":"stauts"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var object map[string]any
+	if err := json.Unmarshal(repaired, &object); err != nil {
+		t.Fatal(err)
+	}
+	if object["verb"] != "status" {
+		t.Fatalf("accepted lifecycle verb was omitted from repair catalog: object=%#v warnings=%v", object, warnings)
 	}
 }

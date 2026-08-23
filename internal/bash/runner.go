@@ -83,7 +83,7 @@ func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, erro
 	if request.Async {
 		request.Async = false
 		id, err := r.tasks.Start(func(taskContext context.Context) (map[string]any, error) {
-			result, err := r.runSync(taskContext, request)
+			result, err := r.runSync(taskContext, request, guard)
 			return r.sealGuard(guard, result, err)
 		})
 		if err != nil {
@@ -91,14 +91,18 @@ func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, erro
 		}
 		return map[string]any{"task_id": id, "status": "queued"}, nil
 	}
-	result, err := r.runSync(ctx, request)
+	result, err := r.runSync(ctx, request, guard)
 	return r.sealGuard(guard, result, err)
 }
 
 // globGuard is the decision carried from admission through to the terminal.
 type globGuard struct {
-	CaptureID   string
-	Entries     int
+	CaptureID string
+	Entries   int
+	// Pinned is the command rewritten to name the captured paths literally. It
+	// replaces the caller's command so the shell cannot expand the glob a
+	// second time and mutate something the capture never saw.
+	Pinned      string
 	Unprotected bool
 }
 
@@ -145,7 +149,7 @@ func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, 
 		return nil, nil, nil
 	}
 	decision := decideGlobProtection(plan, groups)
-	digest := surfaceDigest(plan.Command, flat)
+	digest := surfaceDigest(request.Command, resolvedCwd, flat)
 
 	if decision.Protectable && r.captures != nil {
 		paths := make([]string, 0, len(flat))
@@ -156,7 +160,7 @@ func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, 
 		if _, err := r.captures.CaptureSurface(id, request.Command, paths); err != nil {
 			return nil, nil, fmt.Errorf("could not back up the surface before running: %w", err)
 		}
-		return &globGuard{CaptureID: id, Entries: len(flat)}, nil, nil
+		return &globGuard{CaptureID: id, Entries: len(flat), Pinned: pinCommand(plan, groups)}, nil, nil
 	}
 
 	reason := decision.Reason
@@ -173,6 +177,7 @@ func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, 
 			"confirm_given":  strings.TrimSpace(request.Confirm),
 			"surface_digest": digest,
 			"surface":        renderSurface(flat),
+			"surface_count":  len(flat),
 			"reason":         reason,
 			"hint": fmt.Sprintf(
 				"the surface changed since it was shown — re-send with confirm:%q for THIS surface, or drop confirm to see it printed again", digest),
@@ -221,7 +226,14 @@ func (r *Runner) sealGuard(guard *globGuard, result map[string]any, err error) (
 	return result, err
 }
 
-func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, error) {
+// runSync takes the guard rather than a bare command so the pinned surface is
+// structural: a caller holding a capture cannot accidentally execute the
+// original glob, which would let the shell expand it a second time and mutate
+// paths the capture never saw.
+func (r *Runner) runSync(ctx context.Context, request Request, guard *globGuard) (map[string]any, error) {
+	if guard != nil && guard.Pinned != "" {
+		request.Command = guard.Pinned
+	}
 	if request.OutputMode == "read_block" {
 		spillID := request.SpillID
 		if spillID == "" {

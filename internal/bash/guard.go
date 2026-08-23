@@ -308,6 +308,17 @@ func decideGlobProtection(plan globPlan, groups [][]surfaceEntry) protectionDeci
 			return decision
 		}
 	}
+	// An operand the shell still gets to rewrite cannot be pinned to what was
+	// captured. mv is the sharp case: its matrix admits a MISSING destination,
+	// so "mv src* $HOME/dest" would otherwise be pinned to a literal "$HOME"
+	// path that does not exist while the real move landed somewhere else.
+	for _, index := range plan.Operands {
+		if raw := plan.Tokens[index].Raw; shellRewrites(raw) {
+			decision.Reason = fmt.Sprintf(
+				"operand %q is still expanded by the shell, so the captured surface is not what would run", raw)
+			return decision
+		}
+	}
 	blocker := func(path, hazard string) protectionDecision {
 		decision.Reason = fmt.Sprintf("%s (%s)", path, hazard)
 		return decision
@@ -363,21 +374,28 @@ func flattenSurface(groups [][]surfaceEntry) []surfaceEntry {
 	return flat
 }
 
-// surfaceDigest binds a confirmation to exactly the surface that was printed:
-// the first 8 hex of sha256 over the sorted, deduped "command\x00path" pairs.
-func surfaceDigest(command string, entries []surfaceEntry) string {
+// surfaceDigest binds a confirmation to exactly the mutation that was printed:
+// the first 8 hex of sha256 over the WHOLE command, the resolved cwd, and the
+// sorted, deduped surface.
+//
+// The command must go in verbatim. Digesting only the executable name let a
+// confirmation issued for "rm *" authorize "rm -rf *" — same operand, same
+// surface, same digest, but -r is precisely what turns a refusal over a
+// directory into a recursive delete of it. Flags are not decoration here; they
+// are the difference between the effect that was previewed and a different one.
+func surfaceDigest(command, cwd string, entries []surfaceEntry) string {
 	seen := make(map[string]bool, len(entries))
-	pairs := make([]string, 0, len(entries))
+	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		pair := command + "\x00" + entry.Path
-		if seen[pair] {
+		if seen[entry.Path] {
 			continue
 		}
-		seen[pair] = true
-		pairs = append(pairs, pair)
+		seen[entry.Path] = true
+		paths = append(paths, entry.Path)
 	}
-	sort.Strings(pairs)
-	sum := sha256.Sum256([]byte(strings.Join(pairs, "\n")))
+	sort.Strings(paths)
+	payload := command + "\x00" + cwd + "\x00" + strings.Join(paths, "\n")
+	sum := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(sum[:])[:8]
 }
 
@@ -385,15 +403,14 @@ func confirmMatches(confirm, digest string) bool {
 	return strings.EqualFold(strings.TrimSpace(confirm), digest)
 }
 
-const surfaceListCap = 20
-
+// renderSurface returns EVERY expanded entry. It used to stop at 20 and append
+// an ellipsis, which quietly hid paths from the one audit that matters: this
+// list is what the caller reads before confirming a run that will have NO
+// revert. A surface too long to read comfortably is a reason to narrow the
+// glob, not a reason to be shown less of it.
 func renderSurface(entries []surfaceEntry) []string {
 	rendered := make([]string, 0, len(entries))
-	for index, entry := range entries {
-		if index == surfaceListCap {
-			rendered = append(rendered, fmt.Sprintf("… +%d more", len(entries)-index))
-			break
-		}
+	for _, entry := range entries {
 		if len(entry.Hazards) > 0 {
 			rendered = append(rendered, fmt.Sprintf("%s (%s)", entry.Path, strings.Join(entry.Hazards, ",")))
 			continue
@@ -401,4 +418,48 @@ func renderSurface(entries []surfaceEntry) []string {
 		rendered = append(rendered, entry.Path)
 	}
 	return rendered
+}
+
+// shellRewrites reports an operand the shell would rewrite at execution time.
+//
+// The protected lane substitutes the paths it captured, so an operand whose
+// meaning is decided later cannot honestly be backed. Quoting does not settle
+// it: tokenizeCommand collapses '...' and "..." into one Quoted flag, so a
+// token that survived double quotes can still carry a live expansion. Treating
+// every one of these as unprotectable costs a confirm fence on an exotic call
+// and buys the guarantee that what was captured is what runs.
+func shellRewrites(raw string) bool {
+	return strings.ContainsAny(raw, "$`~{")
+}
+
+// pinCommand rebuilds the mutator so it operates on exactly the paths that were
+// captured. Without it the shell expands the glob a SECOND time when the
+// command actually runs, and anything created in the gap between capture and
+// execution is mutated with no snapshot behind it.
+//
+// Every word is re-quoted, which is safe precisely because shellRewrites has
+// already excluded the operands whose expansion carried meaning: after word
+// splitting there is nothing left for the shell to do but pass them through.
+func pinCommand(plan globPlan, groups [][]surfaceEntry) string {
+	replacement := make(map[int][]string, len(plan.Operands))
+	for position, index := range plan.Operands {
+		paths := make([]string, 0, len(groups[position]))
+		for _, entry := range groups[position] {
+			paths = append(paths, shellQuote(entry.Path))
+		}
+		replacement[index] = paths
+	}
+	words := make([]string, 0, len(plan.Tokens))
+	for index, token := range plan.Tokens {
+		if paths, ok := replacement[index]; ok {
+			words = append(words, paths...)
+			continue
+		}
+		words = append(words, shellQuote(token.Raw))
+	}
+	return strings.Join(words, " ")
+}
+
+func shellQuote(word string) string {
+	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
 }

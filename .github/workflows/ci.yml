@@ -5,6 +5,7 @@ on:
     paths-ignore:
       - "**/*.md"
       - LICENSE
+  workflow_dispatch:
   push:
     branches: [main]
     paths-ignore:
