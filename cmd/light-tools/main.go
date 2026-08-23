@@ -381,7 +381,7 @@ func runInit(args []string) error {
 	warnRetiredFlags(os.Stderr, retiredShell, retiredRemote, retiredOps)
 	// Validated at init so a typo is caught here rather than baked into a client
 	// configuration that then launches a server refusing to start.
-	if _, err := newOptions(disabledTools); err != nil {
+	if _, err := newOptions(disabledTools, nil); err != nil {
 		return err
 	}
 	switch *client {
