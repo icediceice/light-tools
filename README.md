@@ -43,8 +43,11 @@ build; all five MCP tools remain available.
 
 ### Native archive fallback
 
-The checksum-verifying POSIX and PowerShell installers remain available to
-operators who can access this private GitHub repository:
+The checksum-verifying POSIX and PowerShell installers fetch their release
+assets anonymously over HTTPS, so they are supported once this repository is
+public. While it remains private these commands cannot authenticate and will
+fail before checksum verification; install from npm above instead, which carries
+the same checksum-bound binaries and needs no GitHub access:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/icediceice/light-tools/main/install.sh | sh
