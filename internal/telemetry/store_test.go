@@ -201,8 +201,8 @@ func TestLoadReportsMalformedSnapshotsAsWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if totals.Sessions != 2 || totals.Calls["light_file"] != 1 || totals.Calls["light_bash"] != 1 {
-		t.Fatalf("totals = %#v", totals)
+	if totals.Sessions != 1 || totals.Calls["light_file"] != 1 || totals.Calls["light_bash"] != 0 {
+		t.Fatalf("totals = %#v, want only the healthy session to contribute", totals)
 	}
 	if len(totals.Warnings) != 2 {
 		t.Fatalf("warnings = %v, want the corrupt and the mismatched snapshot", totals.Warnings)
