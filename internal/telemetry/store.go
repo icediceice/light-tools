@@ -91,6 +91,12 @@ func Enabled() bool {
 // disabled by environment. The returned store starts one writer goroutine;
 // Close stops it and flushes any pending counters.
 func New(dir string) *Store {
+	return newStore(dir, defaultFlushInterval)
+}
+
+// newStore is the test seam behind New: an aggressive flush interval lets tests
+// hammer the supersede/remove window a real reader races against.
+func newStore(dir string, interval time.Duration) *Store {
 	if !Enabled() {
 		return nil
 	}
@@ -102,7 +108,7 @@ func New(dir string) *Store {
 		dir:           dir,
 		session:       hex.EncodeToString(id),
 		current:       snapshot{Session: hex.EncodeToString(id), Calls: make(map[string]int64)},
-		flushInterval: defaultFlushInterval,
+		flushInterval: interval,
 		now:           time.Now,
 		stop:          make(chan struct{}),
 		done:          make(chan struct{}),
