@@ -228,11 +228,13 @@ func TestPruneEnforcesRetentionAndSessionCap(t *testing.T) {
 	if err := os.Chtimes(snapshotPath(dir, old, 1), now.Add(-retention-time.Hour), now.Add(-retention-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	// Fill the directory to sessionCap distinct sessions plus the live one.
-	for index := 0; index < sessionCap; index++ {
+	// One session beyond the cap, so retention alone cannot account for the
+	// eviction: sessionCap+1 fresh sessions plus the expired one leave
+	// sessionCap+1 sessions in the map after retention fires.
+	for index := 0; index < sessionCap+1; index++ {
 		session := fakeSessionID(100 + index)
 		writeFakeSnapshot(t, dir, session, 1, snapshot{})
-		age := time.Duration(index) * time.Hour // descending age: 0 is oldest
+		age := time.Duration(sessionCap-index+1) * time.Hour // index 0 is the oldest
 		if err := os.Chtimes(snapshotPath(dir, session, 1), now.Add(-age), now.Add(-age)); err != nil {
 			t.Fatal(err)
 		}
