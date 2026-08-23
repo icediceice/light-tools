@@ -102,7 +102,7 @@ func New(options Options) (*Handler, error) {
 	return &Handler{
 		confiner: options.Confiner, vault: snapshot.New(options.SnapshotRoot),
 		cache: readcache.New(10*time.Minute, 512), assembler: payload.NewAssembler(),
-		spills: options.Spills,
+		spills: options.Spills, recorder: options.Recorder,
 	}, nil
 }
 
