@@ -163,6 +163,7 @@
       configured = Boolean(status.configured);
       if (status.authenticated) {
         show(vaultView);
+        showView("vault");
         await loadVault();
       } else {
         showPassword();
