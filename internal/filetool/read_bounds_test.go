@@ -136,26 +136,36 @@ func TestDedupRecordsOnlyTheBoundedDelta(t *testing.T) {
 	}
 }
 
-// A repeated batch item elides with the rendered section as its baseline.
-func TestBatchItemDedupRecordsSectionDelta(t *testing.T) {
+// A repeated batch item elides at the readItems layer, and the credit is
+// bounded by the shared batch budget: a huge repeated item is credited with at
+// most the bytes the bounded response could have carried, never the raw
+// section size.
+func TestBatchItemDedupRecordsBoundedDelta(t *testing.T) {
 	handler, recorder, root := recorderHandler(t)
-	path := writeLines(t, root, "item.txt", 800)
-	item := Item{Path: path, Offset: 0, Limit: 5}
-	if _, err := handler.renderItem(item, "epoch-2", false); err != nil {
+	path := writeLines(t, root, "item.txt", 50000)
+	request := Request{Items: []Item{{Path: path, Offset: 0, Limit: 50000}}, ContextEpoch: "epoch-2"}
+	first, err := handler.readItems(request)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(fmt.Sprint(first), "[dedup]") {
+		t.Fatal("first observation elided")
 	}
 	if len(recorder.dedup) != 0 {
 		t.Fatalf("first observation recorded savings: %v", recorder.dedup)
 	}
-	section, err := handler.renderItem(item, "epoch-2", false)
+	second, err := handler.readItems(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(section, "[dedup]") {
-		t.Fatalf("second render did not elide: %q", section)
+	if !strings.Contains(fmt.Sprint(second), "[dedup]") {
+		t.Fatal("second observation did not elide")
 	}
 	if len(recorder.dedup) != 1 || recorder.dedup[0] <= 0 {
 		t.Fatalf("elision delta = %v", recorder.dedup)
+	}
+	if saved := recorder.dedup[0]; saved > readBudget {
+		t.Fatalf("delta %d exceeds the %d-byte batch budget the response could carry", saved, readBudget)
 	}
 }
 
