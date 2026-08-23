@@ -41,7 +41,14 @@ func TestLoadToleratesConcurrentGenerationSupersession(t *testing.T) {
 	store.RecordCall("light_file")
 
 	deadline := time.Now().Add(5 * time.Second)
-	for Load(dir).Sessions == 0 {
+	for {
+		landed, err := Load(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if landed.Sessions == 1 {
+			break
+		}
 		if time.Now().After(deadline) {
 			t.Fatal("first snapshot never landed")
 		}
