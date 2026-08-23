@@ -260,10 +260,17 @@ async function main() {
       .trim()
       .split(/\r?\n/)
       .map((line) => JSON.parse(line));
+    // Assert the WHOLE registration surface, not just tools[0]. This check read
+    // tools[0].name === "light_file" long after every tool became registered by
+    // default, which only held under the retired --enable-shell/--enable-remote/
+    // --enable-ops posture; with all five registered and sorted, tools[0] is
+    // light_bash and a correct server failed here. Same drift as ci.yml and
+    // scripts/mcp-smoke.ps1.
+    const wrapperTools = (responses[1]?.result?.tools ?? []).map((tool) => tool.name);
     if (
       responses.length !== 2 ||
       responses[0]?.result?.protocolVersion !== "2025-06-18" ||
-      responses[1]?.result?.tools?.[0]?.name !== "light_file"
+      wrapperTools.join(",") !== "light_bash,light_file,light_ops,light_scp,light_ssh"
     ) {
       throw new Error("npm wrapper did not preserve the MCP stdio transcript");
     }
