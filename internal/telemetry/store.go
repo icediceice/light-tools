@@ -191,6 +191,11 @@ func (s *Store) flush() {
 	}
 	next := s.generation + 1
 	copied := s.current
+	// Calls is a map, so the struct copy above is shallow and Marshal runs
+	// after the unlock below. Clone it under the lock or a concurrent
+	// RecordCall writes the same backing map json is reading — a data race
+	// that can terminate the process with a concurrent-map panic.
+	copied.Calls = maps.Clone(s.current.Calls)
 	copied.Generation = next
 	copied.Updated = s.now().UTC()
 	copiedVersion := s.version
