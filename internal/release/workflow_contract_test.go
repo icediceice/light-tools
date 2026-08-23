@@ -86,18 +86,7 @@ func TestPromoteWorkflowCreatesTagBeforeVerifiedRelease(t *testing.T) {
 // names out of main.go rather than restating them here, so a sixth tool fails
 // loudly instead of being silently under-asserted.
 func TestCiWorkflowAssertsFullToolRegistration(t *testing.T) {
-	source, err := os.ReadFile(filepath.Join("..", "..", "cmd", "light-tools", "main.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	declaration := regexp.MustCompile(`var toolNames = \[\]string\{([^}]*)\}`).FindSubmatch(source)
-	if declaration == nil {
-		t.Fatalf("cmd/light-tools/main.go no longer declares a toolNames slice; update this contract test")
-	}
-	names := regexp.MustCompile(`"([^"]+)"`).FindAllStringSubmatch(string(declaration[1]), -1)
-	if len(names) == 0 {
-		t.Fatalf("toolNames declaration parsed to zero names; update this contract test")
-	}
+	names := registeredToolNames(t)
 
 	body := workflow(t, "ci.yml")
 	step := strings.Index(body, "MCP initialize and tools/list transcript")
@@ -110,8 +99,54 @@ func TestCiWorkflowAssertsFullToolRegistration(t *testing.T) {
 		assertion = assertion[:next[0]]
 	}
 	for _, name := range names {
-		if !strings.Contains(assertion, strconv.Quote(name[1])) {
-			t.Fatalf("ci.yml tools/list assertion never names %q: the workflow and cmd/light-tools/main.go toolNames have drifted", name[1])
+		if !strings.Contains(assertion, strconv.Quote(name)) {
+			t.Fatalf("ci.yml tools/list assertion never names %q: the workflow and cmd/light-tools/main.go toolNames have drifted", name)
+		}
+	}
+}
+
+// registeredToolNames reads the registration surface out of main.go rather than
+// restating it here, so adding a sixth tool fails these guards loudly instead of
+// leaving them silently under-asserting.
+func registeredToolNames(t *testing.T) []string {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join("..", "..", "cmd", "light-tools", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaration := regexp.MustCompile(`var toolNames = \[\]string\{([^}]*)\}`).FindSubmatch(source)
+	if declaration == nil {
+		t.Fatalf("cmd/light-tools/main.go no longer declares a toolNames slice; update this contract test")
+	}
+	matches := regexp.MustCompile(`"([^"]+)"`).FindAllStringSubmatch(string(declaration[1]), -1)
+	if len(matches) == 0 {
+		t.Fatalf("toolNames declaration parsed to zero names; update this contract test")
+	}
+	names := make([]string, 0, len(matches))
+	for _, match := range matches {
+		names = append(names, match[1])
+	}
+	return names
+}
+
+// The same assertion drifted in THREE places, not one. Both release smokes also
+// encoded the retired single-tool posture: scripts/mcp-smoke.ps1 asserted a
+// one-element tools/list, and scripts/npm-package-smoke.mjs compared only
+// tools[0].name, so a correct server failed two further CI jobs that the ci.yml
+// fix never touched. Guard every call site — a guard covering one third of the
+// surface is worse than none, because the next reader trusts it.
+func TestReleaseSmokesAssertFullToolRegistration(t *testing.T) {
+	names := registeredToolNames(t)
+	for _, script := range []string{"mcp-smoke.ps1", "npm-package-smoke.mjs"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "scripts", script))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := strings.ReplaceAll(string(raw), "\r\n", "\n")
+		for _, name := range names {
+			if !strings.Contains(body, strconv.Quote(name)) {
+				t.Fatalf("scripts/%s never names %q as a quoted tool: it and cmd/light-tools/main.go toolNames have drifted", script, name)
+			}
 		}
 	}
 }
