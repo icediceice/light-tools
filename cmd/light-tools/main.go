@@ -24,6 +24,7 @@ import (
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
 	"github.com/icediceice/light-tools/internal/state"
+	"github.com/icediceice/light-tools/internal/telemetry"
 	"github.com/icediceice/light-tools/internal/vaultui"
 )
 
