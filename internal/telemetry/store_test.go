@@ -29,6 +29,50 @@ func newTestStore(t *testing.T, dir string) *Store {
 	return store
 }
 
+// Load must never report a healthy session as unreadable (or drop it entirely)
+// while the writer concurrently supersedes generations: the list→open window is
+// closed by one bounded rescan, not by warnings. A 1ms flush interval keeps the
+// rename+remove wheel spinning for the whole read loop.
+func TestLoadToleratesConcurrentGenerationSupersession(t *testing.T) {
+	dir := t.TempDir()
+	store := newStore(dir, time.Millisecond)
+	defer store.Close()
+	store.RecordCall("light_file")
+
+	deadline := time.Now().Add(5 * time.Second)
+	for Load(dir).Sessions == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("first snapshot never landed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for i := 0; i < 200; i++ {
+		store.RecordCall("light_file") // keep versions advancing so every tick flushes
+		totals, err := Load(dir)
+		if err != nil {
+			t.Fatalf("iteration %d: %v", i, err)
+		}
+		if totals.Sessions != 1 {
+			t.Fatalf("iteration %d: sessions = %d, want 1", i, totals.Sessions)
+		}
+		for _, warning := range totals.Warnings {
+			if strings.Contains(warning, "unreadable") {
+				t.Fatalf("iteration %d: supersession surfaced as a health warning: %s", i, warning)
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	store.Close()
+
+	totals, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if totals.Calls["light_file"] < 201 {
+		t.Fatalf("calls = %d, want at least the 201 recorded", totals.Calls["light_file"])
+	}
+}
+
 func TestDisabledEnvironmentYieldsNilNoOpStore(t *testing.T) {
 	for name, env := range map[string]func(t *testing.T){
 		"DO_NOT_TRACK":       func(t *testing.T) { t.Setenv("DO_NOT_TRACK", "1") },
