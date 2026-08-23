@@ -50,6 +50,24 @@ type Server struct {
 	terse   bool
 	mu      sync.RWMutex
 	tools   map[string]Tool
+	// recorder is consulted only through observe, never directly, so a broken
+	// or missing recorder cannot alter a tool result. It is set before Serve.
+	recorder telemetry.Recorder
+}
+
+// SetRecorder attaches the local telemetry sink. It must be called before Serve
+// starts; a nil recorder (or none) records nothing.
+func (s *Server) SetRecorder(recorder telemetry.Recorder) { s.recorder = recorder }
+
+// observe runs one recorder callback behind a panic boundary. Telemetry is an
+// observation of the result, never a participant in producing it: a recorder
+// panic must not discard a result the handler already computed.
+func (s *Server) observe(record func(telemetry.Recorder)) {
+	defer func() { _ = recover() }()
+	if s.recorder == nil {
+		return
+	}
+	record(s.recorder)
 }
 
 func New(name, version string, terseOutput ...bool) *Server {
