@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/icediceice/light-tools/internal/secret"
+	"github.com/icediceice/light-tools/internal/settings"
+	"github.com/icediceice/light-tools/internal/telemetry"
 )
 
 //go:embed index.html app.js app.css
