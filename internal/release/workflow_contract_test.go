@@ -87,20 +87,28 @@ func TestPromoteWorkflowCreatesTagBeforeVerifiedRelease(t *testing.T) {
 // loudly instead of being silently under-asserted.
 func TestCiWorkflowAssertsFullToolRegistration(t *testing.T) {
 	names := registeredToolNames(t)
-
 	body := workflow(t, "ci.yml")
-	step := strings.Index(body, "MCP initialize and tools/list transcript")
-	if step < 0 {
-		t.Fatalf("ci.yml no longer runs the MCP tools/list transcript; update this contract test")
-	}
-	// Bound the search to that step: a later job must not accidentally satisfy it.
-	assertion := body[step:]
-	if next := regexp.MustCompile(`(?m)^  [a-z][a-z0-9_-]*:$`).FindStringIndex(assertion); next != nil {
-		assertion = assertion[:next[0]]
-	}
-	for _, name := range names {
-		if !strings.Contains(assertion, strconv.Quote(name)) {
-			t.Fatalf("ci.yml tools/list assertion never names %q: the workflow and cmd/light-tools/main.go toolNames have drifted", name)
+	// EVERY step that reads tools/list must assert the WHOLE surface. Bounding
+	// this guard to the transcript step alone is exactly how the inspector job
+	// kept `n.length!==1||n[0]!=='light_file'` long after the transcript step was
+	// fixed — a guard narrower than the invariant it claims to protect.
+	for _, step := range []string{
+		"MCP initialize and tools/list transcript",
+		"MCP Inspector tools/list smoke",
+	} {
+		start := strings.Index(body, step)
+		if start < 0 {
+			t.Fatalf("ci.yml no longer runs %q; update this contract test", step)
+		}
+		// Stop at the next step or the next job, so a later one cannot satisfy this.
+		assertion := body[start+len(step):]
+		if next := regexp.MustCompile(`(?m)^      - name: |^  [a-z][a-z0-9_-]*:[ \t]*$`).FindStringIndex(assertion); next != nil {
+			assertion = assertion[:next[0]]
+		}
+		for _, name := range names {
+			if !strings.Contains(assertion, strconv.Quote(name)) {
+				t.Fatalf("ci.yml step %q never names %q: it and cmd/light-tools/main.go toolNames have drifted", step, name)
+			}
 		}
 	}
 }
