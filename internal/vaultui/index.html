@@ -49,55 +49,33 @@
       </nav>
 
       <div id="vault-panel">
-      <div class="grid">
-        <section class="panel">
-          <h2>Add or update a secret</h2>
-          <form id="secret-form">
-            <label>Name
-              <input id="secret-name" pattern="[-_.A-Za-z0-9]+" autocomplete="off" required>
-            </label>
-            <label>Value
-              <textarea id="secret-value" rows="4" autocomplete="off" required></textarea>
-            </label>
-            <label>Import a key or certificate file (optional)
-              <input id="secret-file" type="file" accept=".pem,.key,.pub,.crt,.cer,.cert,text/plain">
-            </label>
-            <div id="secret-import" class="row hidden" role="status">
-              <div class="row-main">
-                <div id="secret-import-name" class="row-title"></div>
-                <div id="secret-import-size" class="row-meta"></div>
-              </div>
-              <button id="secret-import-discard" class="secondary" type="button">Discard file</button>
-            </div>
-            <label>Group
-              <select id="secret-group"></select>
-            </label>
-            <button type="submit">Save value</button>
-          </form>
-          <p class="hint">The value is sent once and is never returned by this page.</p>
-        </section>
-
-        <section class="panel">
-          <div class="section-heading">
-            <h2>Groups</h2>
-          </div>
-          <form id="group-form" class="inline-form">
-            <label class="grow">New group
-              <input id="group-name" maxlength="64" required>
-            </label>
-            <button type="submit">Add</button>
-          </form>
-          <div id="groups" class="stack"></div>
-        </section>
-      </div>
-
-      <section class="panel">
-        <div class="section-heading">
-          <h2>Secrets</h2>
-          <button id="refresh" class="secondary" type="button">Refresh</button>
+        <div class="toolbar">
+          <span class="tb-label">Vault</span>
+          <span id="vault-count" class="tb-count"></span>
+          <span class="tb-spacer"></span>
+          <input id="vault-filter" class="tb-search mono" type="search" placeholder="filter secrets…" aria-label="Filter secrets">
+          <button id="refresh" class="shelf-act" type="button">Refresh</button>
         </div>
-        <div id="secrets" class="stack"></div>
-      </section>
+
+        <div id="shelves"></div>
+
+        <p class="hint">A value is sent once and is never returned by this page. Open a card to replace it.</p>
+
+        <!-- The overlay ADOPTS these live nodes and hands them back when it
+             closes, so one hardened import flow serves both the add and the
+             edit overlay instead of each building its own. -->
+        <div id="secret-import-home" hidden>
+          <label class="field" id="secret-file-field"><span>Import from a key or certificate file</span>
+            <input id="secret-file" type="file" accept=".pem,.key,.pub,.crt,.cer,.cert,text/plain">
+          </label>
+          <div id="secret-import" class="import-row hidden" role="status">
+            <div class="row-main">
+              <div id="secret-import-name" class="row-title"></div>
+              <div id="secret-import-size" class="row-meta"></div>
+            </div>
+            <button id="secret-import-discard" class="btn ghost" type="button">Discard file</button>
+          </div>
+        </div>
       </div>
 
       <section id="settings-view" class="hidden">
