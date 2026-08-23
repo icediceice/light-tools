@@ -296,6 +296,164 @@ func TestSecurityHeadersHostOriginAndBodyLimits(t *testing.T) {
 	}
 }
 
+func TestNewEndpointsRefuseUnauthenticatedAndUnpairedCallers(t *testing.T) {
+	ui := newTestUI(t, t.TempDir())
+	paired := ui.pair(t) // paired but NOT password-authenticated
+
+	cases := []struct {
+		method string
+		route  string
+		body   any
+	}{
+		{http.MethodGet, "/api/settings", nil},
+		{http.MethodGet, "/api/telemetry", nil},
+		{http.MethodPost, "/api/settings/tools", map[string]any{"tool": "light_ops", "disabled": true}},
+	}
+	for _, attempt := range cases {
+		response := ui.request(t, attempt.method, attempt.route, attempt.body, "")
+		response.Body.Close()
+		if response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("tokenless %s %s status = %d", attempt.method, attempt.route, response.StatusCode)
+		}
+		response = ui.request(t, attempt.method, attempt.route, attempt.body, paired)
+		response.Body.Close()
+		if response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated %s %s status = %d", attempt.method, attempt.route, response.StatusCode)
+		}
+	}
+
+	// The Host pin still wraps the new endpoints.
+	request, err := http.NewRequest(http.MethodGet, ui.http.URL+"/api/settings", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = "attacker.invalid"
+	response, err := ui.http.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("host-mismatch /api/settings status = %d", response.StatusCode)
+	}
+}
+
+func TestSettingsEndpointsManageExactlyOneMarker(t *testing.T) {
+	root := t.TempDir()
+	ui := newTestUI(t, root)
+	token := ui.pair(t)
+	ui.setup(t, token)
+
+	response := ui.request(t, http.MethodGet, "/api/settings", nil, token)
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("settings status = %d: %s", response.StatusCode, body)
+	}
+	var state struct {
+		Tools []struct {
+			Name     string `json:"name"`
+			Disabled bool   `json:"disabled"`
+		} `json:"tools"`
+		UIDisabled                 []string `json:"ui_disabled"`
+		LaunchWithholdingObserved  bool     `json:"launch_withholding_observable"`
+	}
+	if err := json.Unmarshal(body, &state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Tools) != len(testTools) || state.LaunchWithholdingObserved || len(state.UIDisabled) != 0 {
+		t.Fatalf("fresh settings = %s", body)
+	}
+
+	// One POST touches exactly its own marker.
+	response = ui.request(t, http.MethodPost, "/api/settings/tools", map[string]any{"tool": "light_ops", "disabled": true}, token)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("disable status = %d", response.StatusCode)
+	}
+	markers, err := os.ReadDir(filepath.Join(root, "disabled-tools"))
+	if err != nil || len(markers) != 1 || markers[0].Name() != "light_ops" {
+		t.Fatalf("markers after one POST = %v err=%v", markers, err)
+	}
+	response = ui.request(t, http.MethodGet, "/api/settings", nil, token)
+	body, _ = io.ReadAll(response.Body)
+	response.Body.Close()
+	if !strings.Contains(string(body), `"ui_disabled":["light_ops"]`) {
+		t.Fatalf("settings after disable = %s", body)
+	}
+
+	// Enabling a tool with no marker succeeds and creates nothing: the UI can
+	// only manage markers, and launch withholding stays outside its reach.
+	response = ui.request(t, http.MethodPost, "/api/settings/tools", map[string]any{"tool": "light_scp", "disabled": false}, token)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("enable-absent status = %d", response.StatusCode)
+	}
+	markers, err = os.ReadDir(filepath.Join(root, "disabled-tools"))
+	if err != nil || len(markers) != 1 {
+		t.Fatalf("enable-absent touched markers: %v err=%v", markers, err)
+	}
+
+	// Unknown tools and unknown fields are refused.
+	response = ui.request(t, http.MethodPost, "/api/settings/tools", map[string]any{"tool": "light_shell", "disabled": true}, token)
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown tool status = %d", response.StatusCode)
+	}
+	request, err := http.NewRequest(http.MethodPost, ui.http.URL+"/api/settings/tools", strings.NewReader(`{"tool":"light_ops","disabled":true,"extra":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", ui.http.URL)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err = ui.http.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("replacement-set shape accepted: %d", response.StatusCode)
+	}
+}
+
+func TestTelemetryEndpointReadsFreshStoreAsCleanZero(t *testing.T) {
+	root := t.TempDir()
+	telemetryRoot := filepath.Join(root, "telemetry")
+	if err := os.MkdirAll(telemetryRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A resolved store root always carries SCHEMA and .lock; the read must be
+	// a defined zero, not a decode error.
+	for _, name := range []string{"SCHEMA", ".lock"} {
+		if err := os.WriteFile(filepath.Join(telemetryRoot, name), []byte("1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ui := newTestUI(t, root)
+	token := ui.pair(t)
+	ui.setup(t, token)
+	response := ui.request(t, http.MethodGet, "/api/telemetry", nil, token)
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("telemetry status = %d: %s", response.StatusCode, body)
+	}
+	var totals telemetry.Totals
+	if err := json.Unmarshal(body, &totals); err != nil {
+		t.Fatal(err)
+	}
+	if totals.Sessions != 0 || totals.TerseTokensSaved != 0 || totals.DedupBytesSaved != 0 || totals.WriteBytesSaved != 0 || len(totals.Warnings) != 0 {
+		t.Fatalf("fresh telemetry = %s", body)
+	}
+}
+
 func TestServeStopsWithContext(t *testing.T) {
 	root := t.TempDir()
 	server, err := New(Options{Vault: secret.New(root), Auth: secret.NewPasswordAuth(root)})
