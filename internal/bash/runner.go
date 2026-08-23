@@ -223,9 +223,20 @@ func (r *Runner) sealGuard(guard *globGuard, result map[string]any, err error) (
 	}
 	result["protection"] = "capture-backed"
 	result["capture_id"] = guard.CaptureID
-	result["protection_note"] = fmt.Sprintf(
+	note := fmt.Sprintf(
 		"%d path(s) under capture %s — revert with light_file{verb:\"vault_restore\", capture_id:%q} (add force:true to clobber later writers; non-force skips changed paths)",
 		guard.Entries, guard.CaptureID, guard.CaptureID)
+	if guard.Pinned == "" {
+		// No exact-path pin was available for this shell, so the shell
+		// re-expands the pattern itself. The capture still reverts every path
+		// that existed when the snapshot was taken, but a match created
+		// between the snapshot and the effect is outside it. Say so, rather
+		// than let "capture-backed" be read as covering the whole mutation
+		// surface on a platform where it cannot.
+		result["pinned"] = false
+		note += "; this surface was NOT pinned on this platform, so the shell re-expands the pattern and a path created after the snapshot can be affected without being in the capture"
+	}
+	result["protection_note"] = note
 	return result, err
 }
 
@@ -436,10 +447,25 @@ func tail(value string, lines int) string {
 	return strings.Join(parts, "\n")
 }
 
+// redactionMarker is the readable form. A replacement may never be LONGER than
+// the secret it replaces: scrub runs on the stream boundedBuffer has already
+// capped, so an expanding substitution re-inflates output past the memory bound
+// the cap exists to hold. A one-byte secret emitted repeatedly would turn a
+// capped 24 MiB stream into roughly 240 MiB and then overrun the spill ceiling,
+// failing the call instead of honestly returning the capped result.
+const redactionMarker = "[REDACTED]"
+
+func redactionFor(secretValue string) string {
+	if len(secretValue) >= len(redactionMarker) {
+		return redactionMarker
+	}
+	return strings.Repeat("*", len(secretValue))
+}
+
 func scrub(value string, secrets []string) string {
 	for _, secretValue := range secrets {
 		if secretValue != "" {
-			value = strings.ReplaceAll(value, secretValue, "[REDACTED]")
+			value = strings.ReplaceAll(value, secretValue, redactionFor(secretValue))
 		}
 	}
 	return value

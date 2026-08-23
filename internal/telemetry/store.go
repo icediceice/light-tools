@@ -339,7 +339,7 @@ type Totals struct {
 // counts, so an interrupted flush never double-counts. Files that match the
 // grammar but fail to decode are skipped and reported as health warnings.
 func Load(dir string) (Totals, error) {
-	totals, superseded, err := scanTotals(dir)
+	totals, superseded, err := scanTotals(dir, true)
 	if err != nil {
 		return Totals{}, err
 	}
@@ -350,7 +350,7 @@ func Load(dir string) (Totals, error) {
 		// so discard its state and scan once more from a fresh listing. One
 		// retry bounds the work; churn that outlives it surfaces as ordinary
 		// warnings on the second pass.
-		totals, _, err = scanTotals(dir)
+		totals, _, err = scanTotals(dir, false)
 		if err != nil {
 			return Totals{}, err
 		}
@@ -363,7 +363,17 @@ func Load(dir string) (Totals, error) {
 // discard this pass's partial totals and warnings — they may omit a session
 // whose only listed generation was superseded. Failures on files that still
 // exist (permission, decode, identity mismatch) remain health warnings.
-func scanTotals(dir string) (totals Totals, superseded bool, err error) {
+// readSnapshotFile is a seam so a test can hold a transient read error across
+// both passes. A real one (a Windows lock nobody releases) cannot be staged
+// deterministically, and the failure it guards against is silent.
+var readSnapshotFile = os.ReadFile
+
+// retryAvailable reports whether the caller can still rescan. A transient read
+// error only means supersession if it is racing us; one that outlives the
+// rescan is a snapshot that is genuinely unreadable — a Windows lock nobody
+// released, or a file that keeps vanishing — and it must warn rather than
+// silently drop that session's counts out of a store reported as healthy.
+func scanTotals(dir string, retryAvailable bool) (totals Totals, superseded bool, err error) {
 	totals = Totals{}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -390,9 +400,9 @@ func scanTotals(dir string) (totals Totals, superseded bool, err error) {
 		if err != nil {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		data, err := readSnapshotFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			if isTransientReadError(err) {
+			if isTransientReadError(err) && retryAvailable {
 				// The writer removed or is replacing this snapshot after the
 				// listing — a supersession or a prune. Report it up so the
 				// caller rescans rather than warning about a healthy store.

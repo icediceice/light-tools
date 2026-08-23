@@ -69,9 +69,17 @@ The shell wildcard guard runs in two lanes, decided by whether the expanded
 surface can be backed up.
 
 A surface it can fully protect is snapshotted before anything runs, executes on
-first contact, and returns a capture id that restores every path it touched.
-The executed command is pinned to the captured paths, so the shell cannot
-re-expand the pattern onto a different set between the snapshot and the effect.
+first contact, and returns a capture id that restores every path in the
+snapshot. Where the shell supports an exact-path pin, the executed command is
+pinned to the captured paths, so the shell cannot re-expand the pattern onto a
+different set between the snapshot and the effect.
+
+Windows is the exception. The pin is a POSIX-shell construct, and PowerShell
+parses a quoted leading word as a string rather than a command, so no pin is
+issued there and the shell expands the pattern itself. The snapshot and its
+revert still apply to every path that existed when it was taken, and the result
+carries `pinned: false` to say so — but a file created between the snapshot and
+the effect is outside the capture and cannot be restored from it.
 
 A surface it cannot protect — a directory, an invalid-UTF-8 name, a
 multi-source `mv`, or a missing snapshot vault — does not run at all. It returns
