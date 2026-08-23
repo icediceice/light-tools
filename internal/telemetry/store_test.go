@@ -182,12 +182,10 @@ func TestLoadReportsMalformedSnapshotsAsWarnings(t *testing.T) {
 	if err := os.WriteFile(snapshotPath(dir, corrupt, 1), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// A snapshot whose content disagrees with its filename is a warning too.
+	// A snapshot whose content disagrees with its filename is a warning too,
+	// and its counters contribute nothing.
 	mismatch := fakeSessionID(9)
-	writeFakeSnapshot(t, dir, mismatch, 1, snapshot{Generation: 5})
-	if err := os.WriteFile(snapshotPath(dir, mismatch, 1), mustJSON(t, snapshot{Session: mismatch, Generation: 5, Calls: map[string]int64{"light_bash": 1}}), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFakeSnapshot(t, dir, mismatch, 1, snapshot{Generation: 5, Calls: map[string]int64{"light_bash": 1}})
 	// Names outside the grammar (bad hex, generation zero, wrong shape) are
 	// ignored entirely rather than warned about.
 	for _, name := range []string{
