@@ -113,6 +113,27 @@ func TestCloseFlushesPendingCounters(t *testing.T) {
 	}
 }
 
+// The live path must never double-count: a session that flushes multiple
+// generations contributes its CURRENT totals exactly once.
+func TestFlushedGenerationsNeverDoubleCount(t *testing.T) {
+	dir := t.TempDir()
+	store := newTestStore(t, dir)
+	store.RecordCall("light_file")
+	store.RecordDedupBytes(1000)
+	store.flush()
+	store.RecordCall("light_file")
+	store.RecordDedupBytes(500)
+	store.Close()
+
+	totals, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if totals.Sessions != 1 || totals.Calls["light_file"] != 2 || totals.DedupBytesSaved != 1500 {
+		t.Fatalf("totals = %#v, want each session counted once", totals)
+	}
+}
+
 func TestFreshStoreWithSchemaAndLockReadsAsCleanZero(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "SCHEMA"), []byte("1\n"), 0o600); err != nil {
