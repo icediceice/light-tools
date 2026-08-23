@@ -80,7 +80,7 @@ func jsonFieldNames(request reflect.Type) []string {
 	return names
 }
 
-func TestCapabilityProfilesRegisterExpectedTools(t *testing.T) {
+func TestRegistrationWithholdsOnlyDisabledTools(t *testing.T) {
 	root := t.TempDir()
 	layout := state.Layout{
 		Config: filepath.Join(root, "config"), Secrets: filepath.Join(root, "secrets"),
@@ -93,17 +93,27 @@ func TestCapabilityProfilesRegisterExpectedTools(t *testing.T) {
 		}
 	}
 	cases := []struct {
-		name string
-		opts options
-		want []string
+		name     string
+		disabled []string
+		want     []string
 	}{
-		{name: "default", want: []string{"light_file"}},
-		{name: "all", opts: options{enableShell: true, enableRemote: true, enableOps: true}, want: []string{"light_bash", "light_file", "light_ops", "light_scp", "light_ssh"}},
+		{name: "default", want: []string{"light_bash", "light_file", "light_ops", "light_scp", "light_ssh"}},
+		{name: "no_bash", disabled: []string{"light_bash"}, want: []string{"light_file", "light_ops", "light_scp", "light_ssh"}},
+		{name: "no_file", disabled: []string{"light_file"}, want: []string{"light_bash", "light_ops", "light_scp", "light_ssh"}},
+		{name: "no_ops", disabled: []string{"light_ops"}, want: []string{"light_bash", "light_file", "light_scp", "light_ssh"}},
+		{name: "no_scp", disabled: []string{"light_scp"}, want: []string{"light_bash", "light_file", "light_ops", "light_ssh"}},
+		{name: "no_ssh", disabled: []string{"light_ssh"}, want: []string{"light_bash", "light_file", "light_ops", "light_scp"}},
+		{name: "no_remote", disabled: []string{"light_ssh", "light_scp"}, want: []string{"light_bash", "light_file", "light_ops"}},
+		{name: "everything_withheld", disabled: toolNames, want: nil},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
+			opts, err := newOptions(test.disabled)
+			if err != nil {
+				t.Fatal(err)
+			}
 			server := mcp.New("test", "1")
-			if err := registerTools(server, test.opts, layout, configuration); err != nil {
+			if err := registerTools(server, opts, layout, configuration); err != nil {
 				t.Fatal(err)
 			}
 			var output strings.Builder
@@ -129,6 +139,18 @@ func TestCapabilityProfilesRegisterExpectedTools(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+// A withheld tool is named rather than implied by a flag, so a typo must fail
+// loudly at startup instead of quietly registering the surface the operator
+// meant to withhold.
+func TestNewOptionsRejectsUnknownToolName(t *testing.T) {
+	if _, err := newOptions([]string{"light_bash", "light_shell"}); err == nil {
+		t.Fatal("newOptions accepted an unknown tool name")
+	}
+	if _, err := newOptions(toolNames); err != nil {
+		t.Fatalf("newOptions rejected the full known set: %v", err)
 	}
 }
 
@@ -184,13 +206,13 @@ func TestInitNeedsNoConfigAndPrintsMCPCommand(t *testing.T) {
 	}
 }
 
-func TestInitClaudeCarriesCapabilityFlags(t *testing.T) {
+func TestInitClaudeCarriesDisableFlags(t *testing.T) {
 	isolateHome(t)
 	output := captureStdout(t, func() error {
-		return runInit([]string{"--client", "claude", "--enable-shell", "--enable-ops"})
+		return runInit([]string{"--client", "claude", "--disable-tool", "light_bash", "--disable-tool", "light_ops"})
 	})
-	if !strings.Contains(output, " -- ") || !strings.Contains(output, "--enable-shell --enable-ops") {
-		t.Fatalf("claude command lost capability flags: %s", output)
+	if !strings.Contains(output, " -- ") || !strings.Contains(output, "--disable-tool light_bash --disable-tool light_ops") {
+		t.Fatalf("claude command lost the disable flags: %s", output)
 	}
 }
 
@@ -206,7 +228,7 @@ func TestInitAntigravityMergesConfigAndWritesSkill(t *testing.T) {
 	}
 
 	captureStdout(t, func() error {
-		return runInit([]string{"--client", "antigravity", "--enable-shell", "--disable-tool", "light_scp"})
+		return runInit([]string{"--client", "antigravity", "--disable-tool", "light_scp"})
 	})
 
 	first, err := os.ReadFile(configPath)
@@ -235,8 +257,8 @@ func TestInitAntigravityMergesConfigAndWritesSkill(t *testing.T) {
 		t.Errorf("light-tools entry has no command: %s", first)
 	}
 	args, _ := entry["args"].([]any)
-	if len(args) != 1 || args[0] != "--enable-shell" {
-		t.Errorf("light-tools entry lost its capability args: %v", entry["args"])
+	if len(args) != 2 || args[0] != "--disable-tool" || args[1] != "light_scp" {
+		t.Errorf("light-tools entry lost its disable args: %v", entry["args"])
 	}
 	disabled, _ := entry["disabledTools"].([]any)
 	if len(disabled) != 1 || disabled[0] != "light_scp" {
@@ -265,7 +287,7 @@ func TestInitAntigravityMergesConfigAndWritesSkill(t *testing.T) {
 	}
 
 	captureStdout(t, func() error {
-		return runInit([]string{"--client", "antigravity", "--enable-shell", "--disable-tool", "light_scp"})
+		return runInit([]string{"--client", "antigravity", "--disable-tool", "light_scp"})
 	})
 	second, err := os.ReadFile(configPath)
 	if err != nil {
@@ -406,9 +428,9 @@ func TestInitClaudeOutputGolden(t *testing.T) {
 			state: true,
 		},
 		{
-			name:  "capabilities",
-			args:  []string{"--client", "claude", "--enable-shell", "--enable-remote", "--enable-ops"},
-			want:  "State initialized.\nclaude mcp add light-tools -- %s --enable-shell --enable-remote --enable-ops\n",
+			name:  "withheld",
+			args:  []string{"--client", "claude", "--disable-tool", "light_bash", "--disable-tool", "light_ssh"},
+			want:  "State initialized.\nclaude mcp add light-tools -- %s --disable-tool light_bash --disable-tool light_ssh\n",
 			state: true,
 		},
 		{
@@ -622,7 +644,7 @@ func TestAllFiveToolsThroughServeRawAndTerse(t *testing.T) {
 func runAllFiveTranscript(t *testing.T, layout state.Layout, configuration config.Config, probe, content string, terseOutput bool) map[string]mcp.Result {
 	t.Helper()
 	server := mcp.New("test", "1", terseOutput)
-	if err := registerTools(server, options{enableShell: true, enableRemote: true, enableOps: true}, layout, configuration); err != nil {
+	if err := registerTools(server, options{}, layout, configuration); err != nil {
 		t.Fatal(err)
 	}
 	command := "printf '%s' '" + content + "'"

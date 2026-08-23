@@ -43,18 +43,25 @@ mode 0600 and best-effort overwritten and removed after the child process exits.
 Filesystem journaling, snapshots, backups, and flash translation layers mean
 overwrite is not a forensic-erasure guarantee.
 
-This is not an OS sandbox. The server and every opt-in shell or remote command
-run with the access of your user account. `light_bash` is arbitrary same-user
-code and can read the vault files directly when the account can. Output
-scrubbing cannot prevent transformed, encoded, fragmented, or side-channel
-disclosure. Securing the machine, account, SSH agent, known-hosts file, allowed
-roots, browser, configuration, and commands remains the operator's job.
+This is not an OS sandbox. The server and every shell or remote command run with
+the access of your user account. `light_bash` is arbitrary same-user code and
+can read the vault files directly when the account can. Output scrubbing cannot
+prevent transformed, encoded, fragmented, or side-channel disclosure. Securing
+the machine, account, SSH agent, known-hosts file, allowed roots, browser,
+configuration, and commands remains the operator's job.
 
-The default profile exposes only `light_file`. Shell, remote, and operations
-tools require explicit flags. Root checks are defense in depth against
-accidental path escape, not a substitute for OS isolation.
+**Every tool is registered by default, including `light_bash`, `light_ssh`, and
+`light_scp`.** Starting the server is the whole gesture: local shell execution
+and remote execution are exposed without a second opt-in. That decision now
+lives at launch time. Withhold a tool by name with `--disable-tool <name>`,
+repeatable; a withheld tool is never registered, so it cannot be called at all,
+and an unrecognised name is refused at startup rather than ignored. Treat the
+launch arguments in your MCP client configuration as the boundary they now are.
 
-The opt-in shell wildcard guard prevents a first lexical filename-glob request
+Root checks are defense in depth against accidental path escape, not a
+substitute for OS isolation.
+
+The shell wildcard guard prevents a first lexical filename-glob request
 from executing and requires one identical retry. It does not classify command
 danger, inspect scripts, expand variables, or understand a program's internal
 pattern syntax. A wildcard introduced by `$VAR`, command substitution, or a

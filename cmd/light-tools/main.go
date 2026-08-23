@@ -29,10 +29,33 @@ import (
 
 var version = "0.1.0-dev"
 
+// toolNames is the complete registration surface. Every name here is registered
+// unless the operator withheld it by name, so adding a tool exposes it rather
+// than waiting for a matching capability flag to be invented.
+var toolNames = []string{"light_bash", "light_file", "light_ops", "light_scp", "light_ssh"}
+
 type options struct {
-	enableShell  bool
-	enableRemote bool
-	enableOps    bool
+	// disabled holds the tools withheld from registration. A nil map is the
+	// default posture: nothing withheld.
+	disabled map[string]bool
+}
+
+// newOptions validates a repeatable --disable-tool list into the withheld set.
+// An unrecognised name is refused rather than ignored: silently registering a
+// tool the operator asked to withhold is the one failure mode that matters here.
+func newOptions(disabled []string) (options, error) {
+	known := make(map[string]bool, len(toolNames))
+	for _, name := range toolNames {
+		known[name] = true
+	}
+	withheld := make(map[string]bool, len(disabled))
+	for _, name := range disabled {
+		if !known[name] {
+			return options{}, fmt.Errorf("unknown --disable-tool %q (want one of %s)", name, strings.Join(toolNames, ", "))
+		}
+		withheld[name] = true
+	}
+	return options{disabled: withheld}, nil
 }
 
 func main() {
@@ -54,11 +77,18 @@ func main() {
 		}
 	}
 
-	var opts options
-	flag.BoolVar(&opts.enableShell, "enable-shell", false, "register light_bash")
-	flag.BoolVar(&opts.enableRemote, "enable-remote", false, "register light_ssh and light_scp")
-	flag.BoolVar(&opts.enableOps, "enable-ops", false, "register read-only light_ops")
+	var disabledTools stringList
+	flag.Var(&disabledTools, "disable-tool", "withhold one tool from registration, repeatable: "+strings.Join(toolNames, ", "))
+	var retiredShell, retiredRemote, retiredOps bool
+	flag.BoolVar(&retiredShell, "enable-shell", false, "deprecated no-op: light_bash is registered by default")
+	flag.BoolVar(&retiredRemote, "enable-remote", false, "deprecated no-op: light_ssh and light_scp are registered by default")
+	flag.BoolVar(&retiredOps, "enable-ops", false, "deprecated no-op: light_ops is registered by default")
 	flag.Parse()
+	warnRetiredFlags(os.Stderr, retiredShell, retiredRemote, retiredOps)
+	opts, err := newOptions(disabledTools)
+	if err != nil {
+		fatal(err)
+	}
 
 	layout, err := state.Resolve()
 	if err != nil {
@@ -113,20 +143,19 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 		return bashRunner.Run(ctx, request)
 	}
 	definitions := []struct {
-		enabled     bool
 		name        string
 		description string
 		handler     portable.Handler
 	}{
-		{true, "light_file", "Bounded filesystem reads, searches, symbols, diffs, and transactional mutations.", fileHandler.Portable()},
-		{opts.enableShell, "light_bash", "Opt-in local shell execution with bounded output and secret references.", bashHandler},
-		{opts.enableRemote, "light_ssh", "Opt-in SSH execution through explicit profiles.", remoteTransport.SSH},
-		{opts.enableRemote, "light_scp", "Opt-in SCP transfer through explicit profiles.", remoteTransport.SCP},
-		{opts.enableOps, "light_ops", "Opt-in read-only service discovery, probes, and log inspection.", opsHandler.Handle},
+		{"light_file", "Bounded filesystem reads, searches, symbols, diffs, and transactional mutations.", fileHandler.Portable()},
+		{"light_bash", "Local shell execution with bounded output and secret references.", bashHandler},
+		{"light_ssh", "SSH execution through explicit profiles.", remoteTransport.SSH},
+		{"light_scp", "SCP transfer through explicit profiles.", remoteTransport.SCP},
+		{"light_ops", "Read-only service discovery, probes, and log inspection.", opsHandler.Handle},
 	}
 	sort.SliceStable(definitions, func(i, j int) bool { return definitions[i].name < definitions[j].name })
 	for _, definition := range definitions {
-		if !definition.enabled {
+		if opts.disabled[definition.name] {
 			continue
 		}
 		err := server.Register(mcp.Tool{
@@ -316,13 +345,19 @@ func runInit(args []string) error {
 	client := set.String("client", "claude", "target MCP client: claude|antigravity|print")
 	workspace := set.String("workspace", "", "write the Antigravity configuration into this workspace instead of the global location")
 	dryRun := set.Bool("dry-run", false, "print what would be written without touching disk")
-	var caps options
-	set.BoolVar(&caps.enableShell, "enable-shell", false, "launch the server with light_bash registered")
-	set.BoolVar(&caps.enableRemote, "enable-remote", false, "launch the server with light_ssh and light_scp registered")
-	set.BoolVar(&caps.enableOps, "enable-ops", false, "launch the server with light_ops registered")
+	var retiredShell, retiredRemote, retiredOps bool
+	set.BoolVar(&retiredShell, "enable-shell", false, "deprecated no-op: light_bash is registered by default")
+	set.BoolVar(&retiredRemote, "enable-remote", false, "deprecated no-op: light_ssh and light_scp are registered by default")
+	set.BoolVar(&retiredOps, "enable-ops", false, "deprecated no-op: light_ops is registered by default")
 	var disabledTools stringList
-	set.Var(&disabledTools, "disable-tool", "withhold one light-tools tool from the model (repeatable, Antigravity only)")
+	set.Var(&disabledTools, "disable-tool", "withhold one tool from the launched server, repeatable: "+strings.Join(toolNames, ", "))
 	if err := set.Parse(args); err != nil {
+		return err
+	}
+	warnRetiredFlags(os.Stderr, retiredShell, retiredRemote, retiredOps)
+	// Validated at init so a typo is caught here rather than baked into a client
+	// configuration that then launches a server refusing to start.
+	if _, err := newOptions(disabledTools); err != nil {
 		return err
 	}
 	switch *client {
@@ -345,7 +380,7 @@ func runInit(args []string) error {
 	executable, _ = filepath.Abs(executable)
 
 	if *client == "claude" {
-		command := append([]string{"claude", "mcp", "add", "light-tools", "--", executable}, capabilityArgs(caps)...)
+		command := append([]string{"claude", "mcp", "add", "light-tools", "--", executable}, disabledToolArgs(disabledTools)...)
 		if preview {
 			fmt.Printf("%s\n", strings.Join(command, " "))
 			return nil
@@ -353,12 +388,12 @@ func runInit(args []string) error {
 		fmt.Printf("State initialized.\n%s\n", strings.Join(command, " "))
 		return nil
 	}
-	return initAntigravity(executable, caps, disabledTools, *workspace, preview)
+	return initAntigravity(executable, disabledTools, *workspace, preview)
 }
 
 // initAntigravity writes, or previews, both halves of the Antigravity setup:
 // the mcpServers entry and the native-tool suppression profile.
-func initAntigravity(executable string, caps options, disabledTools []string, workspace string, preview bool) error {
+func initAntigravity(executable string, disabledTools []string, workspace string, preview bool) error {
 	if workspace != "" {
 		absolute, err := filepath.Abs(workspace)
 		if err != nil {
@@ -375,7 +410,7 @@ func initAntigravity(executable string, caps options, disabledTools []string, wo
 		home = resolved
 	}
 	configPath, skillPath := antigravityPaths(home, workspace)
-	entry := antigravityServer(executable, caps, disabledTools)
+	entry := antigravityServer(executable, disabledTools)
 	snippet, err := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{antigravityServerName: entry}}, "", "  ")
 	if err != nil {
 		return err
@@ -392,6 +427,24 @@ func initAntigravity(executable string, caps options, disabledTools []string, wo
 	}
 	fmt.Printf("State initialized.\nwrote %s\nwrote %s\n\nApply these permissions in Antigravity:\n%s\n", configPath, skillPath, antigravityPermissions())
 	return nil
+}
+
+// warnRetiredFlags reports the retired capability flags. They stay parseable so
+// an existing client configuration keeps launching, but they gate nothing now:
+// every tool is registered unless --disable-tool withholds it by name.
+func warnRetiredFlags(stderr io.Writer, shell, remote, ops bool) {
+	for _, retired := range []struct {
+		name   string
+		passed bool
+	}{
+		{"--enable-shell", shell},
+		{"--enable-remote", remote},
+		{"--enable-ops", ops},
+	} {
+		if retired.passed {
+			fmt.Fprintf(stderr, "light-tools: %s is deprecated and ignored; every tool is registered by default (use --disable-tool to withhold one)\n", retired.name)
+		}
+	}
 }
 
 func fatal(err error) {

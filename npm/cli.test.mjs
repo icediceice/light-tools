@@ -90,7 +90,7 @@ test("the launcher preserves arguments, cwd, environment, stdio, and exit code",
   const environment = { LIGHT_TERSE_OUTPUT: "1" };
   const spawned = [];
   const pending = run({
-    args: ["--enable-shell", "argument with spaces"],
+    args: ["--disable-tool", "light_bash", "argument with spaces"],
     platform: "darwin",
     arch: "arm64",
     cwd: "/workspace with spaces",
@@ -107,7 +107,7 @@ test("the launcher preserves arguments, cwd, environment, stdio, and exit code",
   assert.equal(await pending, 7);
   assert.deepEqual(spawned, [{
     binary: "/packages/native/bin/light-tools",
-    args: ["--enable-shell", "argument with spaces"],
+    args: ["--disable-tool", "light_bash", "argument with spaces"],
     options: {
       cwd: "/workspace with spaces",
       env: environment,

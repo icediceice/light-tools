@@ -92,7 +92,7 @@ if ($defaultResponses.Count -ne 2 -or $defaultResponses[0].result.protocolVersio
     throw "default profile did not initialize"
 }
 $defaultTools = @($defaultResponses[1].result.tools | ForEach-Object { $_.name })
-Assert-Equal $defaultTools @("light_file") "default tools/list"
+Assert-Equal $defaultTools @("light_bash", "light_file", "light_ops", "light_scp", "light_ssh") "default tools/list"
 
 $statePaths = @(
     (Join-Path $env:XDG_CONFIG_HOME "light-tools"),
@@ -211,13 +211,15 @@ $enabledRequests = @(
         }
     }
 )
-$enabledArguments = @("--enable-shell", "--enable-remote", "--enable-ops")
+# The default launch is the full surface now, so this transcript passes no
+# capability flags at all.
+$enabledArguments = @()
 $enabledResponses = @(Invoke-McpTranscript -ServerArguments $enabledArguments -Requests $enabledRequests)
 if ($enabledResponses.Count -ne 12 -or $enabledResponses[0].result.protocolVersion -ne "2025-06-18") {
-    throw "fully enabled profile did not initialize"
+    throw "default profile did not initialize for the full transcript"
 }
 $enabledTools = @($enabledResponses[1].result.tools | ForEach-Object { $_.name })
-Assert-Equal $enabledTools @("light_bash", "light_file", "light_ops", "light_scp", "light_ssh") "enabled tools/list"
+Assert-Equal $enabledTools @("light_bash", "light_file", "light_ops", "light_scp", "light_ssh") "full transcript tools/list"
 
 $fileValue = Get-ToolValue $enabledResponses[2] "light_file read"
 if ($fileValue.content -notmatch "candidate-package") {

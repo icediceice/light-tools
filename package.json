@@ -1,7 +1,7 @@
 {
   "name": "@factor-i-o/light-tools",
   "version": "0.0.0-development",
-  "description": "Standalone Light-compatible MCP tools for local files, shell, SSH/SCP, and operations.",
+  "description": "Standalone MCP server giving any agent bounded file, shell, SSH/SCP, and service-log tools. Every tool is registered by default; withhold one with --disable-tool.",
   "type": "module",
   "license": "Apache-2.0",
   "repository": {
@@ -23,7 +23,8 @@
   },
   "files": [
     "npm/cli.mjs",
-    "npm/platform.mjs"
+    "npm/platform.mjs",
+    "AGENT-SETUP.md"
   ],
   "engines": {
     "node": ">=18.17.0",

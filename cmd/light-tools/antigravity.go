@@ -26,29 +26,26 @@ func antigravityPaths(home, workspace string) (configPath string, skillPath stri
 // only: command, args, env, cwd, disabled, disabledTools. serverUrl, headers,
 // and oauth are remote-transport fields, the retired httpUrl is never emitted,
 // and a top-level timeout is no longer accepted by Antigravity.
-func antigravityServer(executable string, caps options, disabledTools []string) map[string]any {
+func antigravityServer(executable string, disabledTools []string) map[string]any {
 	entry := map[string]any{"command": executable}
-	if args := capabilityArgs(caps); len(args) > 0 {
+	if args := disabledToolArgs(disabledTools); len(args) > 0 {
 		entry["args"] = args
 	}
+	// The server flag is what actually withholds the tool; disabledTools is the
+	// client-side half, so a withheld tool is hidden even by an Antigravity
+	// build that launches the binary with different arguments.
 	if len(disabledTools) > 0 {
 		entry["disabledTools"] = disabledTools
 	}
 	return entry
 }
 
-// capabilityArgs mirrors the opt-in server flags into the launch arguments so
-// the client starts light-tools with the same surface the operator asked for.
-func capabilityArgs(caps options) []string {
+// disabledToolArgs mirrors the withheld tools into the launch arguments so the
+// client starts light-tools with exactly the surface the operator asked for.
+func disabledToolArgs(disabled []string) []string {
 	var args []string
-	if caps.enableShell {
-		args = append(args, "--enable-shell")
-	}
-	if caps.enableRemote {
-		args = append(args, "--enable-remote")
-	}
-	if caps.enableOps {
-		args = append(args, "--enable-ops")
+	for _, name := range disabled {
+		args = append(args, "--disable-tool", name)
 	}
 	return args
 }
@@ -161,9 +158,10 @@ The native file and terminal tools are denied by the permission engine.
   costs a turn.
 - Do not route around a denial by asking the operator to run a command by hand.
   Use ` + "`light_bash`" + `.
-- ` + "`light_bash`" + `, ` + "`light_ssh`" + `, ` + "`light_scp`" + `, and ` + "`light_ops`" + ` exist only when the server
-  was started with the matching capability flag. If a tool is absent, say so
-  instead of falling back to a native tool.
+- Every tool in the table above is registered by default. An operator can
+  withhold one with ` + "`--disable-tool <name>`" + `. If a tool is absent from your
+  tool list it was withheld deliberately: say so instead of falling back to a
+  native tool.
 - ` + "`light_ops`" + ` is read-only. Use ` + "`light_bash`" + ` to change service state.
 `
 }

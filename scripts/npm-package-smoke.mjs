@@ -182,7 +182,7 @@ async function main() {
 
     assertExactFiles(
       rootPackage.files,
-      ["LICENSE", "README.md", "npm/cli.mjs", "npm/platform.mjs", "package.json"],
+      ["AGENT-SETUP.md", "LICENSE", "README.md", "npm/cli.mjs", "npm/platform.mjs", "package.json"],
       "root package",
     );
     assertExactFiles(

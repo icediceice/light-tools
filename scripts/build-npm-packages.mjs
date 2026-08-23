@@ -185,6 +185,13 @@ export async function buildPackages({
     const rootStaging = join(temporaryRoot, "root");
     await mkdir(join(rootStaging, "npm"), { recursive: true });
     await stageSharedFiles(repoRoot, rootStaging);
+    // Root only: the agent onboarding prompt is what a consumer reads to set
+    // itself up. A platform package holds nothing but a binary, so it has no
+    // use for it, and shipping it six extra times would be pure weight.
+    await copyFile(
+      join(repoRoot, "AGENT-SETUP.md"),
+      join(rootStaging, "AGENT-SETUP.md"),
+    );
     await copyFile(join(repoRoot, "npm", "cli.mjs"), join(rootStaging, "npm", "cli.mjs"));
     await copyFile(join(repoRoot, "npm", "platform.mjs"), join(rootStaging, "npm", "platform.mjs"));
     const sourceManifest = JSON.parse(
