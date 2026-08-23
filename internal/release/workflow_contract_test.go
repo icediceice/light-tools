@@ -77,3 +77,41 @@ func TestPromoteWorkflowCreatesTagBeforeVerifiedRelease(t *testing.T) {
 		t.Fatalf("promote-release.yml must publish with --verify-tag")
 	}
 }
+
+// ci.yml's MCP transcript step asserts the registration surface, and until now
+// nothing re-checked that assertion against the server's own toolNames. The two
+// drifted once already: the step still demanded the single-tool posture of the
+// retired --enable-shell/--enable-remote/--enable-ops era long after every tool
+// became registered by default, so CI failed against a correct server. Read the
+// names out of main.go rather than restating them here, so a sixth tool fails
+// loudly instead of being silently under-asserted.
+func TestCiWorkflowAssertsFullToolRegistration(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "cmd", "light-tools", "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaration := regexp.MustCompile(`var toolNames = \[\]string\{([^}]*)\}`).FindSubmatch(source)
+	if declaration == nil {
+		t.Fatalf("cmd/light-tools/main.go no longer declares a toolNames slice; update this contract test")
+	}
+	names := regexp.MustCompile(`"([^"]+)"`).FindAllStringSubmatch(string(declaration[1]), -1)
+	if len(names) == 0 {
+		t.Fatalf("toolNames declaration parsed to zero names; update this contract test")
+	}
+
+	body := workflow(t, "ci.yml")
+	step := strings.Index(body, "MCP initialize and tools/list transcript")
+	if step < 0 {
+		t.Fatalf("ci.yml no longer runs the MCP tools/list transcript; update this contract test")
+	}
+	// Bound the search to that step: a later job must not accidentally satisfy it.
+	assertion := body[step:]
+	if next := regexp.MustCompile(`(?m)^  [a-z][a-z0-9_-]*:$`).FindStringIndex(assertion); next != nil {
+		assertion = assertion[:next[0]]
+	}
+	for _, name := range names {
+		if !strings.Contains(assertion, strconv.Quote(name[1])) {
+			t.Fatalf("ci.yml tools/list assertion never names %q: the workflow and cmd/light-tools/main.go toolNames have drifted", name[1])
+		}
+	}
+}
