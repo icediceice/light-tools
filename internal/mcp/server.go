@@ -221,5 +221,10 @@ func (s *Server) formatResult(result Result) Result {
 	cloned := result
 	cloned.Content = append([]Content(nil), result.Content...)
 	cloned.Content[0].Text = string(formatted)
+	// Only a finished, swapped-in clone counts: measure what the caller would
+	// have received against what it received, once, after the decision.
+	s.observe(func(recorder telemetry.Recorder) {
+		recorder.RecordTerseTokens(terse.EstimateTokens([]byte(result.Content[0].Text)) - terse.EstimateTokens(formatted))
+	})
 	return cloned
 }
