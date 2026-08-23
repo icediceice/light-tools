@@ -97,6 +97,13 @@ factored rows, smart-index budget/dedup, and hub telemetry/F3/raw-copy behavior.
 Capability gating is by **absence**: a disabled tool is not registered, so it
 cannot be called rather than being denied.
 
+> **Superseded 2026-08-23.** The two registration rows above record the opt-in
+> policy as it stood on the session date and are kept as captured history. The
+> server now registers all five tools by default; a tool is withheld only by a
+> repeatable `--disable-tool <name>`, an unknown name is a startup error, and
+> the three `--enable-*` flags are accepted no-ops that warn on stderr. Gating
+> is still by absence — a withheld tool is never registered. See `README.md`.
+
 DIVERGE (cosmetic): the parse-error response omits `id` entirely rather than
 sending `"id": null`. JSON-RPC 2.0 requires null when the id is undeterminable.
 
