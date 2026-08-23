@@ -142,27 +142,49 @@ func (h *Handler) readItems(request Request) (any, error) {
 	return mcp.Result{Content: []mcp.Content{mcp.Text(builder.String())}}, nil
 }
 
-func (h *Handler) renderItem(item Item, epoch string, force bool) (string, error) {
+// budgetSlice clips s to at most n bytes on a UTF-8 boundary — the largest
+// contribution a batch response with n bytes of room left could actually carry.
+func budgetSlice(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) > n {
+		s = s[:safeUTF8Boundary(s, n)]
+	}
+	return s
+}
+
+// renderedWindow is non-nil only for the plain window branch of renderItem. It
+// carries the ledger key and stub so readItems can run the dedup decision after
+// the shared batch budget is applied, crediting exactly the bounded response
+// bytes a hit suppresses.
+type renderedWindow struct {
+	path string
+	hash string
+	stub string
+}
+
+func (h *Handler) renderItem(item Item, epoch string, force bool) (string, *renderedWindow, error) {
 	path, err := h.resolve(item.Path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	header := fmt.Sprintf("=== %s ===\n", path)
 	if isImage(path) {
 		info, err := os.Stat(path)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return header + fmt.Sprintf("[image description] extension=%s bytes=%d (batch reads do not emit image blocks)\n", filepath.Ext(path), info.Size()), nil
+		return header + fmt.Sprintf("[image description] extension=%s bytes=%d (batch reads do not emit image blocks)\n", filepath.Ext(path), info.Size()), nil, nil
 	}
 	if item.Name != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		symbols, extractionErr := symbol.Extract(path, data)
 		if extractionErr != nil {
-			return header + "[symbols unavailable] " + extractionErr.Error() + "\n", nil
+			return header + "[symbols unavailable] " + extractionErr.Error() + "\n", nil, nil
 		}
 		lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 		var builder strings.Builder
