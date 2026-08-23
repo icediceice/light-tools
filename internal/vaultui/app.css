@@ -89,10 +89,72 @@ h2 { margin-bottom: 1rem; }
 .empty { color: var(--muted); padding: .8rem 0; }
 .hidden { display: none !important; }
 
+.views {
+  display: flex;
+  gap: .5rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: .75rem;
+  flex-wrap: wrap;
+}
+.view-tab {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+  padding: .5rem .95rem;
+  font-weight: 600;
+}
+.view-tab.active {
+  background: var(--accent-strong);
+  border-color: transparent;
+  color: white;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: .9rem;
+  padding: 1rem 1.1rem;
+  background: rgba(9, 15, 29, .45);
+}
+.card-title { color: var(--muted); font-size: .85rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.card-value { font-size: 1.7rem; font-weight: 800; margin-top: .35rem; letter-spacing: -.02em; }
+.card-label { color: var(--muted); font-size: .83rem; margin-top: .25rem; }
+.toggle-row { flex-wrap: wrap; }
+.switch { position: relative; display: inline-block; width: 3.2rem; height: 1.7rem; margin: 0; flex: none; }
+.switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.switch .slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: #0d1528;
+  transition: background .15s ease;
+}
+.switch .slider::before {
+  content: "";
+  position: absolute;
+  top: .2rem;
+  left: .25rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform .15s ease, background .15s ease;
+}
+.switch input:checked + .slider { background: #3d2a35; border-color: #7b3544; }
+.switch input:checked + .slider::before { transform: translateX(1.45rem); background: var(--danger); }
+.switch input:focus-visible + .slider { outline: 3px solid rgba(121, 167, 255, .45); outline-offset: 2px; }
+
 @media (max-width: 760px) {
   .grid { grid-template-columns: 1fr; }
   header, .row { align-items: flex-start; }
   .row { flex-direction: column; }
   .actions { width: 100%; justify-content: flex-start; }
   .actions select { flex: 1; }
+  .cards { grid-template-columns: 1fr; }
 }
