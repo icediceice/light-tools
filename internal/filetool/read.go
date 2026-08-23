@@ -100,16 +100,30 @@ func (h *Handler) readItems(request Request) (any, error) {
 	var builder strings.Builder
 	for index := cursor.Item; index < len(request.Items); index++ {
 		item := request.Items[index]
-		section, err := h.renderItem(item, request.ContextEpoch, request.Force)
+		section, window, err := h.renderItem(item, request.ContextEpoch, request.Force)
 		if err != nil {
 			return nil, err
 		}
 		startByte := 0
 		if index == cursor.Item {
 			startByte = cursor.Byte
-			if startByte > len(section) {
-				return nil, fmt.Errorf("continuation cursor exceeds item content")
+		}
+		// The ledger decision runs here, where the SHARED batch budget is
+		// known, not inside renderItem: a hit is credited with the bounded
+		// contribution the un-elided section could have made to THIS response,
+		// never the raw section size. ShouldElide is query-and-mark, so it must
+		// run exactly once per item either way.
+		if window != nil && h.cache.ShouldElide(request.ContextEpoch, window.path, window.hash, request.Force) {
+			remaining := readBudget - builder.Len()
+			prospective := budgetSlice(section[startByte:], remaining)
+			actual := budgetSlice(window.stub, remaining)
+			if saved := len(prospective) - len(actual); saved > 0 {
+				h.observe(func(recorder telemetry.Recorder) { recorder.RecordDedupBytes(saved) })
 			}
+			section = window.stub
+		}
+		if startByte > len(section) {
+			return nil, fmt.Errorf("continuation cursor exceeds item content")
 		}
 		section = section[startByte:]
 		remaining := readBudget - builder.Len()
