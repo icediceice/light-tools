@@ -106,6 +106,48 @@ func New(options Options) (*Handler, error) {
 	}, nil
 }
 
+// observe runs one recorder callback behind a panic boundary, mirroring the
+// mcp server's helper: savings recording must never be able to alter or fail a
+// tool result. A nil recorder records nothing.
+func (h *Handler) observe(record func(telemetry.Recorder)) {
+	defer func() { _ = recover() }()
+	if h.recorder == nil {
+		return
+	}
+	record(h.recorder)
+}
+
+// carriedBytes is the wire payload one mutation transmits for its file: the
+// string fields its verb actually carries, nothing more.
+func carriedBytes(mutation fileop.Mutation) int {
+	total := 0
+	if mutation.Content != nil {
+		total += len(*mutation.Content)
+	}
+	if mutation.NewString != nil {
+		total += len(*mutation.NewString)
+	}
+	if mutation.Find != nil {
+		total += len(*mutation.Find)
+	}
+	if mutation.Replace != nil {
+		total += len(*mutation.Replace)
+	}
+	for _, span := range mutation.Spans {
+		total += len(span.NewString)
+	}
+	return total
+}
+
+// recordWriteSavings credits one COMMIT with the bytes a full rewrite would
+// have had to carry to reach the same on-disk state, minus the payload this
+// call actually transmitted. Once per commit, never per assembled mutation.
+func (h *Handler) recordWriteSavings(carried int, postimage []byte) {
+	if saved := len(postimage) - carried; saved > 0 {
+		h.observe(func(recorder telemetry.Recorder) { recorder.RecordWriteBytes(saved) })
+	}
+}
+
 func (h *Handler) Portable() portable.Handler {
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var request Request
