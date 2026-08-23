@@ -10,9 +10,11 @@ results or spills are shaped.
 The vault uses AES-GCM with a random local 32-byte key. The key, ciphertext, and
 UI-password verifier are stored beneath the separate secrets state root with
 mode 0600 where Unix permissions exist. The file, SCP, and operations handlers
-deny the secrets, snapshot, and spill roots at direct, rename-target,
-registry-log, directory-list, and recursive-locate seams. Externally created
-hardlinks are outside this path-based boundary.
+deny the secrets, snapshot, spill, and telemetry roots at direct, rename-target,
+registry-log, directory-list, and recursive-locate seams. The telemetry root is
+denied for scorecard integrity too: a writable telemetry root would let a tool
+call fabricate the aggregate snapshots the vault UI renders as measured data.
+Externally created hardlinks are outside this path-based boundary.
 
 Encryption protects against accidental plaintext storage and model-context
 exposure. It does not protect against another process running as the same user,
