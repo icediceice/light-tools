@@ -20,6 +20,12 @@
   let overview = { secrets: [], groups: [] };
   let pendingImport = null;
   let importSequence = 0;
+  // The value control of whichever overlay currently owns the adopted import
+  // nodes. There is exactly one import flow, so there is exactly one of these.
+  let activeValueInput = null;
+  let collapsed = {};
+  let filter = "";
+  let openOverlay = null;
   const maxImportedFileBytes = 1 << 20;
 
   function show(view) {
@@ -30,6 +36,7 @@
   }
 
   function showView(name) {
+    closeOverlay();
     for (const key of Object.keys(viewTabs)) {
       viewTabs[key].classList.toggle("active", key === name);
     }
@@ -52,12 +59,49 @@
     message.classList.toggle("hidden", !text);
   }
 
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function button(label, className) {
+    const element = document.createElement("button");
+    element.type = "button";
+    element.className = className;
+    element.textContent = label;
+    return element;
+  }
+
+  function empty(text) {
+    const element = document.createElement("p");
+    element.className = "empty";
+    element.textContent = text;
+    return element;
+  }
+
+  function option(value, label) {
+    const element = document.createElement("option");
+    element.value = value;
+    element.textContent = label;
+    return element;
+  }
+
+  // ---- Import flow ------------------------------------------------------
+  //
+  // The file input and its status row are declared once in index.html and are
+  // MOVED into whichever overlay needs them, then handed back on close. One
+  // hardened reader serves both the add and the edit overlay, so the UTF-8
+  // check, the size cap and the sequence guard cannot drift apart.
+
   function renderPendingImport() {
     const container = byId("secret-import");
-    const valueInput = byId("secret-value");
     const active = pendingImport !== null;
     container.classList.toggle("hidden", !active);
-    valueInput.disabled = active;
+    if (activeValueInput) {
+      activeValueInput.disabled = active;
+    }
     byId("secret-import-name").textContent = active ? pendingImport.name : "";
     byId("secret-import-size").textContent = active
       ? pendingImport.size.toLocaleString() + " bytes ready to save"
@@ -67,19 +111,25 @@
   function discardImport(reason = "") {
     importSequence += 1;
     pendingImport = null;
+    byId("secret-file").value = "";
     renderPendingImport();
     if (reason) {
       notice(reason, true);
     }
   }
 
-  function clearSecretDraft() {
-    importSequence += 1;
-    pendingImport = null;
-    byId("secret-file").value = "";
-    byId("secret-value").value = "";
-    byId("secret-name").value = "";
+  function adoptImport(node, valueInput, labelText) {
+    activeValueInput = valueInput;
+    const field = byId("secret-file-field");
+    field.firstElementChild.textContent = labelText;
+    node.append(field, byId("secret-import"));
     renderPendingImport();
+  }
+
+  function releaseImport() {
+    const home = byId("secret-import-home");
+    home.append(byId("secret-file-field"), byId("secret-import"));
+    activeValueInput = null;
   }
 
   byId("secret-import-discard").addEventListener("click", () => {
@@ -96,8 +146,8 @@
     renderPendingImport();
     if (!file) return;
 
-    const valueInput = byId("secret-value");
-    if (valueInput.value !== "") {
+    const valueInput = activeValueInput;
+    if (valueInput && valueInput.value !== "") {
       notice("Clear the typed value before importing a file.", true);
       return;
     }
@@ -121,14 +171,14 @@
       return;
     }
     if (sequence !== importSequence) return;
-    if (valueInput.value !== "") {
+    if (valueInput && valueInput.value !== "") {
       notice("The typed value was kept; clear it before importing a file.", true);
       return;
     }
 
     pendingImport = { text, name: file.name, size: file.size };
     renderPendingImport();
-    notice("File loaded locally. Press Save value to store it in the vault.");
+    notice("File loaded locally. Save to store it in the vault.");
   });
 
   async function api(route, options = {}) {
@@ -234,7 +284,8 @@
     }
     token = "";
     sessionStorage.removeItem("light-vault-session");
-    clearSecretDraft();
+    closeOverlay();
+    discardImport();
     showView("vault");
     show(pairView);
     notice("Vault locked. Restart the terminal command to pair again.");
@@ -265,28 +316,21 @@
       return;
     }
     for (const tool of tools) {
-      const row = document.createElement("div");
-      row.className = "row toggle-row";
-      const main = document.createElement("div");
-      main.className = "row-main";
-      const title = document.createElement("div");
-      title.className = "row-title";
-      title.textContent = tool.name;
-      const meta = document.createElement("div");
-      meta.className = "row-meta";
-      meta.textContent = tool.disabled
-        ? "Withheld by this UI at the next MCP start"
-        : "Registered, as far as this UI can see";
-      main.append(title, meta);
+      const row = el("div", "row toggle-row");
+      const main = el("div", "row-main");
+      main.append(
+        el("div", "row-title", tool.name),
+        el("div", "row-meta", tool.disabled
+          ? "Withheld by this UI at the next MCP start"
+          : "Registered, as far as this UI can see")
+      );
 
-      const toggle = document.createElement("label");
-      toggle.className = "switch";
+      const toggle = el("label", "switch");
       const input = document.createElement("input");
       input.type = "checkbox";
       input.checked = Boolean(tool.disabled);
       input.setAttribute("aria-label", "Withhold " + tool.name);
-      const slider = document.createElement("span");
-      slider.className = "slider";
+      const slider = el("span", "slider");
       slider.setAttribute("aria-hidden", "true");
       toggle.append(input, slider);
       input.addEventListener("change", async () => {
@@ -337,12 +381,8 @@
       warnings.append(empty("All retained snapshots are healthy."));
     } else {
       for (const warning of list) {
-        const row = document.createElement("div");
-        row.className = "row";
-        const meta = document.createElement("div");
-        meta.className = "row-meta";
-        meta.textContent = warning;
-        row.append(meta);
+        const row = el("div", "row");
+        row.append(el("div", "row-meta", warning));
         warnings.append(row);
       }
     }
@@ -355,32 +395,22 @@
       return;
     }
     for (const [name, count] of entries) {
-      const row = document.createElement("div");
-      row.className = "row";
-      const title = document.createElement("div");
-      title.className = "row-title";
-      title.textContent = name;
-      const meta = document.createElement("div");
-      meta.className = "row-meta";
-      meta.textContent = Number(count).toLocaleString() + " calls";
-      row.append(title, meta);
+      const row = el("div", "row");
+      row.append(
+        el("div", "row-title", name),
+        el("div", "row-meta", Number(count).toLocaleString() + " calls")
+      );
       calls.append(row);
     }
   }
 
   function card(title, value, label) {
-    const element = document.createElement("div");
-    element.className = "card";
-    const heading = document.createElement("div");
-    heading.className = "card-title";
-    heading.textContent = title;
-    const amount = document.createElement("div");
-    amount.className = "card-value";
-    amount.textContent = value;
-    const detail = document.createElement("div");
-    detail.className = "card-label";
-    detail.textContent = label;
-    element.append(heading, amount, detail);
+    const element = el("div", "card");
+    element.append(
+      el("div", "card-title", title),
+      el("div", "card-value", value),
+      el("div", "card-label", label)
+    );
     return element;
   }
 
@@ -396,185 +426,428 @@
     }
   }
 
+  // ---- Overlay ---------------------------------------------------------
+
+  function closeOverlay() {
+    if (!openOverlay) return;
+    const current = openOverlay;
+    openOverlay = null;
+    discardImport();
+    // Hand the adopted nodes back BEFORE the overlay is destroyed, or they are
+    // removed along with it and every later overlay finds them missing.
+    releaseImport();
+    if (current.scrim) current.scrim.remove();
+    current.node.remove();
+    const host = current.anchor && current.anchor.closest(".slot, .add-slot");
+    if (host) host.classList.remove("open");
+    if (current.anchor && current.anchor.isConnected) current.anchor.focus();
+  }
+
+  // Anchored and collision-flipped: the bottom row of the grid never has room
+  // below it, so read the anchor rect rather than assuming the panel fits.
+  function place(node, anchor) {
+    const rect = anchor.getBoundingClientRect();
+    const width = node.offsetWidth;
+    const height = node.offsetHeight;
+    const pad = 8;
+    const left = Math.min(Math.max(pad, rect.left), window.innerWidth - width - pad);
+    let top = rect.bottom + 6;
+    if (top + height > window.innerHeight - pad) {
+      top = rect.top - height - 6;
+      if (top < pad) top = Math.max(pad, window.innerHeight - height - pad);
+    }
+    node.style.left = left + "px";
+    node.style.top = top + "px";
+  }
+
+  function overlay(anchor, title, kind, build) {
+    closeOverlay();
+    const scrim = el("div", "ov-scrim");
+    const node = el("div", "overlay");
+    node.setAttribute("role", "dialog");
+    node.setAttribute("aria-modal", "true");
+    node.setAttribute("aria-label", title);
+
+    const head = el("div", "ov-head");
+    head.append(el("span", "ov-title", title), el("span", "ov-kind", kind));
+    node.append(head);
+    build(node);
+
+    document.body.append(scrim, node);
+    place(node, anchor);
+    const host = anchor.closest(".slot, .add-slot");
+    if (host) host.classList.add("open");
+    openOverlay = { node, scrim, anchor };
+
+    scrim.addEventListener("mousedown", closeOverlay);
+    const focusable = node.querySelector("input, textarea, select, button");
+    if (focusable) focusable.focus();
+    return node;
+  }
+
+  function field(labelText, control) {
+    const label = el("label", "field");
+    label.append(el("span", null, labelText), control);
+    return label;
+  }
+
+  function groupSelect(current) {
+    const select = document.createElement("select");
+    select.append(option("", "No group"));
+    for (const name of overview.groups) {
+      select.append(option(name, name));
+    }
+    select.value = current || "";
+    return select;
+  }
+
+  function actionRow(confirmLabel, onConfirm) {
+    const actions = el("div", "ov-actions");
+    const cancel = button("Cancel", "btn ghost");
+    cancel.addEventListener("click", closeOverlay);
+    const confirm = button(confirmLabel, "btn");
+    confirm.addEventListener("click", onConfirm);
+    actions.append(cancel, confirm);
+    return actions;
+  }
+
+  // Two-step: the first press arms, the second commits. A destructive action
+  // reachable in one click from a card face is too easy to hit by accident.
+  function dangerRow(why, label, armedLabel, onConfirm) {
+    const danger = el("div", "ov-danger");
+    danger.append(el("span", "why", why));
+    const remove = button(label, "btn danger");
+    remove.addEventListener("click", () => {
+      if (remove.dataset.armed !== "1") {
+        remove.dataset.armed = "1";
+        remove.textContent = armedLabel;
+        return;
+      }
+      onConfirm();
+    });
+    danger.append(remove);
+    return danger;
+  }
+
+  // ---- Vault view ------------------------------------------------------
+
   async function loadVault() {
     notice("");
     try {
       overview = await api("/api/vault");
       overview.secrets ||= [];
       overview.groups ||= [];
-      renderGroupSelect();
-      renderGroups();
-      renderSecrets();
+      render();
     } catch {
       notice("Vault metadata could not be loaded.", true);
     }
   }
 
-  function renderGroupSelect() {
-    const select = byId("secret-group");
-    select.replaceChildren();
-    select.append(option("", "No group"));
-    for (const group of overview.groups) {
-      select.append(option(group, group));
-    }
-  }
+  function editSecret(anchor, item) {
+    overlay(anchor, item.name, "key", (node) => {
+      const valueInput = document.createElement("textarea");
+      valueInput.rows = 3;
+      valueInput.autocomplete = "off";
+      valueInput.placeholder = "paste a new value to replace it";
+      node.append(field("Replace value", valueInput));
+      node.append(el("div", "ov-hint", "Sent once and never returned. Leave this blank to keep the stored value."));
 
-  function option(value, label) {
-    const element = document.createElement("option");
-    element.value = value;
-    element.textContent = label;
-    return element;
-  }
+      adoptImport(node, valueInput, "Or replace it from a file");
 
-  byId("secret-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    notice("");
-    const valueInput = byId("secret-value");
-    const payload = {
-      name: byId("secret-name").value,
-      value: pendingImport ? pendingImport.text : valueInput.value,
-      group: byId("secret-group").value
-    };
-    try {
-      await api("/api/secret/set", { method: "POST", body: JSON.stringify(payload) });
-    } catch (error) {
-      const expired = String(error.message).includes("unauthorized");
-      notice(expired
-        ? "Your session expired. The unsaved value is still here; copy it or reselect the file after restarting the vault UI."
-        : "Secret could not be saved. The value was kept; check its name, group, and size.", true);
-      return;
-    }
-    clearSecretDraft();
-    notice("Secret saved. Its value will not be shown again.");
-    await loadVault();
-  });
+      const group = groupSelect(item.group);
+      node.append(field("Group", group));
 
-  byId("group-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const input = byId("group-name");
-    try {
-      await api("/api/group/add", { method: "POST", body: JSON.stringify({ name: input.value }) });
-      input.value = "";
-      await loadVault();
-    } catch {
-      notice("Group could not be added.", true);
-    }
-  });
-
-  function renderGroups() {
-    const container = byId("groups");
-    container.replaceChildren();
-    if (!overview.groups.length) {
-      container.append(empty("No groups yet."));
-      return;
-    }
-    for (const group of overview.groups) {
-      const row = document.createElement("div");
-      row.className = "row";
-      const name = document.createElement("div");
-      name.className = "row-title";
-      name.textContent = group;
-      const actions = document.createElement("div");
-      actions.className = "actions";
-      const rename = button("Rename", "secondary");
-      rename.addEventListener("click", async () => {
-        const next = window.prompt("Rename group", group);
-        if (!next || next === group) return;
+      node.append(actionRow("Save", async () => {
+        const replacement = pendingImport ? pendingImport.text : valueInput.value;
+        const moved = group.value !== (item.group || "");
+        if (!replacement && !moved) {
+          notice("Nothing to save.");
+          closeOverlay();
+          return;
+        }
         try {
-          await api("/api/group/rename", { method: "POST", body: JSON.stringify({ from: group, to: next }) });
+          if (replacement) {
+            await api("/api/secret/set", {
+              method: "POST",
+              body: JSON.stringify({ name: item.name, value: replacement, group: group.value })
+            });
+          } else {
+            await api("/api/secret/group", {
+              method: "POST",
+              body: JSON.stringify({ name: item.name, group: group.value })
+            });
+          }
+        } catch (error) {
+          const expired = String(error.message).includes("unauthorized");
+          notice(expired
+            ? "Your session expired. Copy the value or reselect the file after restarting the vault UI."
+            : "Secret could not be saved. Check its name, group, and size.", true);
+          return;
+        }
+        closeOverlay();
+        notice(replacement
+          ? item.name + " updated. Its value will not be shown again."
+          : item.name + " moved to " + (group.value || "no group") + ".");
+        await loadVault();
+      }));
+
+      node.append(dangerRow(
+        "Deleting is permanent. Anything reading this name breaks.",
+        "Delete", "Confirm delete",
+        async () => {
+          try {
+            await api("/api/secret/remove", {
+              method: "POST",
+              body: JSON.stringify({ name: item.name })
+            });
+          } catch {
+            notice("Secret could not be deleted.", true);
+            return;
+          }
+          closeOverlay();
+          notice(item.name + " deleted.");
           await loadVault();
+        }
+      ));
+    });
+  }
+
+  function addSecret(anchor, presetGroup) {
+    overlay(anchor, "New secret", "key", (node) => {
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.pattern = "[-_.A-Za-z0-9]+";
+      nameInput.autocomplete = "off";
+      nameInput.placeholder = "SERVICE_API_TOKEN";
+      node.append(field("Name", nameInput));
+
+      const valueInput = document.createElement("textarea");
+      valueInput.rows = 3;
+      valueInput.autocomplete = "off";
+      valueInput.placeholder = "value";
+      node.append(field("Value", valueInput));
+
+      adoptImport(node, valueInput, "Or import from a file");
+
+      const group = groupSelect(presetGroup);
+      node.append(field("Group", group));
+
+      node.append(actionRow("Create", async () => {
+        const name = nameInput.value.trim();
+        if (!name) {
+          nameInput.focus();
+          notice("A secret needs a name.", true);
+          return;
+        }
+        if (!/^[-_.A-Za-z0-9]+$/.test(name)) {
+          nameInput.focus();
+          notice("Names allow letters, digits, dot, dash and underscore.", true);
+          return;
+        }
+        const payload = {
+          name,
+          value: pendingImport ? pendingImport.text : valueInput.value,
+          group: group.value
+        };
+        if (!payload.value) {
+          notice("A secret needs a value, typed or imported.", true);
+          return;
+        }
+        try {
+          await api("/api/secret/set", { method: "POST", body: JSON.stringify(payload) });
+        } catch (error) {
+          const expired = String(error.message).includes("unauthorized");
+          notice(expired
+            ? "Your session expired. Copy the value or reselect the file after restarting the vault UI."
+            : "Secret could not be saved. Check its name, group, and size.", true);
+          return;
+        }
+        closeOverlay();
+        notice(name + " saved. Its value will not be shown again.");
+        await loadVault();
+      }));
+    });
+  }
+
+  function newGroup(anchor) {
+    overlay(anchor, "New group", "group", (node) => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 64;
+      input.placeholder = "production";
+      node.append(field("Group name", input));
+      node.append(actionRow("Add", async () => {
+        const name = input.value.trim();
+        if (!name) {
+          input.focus();
+          return;
+        }
+        try {
+          await api("/api/group/add", { method: "POST", body: JSON.stringify({ name }) });
+        } catch {
+          notice("Group could not be added.", true);
+          return;
+        }
+        closeOverlay();
+        await loadVault();
+      }));
+    });
+  }
+
+  function editGroup(anchor, name) {
+    overlay(anchor, name, "group", (node) => {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 64;
+      input.value = name;
+      node.append(field("Group name", input));
+
+      node.append(actionRow("Rename", async () => {
+        const next = input.value.trim();
+        if (!next || next === name) {
+          closeOverlay();
+          return;
+        }
+        try {
+          await api("/api/group/rename", { method: "POST", body: JSON.stringify({ from: name, to: next }) });
         } catch {
           notice("Group could not be renamed. The destination may already exist.", true);
+          return;
         }
-      });
-      const remove = button("Delete", "danger");
-      remove.addEventListener("click", async () => {
-        if (!window.confirm("Delete this group? Secrets will be kept and unassigned.")) return;
-        try {
-          await api("/api/group/remove", { method: "POST", body: JSON.stringify({ name: group }) });
+        closeOverlay();
+        await loadVault();
+      }));
+
+      node.append(dangerRow(
+        "Deleting a group keeps its secrets — they move to No group.",
+        "Delete group", "Confirm delete",
+        async () => {
+          try {
+            await api("/api/group/remove", { method: "POST", body: JSON.stringify({ name }) });
+          } catch {
+            notice("Group could not be deleted.", true);
+            return;
+          }
+          closeOverlay();
+          notice("Group " + name + " deleted; its secrets were kept.");
           await loadVault();
-        } catch {
-          notice("Group could not be deleted.", true);
         }
-      });
-      actions.append(rename, remove);
-      row.append(name, actions);
-      container.append(row);
-    }
+      ));
+    });
   }
 
-  function renderSecrets() {
-    const container = byId("secrets");
-    container.replaceChildren();
-    if (!overview.secrets.length) {
-      container.append(empty("No secrets saved."));
-      return;
-    }
-    for (const item of overview.secrets) {
-      const row = document.createElement("div");
-      row.className = "row";
-      const main = document.createElement("div");
-      main.className = "row-main";
-      const title = document.createElement("div");
-      title.className = "row-title";
-      title.textContent = item.name;
-      const meta = document.createElement("div");
-      meta.className = "row-meta";
-      const updated = item.updated_at ? new Date(item.updated_at).toLocaleString() : "legacy entry";
-      meta.textContent = (item.group || "No group") + " · Updated " + updated;
-      main.append(title, meta);
+  function slotCard(item) {
+    const slot = el("div", "slot");
+    const face = el("button", "slot-face");
+    face.type = "button";
 
-      const actions = document.createElement("div");
-      actions.className = "actions";
-      const group = document.createElement("select");
-      group.setAttribute("aria-label", "Group for " + item.name);
-      group.append(option("", "No group"));
-      for (const name of overview.groups) {
-        group.append(option(name, name));
+    const socket = el("span", "zone-socket");
+    socket.append(el("span", "gem", "🔑"));
+    face.append(socket);
+
+    // Names ellipsize at the card width, so keep the full one reachable.
+    const identity = el("span", "zone-identity", item.name);
+    identity.title = item.name;
+    face.append(identity);
+
+    const updated = item.updated_at ? new Date(item.updated_at).toLocaleDateString() : "legacy entry";
+    face.append(el("span", "zone-readout mono", "updated " + updated));
+    face.append(el("span", "zone-kind", "key"));
+
+    face.addEventListener("click", () => editSecret(face, item));
+    slot.append(face);
+    return slot;
+  }
+
+  function addCard(presetGroup, label) {
+    const add = el("button", "add-slot");
+    add.type = "button";
+    const socket = el("span", "zone-socket");
+    socket.append(el("span", "gem-add", "+"));
+    add.append(socket, el("span", "zone-identity", label));
+    add.addEventListener("click", () => addSecret(add, presetGroup));
+    return add;
+  }
+
+  function shelf(name, label, members) {
+    const wrapper = el("div", "shelf");
+    const head = el("div", "shead");
+    const open = !collapsed[name];
+
+    const toggle = el("button", "stoggle");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(open));
+    toggle.append(
+      el("span", "chev", open ? "▾" : "▸"),
+      el("span", "sname", label),
+      el("span", "scount", String(members.length))
+    );
+    toggle.addEventListener("click", () => {
+      collapsed[name] = open;
+      render();
+    });
+    head.append(toggle, el("span", "spacer"));
+
+    if (name) {
+      const rename = button("Rename", "shelf-act");
+      rename.addEventListener("click", () => editGroup(rename, name));
+      head.append(rename);
+    }
+    wrapper.append(head);
+
+    if (open) {
+      const body = el("div", "sbody");
+      const grid = el("div", "card-grid");
+      for (const item of members) {
+        grid.append(slotCard(item));
       }
-      group.value = item.group || "";
-      const assign = button("Assign", "secondary");
-      assign.addEventListener("click", async () => {
-        try {
-          await api("/api/secret/group", {
-            method: "POST",
-            body: JSON.stringify({ name: item.name, group: group.value })
-          });
-          await loadVault();
-        } catch {
-          notice("Secret group could not be changed.", true);
-        }
-      });
-      const remove = button("Delete", "danger");
-      remove.addEventListener("click", async () => {
-        if (!window.confirm("Delete secret “" + item.name + "”? This cannot be undone.")) return;
-        try {
-          await api("/api/secret/remove", { method: "POST", body: JSON.stringify({ name: item.name }) });
-          await loadVault();
-        } catch {
-          notice("Secret could not be deleted.", true);
-        }
-      });
-      actions.append(group, assign, remove);
-      row.append(main, actions);
-      container.append(row);
+      grid.append(addCard(name, name ? "Add to " + name : "Add secret"));
+      body.append(grid);
+      wrapper.append(body);
+    }
+    return wrapper;
+  }
+
+  function render() {
+    closeOverlay();
+    const shelves = byId("shelves");
+    shelves.replaceChildren();
+
+    const visible = overview.secrets.filter(
+      (item) => !filter || item.name.toLowerCase().includes(filter)
+    );
+    byId("vault-count").textContent = visible.length === overview.secrets.length
+      ? overview.secrets.length + (overview.secrets.length === 1 ? " secret" : " secrets")
+      : visible.length + " of " + overview.secrets.length;
+
+    for (const name of overview.groups) {
+      shelves.append(shelf(name, name, visible.filter((item) => item.group === name)));
+    }
+    shelves.append(shelf("", "No group", visible.filter((item) => !item.group)));
+
+    const shelfBar = el("div", "shead");
+    const addGroup = button("New group", "shelf-act");
+    addGroup.addEventListener("click", () => newGroup(addGroup));
+    shelfBar.append(el("span", "spacer"), addGroup);
+    shelves.append(shelfBar);
+
+    if (!visible.length && filter) {
+      shelves.append(empty("Nothing matches “" + filter + "”."));
     }
   }
 
-  function button(label, className) {
-    const element = document.createElement("button");
-    element.type = "button";
-    element.className = className;
-    element.textContent = label;
-    return element;
-  }
+  byId("vault-filter").addEventListener("input", (event) => {
+    filter = event.currentTarget.value.trim().toLowerCase();
+    render();
+  });
 
-  function empty(text) {
-    const element = document.createElement("p");
-    element.className = "empty";
-    element.textContent = text;
-    return element;
-  }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeOverlay();
+  });
+
+  window.addEventListener("resize", () => {
+    if (openOverlay) place(openOverlay.node, openOverlay.anchor);
+  });
 
   boot();
 })();
