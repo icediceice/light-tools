@@ -150,3 +150,33 @@ func TestReleaseSmokesAssertFullToolRegistration(t *testing.T) {
 		}
 	}
 }
+
+// A merge can append a job that ALREADY exists: git sees two non-overlapping
+// insertions and keeps both copies, yaml.safe_load-style parsers silently take
+// the last one, and only GitHub rejects the file — as a startup failure with
+// zero jobs, no job logs, and the single line "This run likely failed because
+// of a workflow file issue". That shipped once, from a duplicated race job.
+// Duplicate keys are trivial to detect here and miserable to diagnose there.
+func TestWorkflowsDeclareNoDuplicateJobKeys(t *testing.T) {
+	for _, name := range []string{"ci.yml", "release.yml", "promote-release.yml"} {
+		body := workflow(t, name)
+		start := strings.Index(body, "\njobs:\n")
+		if start < 0 {
+			t.Fatalf("%s declares no jobs block; update this contract test", name)
+		}
+		// Job names are the only two-space keys with no inline value inside the
+		// jobs block; everything a job itself declares is indented further.
+		counts := map[string]int{}
+		for _, match := range regexp.MustCompile(`(?m)^  ([a-z][a-z0-9_-]*):[ \t]*$`).FindAllStringSubmatch(body[start:], -1) {
+			counts[match[1]]++
+		}
+		if len(counts) == 0 {
+			t.Fatalf("%s jobs block parsed to zero job keys; update this contract test", name)
+		}
+		for job, count := range counts {
+			if count > 1 {
+				t.Fatalf("%s declares job %q %d times: GitHub refuses the whole workflow, so every check silently disappears rather than failing", name, job, count)
+			}
+		}
+	}
+}
