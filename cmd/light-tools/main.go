@@ -41,18 +41,26 @@ type options struct {
 	disabled map[string]bool
 }
 
-// newOptions validates a repeatable --disable-tool list into the withheld set.
-// An unrecognised name is refused rather than ignored: silently registering a
-// tool the operator asked to withhold is the one failure mode that matters here.
-func newOptions(disabled []string) (options, error) {
+// newOptions validates the launch-flag list and the persisted marker set into
+// the withheld UNION. Both sources only ever ADD withholding: a flag-withheld
+// tool can never be re-enabled by a UI marker. An unrecognised name from either
+// source is refused rather than ignored — silently registering a tool the
+// operator asked to withhold is the one failure mode that matters here.
+func newOptions(launch []string, persisted map[string]bool) (options, error) {
 	known := make(map[string]bool, len(toolNames))
 	for _, name := range toolNames {
 		known[name] = true
 	}
-	withheld := make(map[string]bool, len(disabled))
-	for _, name := range disabled {
+	withheld := make(map[string]bool, len(launch)+len(persisted))
+	for _, name := range launch {
 		if !known[name] {
 			return options{}, fmt.Errorf("unknown --disable-tool %q (want one of %s)", name, strings.Join(toolNames, ", "))
+		}
+		withheld[name] = true
+	}
+	for name := range persisted {
+		if !known[name] {
+			return options{}, fmt.Errorf("disabled-tools marker for unknown tool %q (want one of %s)", name, strings.Join(toolNames, ", "))
 		}
 		withheld[name] = true
 	}
