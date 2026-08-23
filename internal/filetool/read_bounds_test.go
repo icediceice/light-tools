@@ -183,8 +183,7 @@ func TestWriteSavingsMeasuredOncePerCommit(t *testing.T) {
 	// A write carries its full content: no credit.
 	recorder.writes = nil
 	fresh := filepath.Join(root, "fresh.txt")
-	content := strings.Repeat("payload ", 64)
-	if _, err := handler.mutate(nil, Request{Verb: "write", Path: fresh, Content: strPtr(content)}.mutation()); err != nil {
+	if _, err := handler.mutate(context.Background(), Request{Verb: "write", Path: fresh, Content: strPtr(strings.Repeat("payload ", 64))}.mutation()); err != nil {
 		t.Fatal(err)
 	}
 	if len(recorder.writes) != 0 {
