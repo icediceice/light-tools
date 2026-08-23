@@ -295,7 +295,7 @@ func TestSecurityHeadersHostOriginAndBodyLimits(t *testing.T) {
 
 func TestServeStopsWithContext(t *testing.T) {
 	root := t.TempDir()
-	server, err := New(secret.New(root), secret.NewPasswordAuth(root))
+	server, err := New(Options{Vault: secret.New(root), Auth: secret.NewPasswordAuth(root)})
 	if err != nil {
 		t.Fatal(err)
 	}
