@@ -243,6 +243,113 @@ func TestTerseFormattingPassthroughCases(t *testing.T) {
 	}
 }
 
+// captureRecorder records what the server observed, for assertions.
+type captureRecorder struct {
+	calls       []string
+	terseTokens []int
+}
+
+func (c *captureRecorder) RecordCall(tool string)          { c.calls = append(c.calls, tool) }
+func (c *captureRecorder) RecordTerseTokens(saved int)     { c.terseTokens = append(c.terseTokens, saved) }
+func (c *captureRecorder) RecordDedupBytes(int)            {}
+func (c *captureRecorder) RecordWriteBytes(int)            {}
+
+// panicRecorder fails like a broken sink: every method panics.
+type panicRecorder struct{}
+
+func (panicRecorder) RecordCall(string)        { panic("recorder exploded") }
+func (panicRecorder) RecordTerseTokens(int)    { panic("recorder exploded") }
+func (panicRecorder) RecordDedupBytes(int)     { panic("recorder exploded") }
+func (panicRecorder) RecordWriteBytes(int)     { panic("recorder exploded") }
+
+// A recorder panic and a failing (blocked) writer must both leave the RPC
+// result byte-identical to a server with no recorder at all.
+func TestRecorderFailuresLeaveResultsByteIdentical(t *testing.T) {
+	blockedDir := filepath.Join(t.TempDir(), "blocked")
+	store := telemetry.New(blockedDir)
+	if store == nil {
+		t.Skip("telemetry disabled by environment")
+	}
+	defer store.Close()
+	// Break the store's directory: every flush now fails, while Record paths
+	// stay in-memory and non-blocking.
+	if err := os.RemoveAll(blockedDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blockedDir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	build := func(recorder telemetry.Recorder) string {
+		server := New("test", "1", true)
+		server.SetRecorder(recorder)
+		handler := func(context.Context, json.RawMessage) (any, error) {
+			return Result{Content: []Content{Text(`{"content":"` + strings.Repeat("word ", 120) + `","status":"ok"}`)}}, nil
+		}
+		if err := server.Register(Tool{Name: "sample", Handler: handler}); err != nil {
+			t.Fatal(err)
+		}
+		var output strings.Builder
+		input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"sample","arguments":{}}}` + "\n")
+		if err := server.Serve(context.Background(), input, &output); err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(output.String())
+	}
+
+	want := build(nil)
+	for name, recorder := range map[string]telemetry.Recorder{
+		"panic":  panicRecorder{},
+		"blocked": store,
+	} {
+		if got := build(recorder); got != want {
+			t.Fatalf("%s recorder changed the RPC result\nwant %s\n got %s", name, want, got)
+		}
+	}
+}
+
+func TestServerRecordsCallCountsAndTerseDelta(t *testing.T) {
+	recorder := &captureRecorder{}
+	server := New("test", "1", true)
+	server.SetRecorder(recorder)
+	handler := func(context.Context, json.RawMessage) (any, error) {
+		return Result{Content: []Content{Text(`{"content":"` + strings.Repeat("word ", 120) + `","status":"ok"}`)}}, nil
+	}
+	if err := server.Register(Tool{Name: "sample", Handler: handler}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		response := server.dispatch(context.Background(), request{
+			JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+			Params: json.RawMessage(`{"name":"sample","arguments":{}}`),
+		})
+		if response.Error != nil {
+			t.Fatalf("call failed: %#v", response.Error)
+		}
+	}
+	if len(recorder.calls) != 2 || recorder.calls[0] != "sample" || recorder.calls[1] != "sample" {
+		t.Fatalf("call counts = %v", recorder.calls)
+	}
+	if len(recorder.terseTokens) != 2 || recorder.terseTokens[0] <= 0 || recorder.terseTokens[0] != recorder.terseTokens[1] {
+		t.Fatalf("terse deltas = %v", recorder.terseTokens)
+	}
+	// An unformatted result records no terse delta.
+	handler2 := func(context.Context, json.RawMessage) (any, error) {
+		return Result{Content: []Content{Text("small")}}, nil
+	}
+	if err := server.Register(Tool{Name: "tiny", Handler: handler2}); err != nil {
+		t.Fatal(err)
+	}
+	before := len(recorder.terseTokens)
+	server.dispatch(context.Background(), request{
+		JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+		Params: json.RawMessage(`{"name":"tiny","arguments":{}}`),
+	})
+	if len(recorder.terseTokens) != before {
+		t.Fatalf("unchanged result recorded a delta: %v", recorder.terseTokens)
+	}
+}
+
 func TestTerseFormattingHandlesNilResultPointer(t *testing.T) {
 	server := New("test", "1", true)
 	if err := server.Register(Tool{Name: "nil", Handler: func(context.Context, json.RawMessage) (any, error) {
