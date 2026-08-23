@@ -192,14 +192,12 @@ func TestWriteSavingsMeasuredOncePerCommit(t *testing.T) {
 
 	// Two same-path edits in ONE batch commit exactly once.
 	recorder.writes = nil
-	result, err := handler.mutateBatch(nil, []mutation{
+	if _, err := handler.mutateBatch(context.Background(), []fileop.Mutation{
 		{Verb: fileop.VerbEdit, Path: path, StartLine: 10, NewString: strPtr("first")},
 		{Verb: fileop.VerbEdit, Path: path, StartLine: 20, NewString: strPtr("second")},
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatal(err)
 	}
-	_ = result
 	if len(recorder.writes) != 1 {
 		t.Fatalf("grouped edits recorded %d entries (want one per commit): %v", len(recorder.writes), recorder.writes)
 	}
