@@ -330,6 +330,89 @@ func (s *Server) handleVault(writer http.ResponseWriter, request *http.Request) 
 	writeJSON(writer, http.StatusOK, overview)
 }
 
+// handleSettings answers the tool-availability view. ui_disabled reflects ONLY
+// the UI-owned markers; launch withholding is not observable from this process,
+// and the response says so rather than implying the toggles are authoritative.
+func (s *Server) handleSettings(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := s.authorize(writer, request, true); !ok {
+		return
+	}
+	if s.settings == nil {
+		http.Error(writer, "settings unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	disabled, err := s.settings.LoadDisabled()
+	if err != nil {
+		http.Error(writer, "settings state could not be read", http.StatusBadRequest)
+		return
+	}
+	tools := make([]map[string]any, 0, len(s.tools))
+	uiDisabled := make([]string, 0, len(disabled))
+	for _, name := range s.tools {
+		withheld := disabled[name]
+		tools = append(tools, map[string]any{"name": name, "disabled": withheld})
+		if withheld {
+			uiDisabled = append(uiDisabled, name)
+		}
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"tools": tools, "ui_disabled": uiDisabled, "launch_withholding_observable": false,
+	})
+}
+
+// handleSettingsTool mutates exactly ONE tool's marker. It accepts only
+// {tool, disabled}; a whole replacement set is not expressible.
+func (s *Server) handleSettingsTool(writer http.ResponseWriter, request *http.Request) {
+	if !s.requireJSONMutation(writer, request, http.MethodPost, normalBodyLimit) {
+		return
+	}
+	if _, ok := s.authorize(writer, request, true); !ok {
+		return
+	}
+	if s.settings == nil {
+		http.Error(writer, "settings unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Tool     string `json:"tool"`
+		Disabled bool   `json:"disabled"`
+	}
+	if !decodeJSON(writer, request, &body) {
+		return
+	}
+	if err := s.settings.SetDisabled(body.Tool, body.Disabled); err != nil {
+		http.Error(writer, "settings update failed", http.StatusBadRequest)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleTelemetry answers the local-only savings aggregates. It reads; it
+// never mutates the store or races a live writer.
+func (s *Server) handleTelemetry(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if _, ok := s.authorize(writer, request, true); !ok {
+		return
+	}
+	if s.telemetry == nil {
+		http.Error(writer, "telemetry unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	totals, err := s.telemetry()
+	if err != nil {
+		http.Error(writer, "telemetry unavailable", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(writer, http.StatusOK, totals)
+}
+
 func (s *Server) handleSecretSet(writer http.ResponseWriter, request *http.Request) {
 	if !s.requireJSONMutation(writer, request, http.MethodPost, secretBodyLimit) {
 		return
