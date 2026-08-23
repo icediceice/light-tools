@@ -7,16 +7,26 @@ import (
 	"testing"
 
 	"github.com/icediceice/light-tools/internal/secret"
+	"github.com/icediceice/light-tools/internal/snapshot"
 )
 
 func newTestRunner(t *testing.T) (*Runner, string) {
 	t.Helper()
+	runner, _, root := newGuardRunner(t)
+	return runner, root
+}
+
+// newGuardRunner also hands back the capture vault, which the glob-guard tests
+// need in order to assert that a revert actually restores.
+func newGuardRunner(t *testing.T) (*Runner, *snapshot.Vault, string) {
+	t.Helper()
 	root := t.TempDir()
-	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")))
+	vault := snapshot.New(filepath.Join(root, "snapshots"))
+	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")), vault)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return runner, root
+	return runner, vault, root
 }
 
 // A command killed by its deadline must SAY it timed out. Before the deadline

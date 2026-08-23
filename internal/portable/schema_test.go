@@ -113,9 +113,28 @@ func TestInvokeNormalizesBeforeHandlerWithoutChangingErrorChannel(t *testing.T) 
 	if string(received) != "{\"offset\":9}" {
 		t.Fatalf("handler received %s", received)
 	}
-	_, err := Invoke(context.Background(), tool, json.RawMessage("{\"unknown\":true}"))
+	// Normalize still refuses an undeclared key — that contract is unchanged,
+	// and it is what makes additionalProperties:false mean something.
+	_, err := Normalize(testSchema(), json.RawMessage("{\"unknown\":true}"))
 	var diagnostic *DiagnosticError
 	if !errors.As(err, &diagnostic) || diagnostic.Code != "E_SCHEMA" {
 		t.Fatalf("got %#v, want E_SCHEMA DiagnosticError", err)
+	}
+	// Invoke no longer surfaces that refusal, because Repair now strips the key
+	// first and reports it. This is a deliberate WAIVER of the old behaviour:
+	// refusing the whole call cost the model a turn to learn one field name.
+	repairedResult, err := Invoke(context.Background(), tool, json.RawMessage("{\"unknown\":true}"))
+	if err != nil {
+		t.Fatalf("an undeclared key should now be repaired, not refused: %v", err)
+	}
+	object, ok := repairedResult.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected result shape %T", repairedResult)
+	}
+	if warnings, ok := object["warnings"].([]string); !ok || len(warnings) == 0 {
+		t.Fatalf("the strip was silent, which defeats the point: %#v", object["warnings"])
+	}
+	if string(received) != "{}" {
+		t.Fatalf("handler received %s, want the undeclared key stripped", received)
 	}
 }

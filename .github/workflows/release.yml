@@ -18,8 +18,6 @@ on:
       - go.sum
       - install.sh
       - install.ps1
-      - README.md
-      - RELEASING.md
       - package.json
       - npm/**
       - scripts/build-npm-packages.mjs
@@ -29,6 +27,13 @@ on:
 
 permissions:
   contents: read
+
+# The PR lane fired paired with CI on every push and nothing cancelled it.
+# Keyed on run_id for workflow_dispatch so a real release build is never
+# cancelled by a later one.
+concurrency:
+  group: release-candidate-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   metadata:

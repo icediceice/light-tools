@@ -235,7 +235,37 @@ func (h *Handler) restore(ctx context.Context, mutation fileop.Mutation) (any, e
 	return result, err
 }
 
+// restoreCapture reverts every path one light_bash capture pinned. Without
+// force a path a later writer changed is skipped and named rather than
+// clobbered, so a revert can never silently discard work the caller never saw.
+func (h *Handler) restoreCapture(request Request) (any, error) {
+	results, err := h.vault.RestoreCapture(request.CaptureID, request.Force)
+	if err != nil {
+		return nil, err
+	}
+	skipped := 0
+	for _, result := range results {
+		if result.Skipped {
+			skipped++
+		}
+		h.cache.Invalidate(result.Path)
+	}
+	payload := map[string]any{"capture_id": request.CaptureID, "results": results, "restored": len(results) - skipped}
+	if skipped > 0 {
+		payload["skipped"] = skipped
+		payload["note"] = "skipped paths changed after the captured command ran — re-send with force:true to overwrite them"
+	}
+	return textJSON(payload)
+}
+
 func (h *Handler) vaultList(request Request) (any, error) {
+	if request.CaptureID != "" {
+		record, err := h.vault.LoadCapture(request.CaptureID)
+		if err != nil {
+			return nil, err
+		}
+		return textJSON(record)
+	}
 	path, err := h.resolve(request.Path)
 	if err != nil {
 		return nil, err

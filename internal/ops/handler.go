@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/icediceice/light-tools/internal/portable"
 	"github.com/icediceice/light-tools/internal/security"
 )
 
@@ -131,7 +133,7 @@ func (h *Handler) handleSync(ctx context.Context, request Request) (any, error) 
 	case "log_window", "log_trace", "log_search", "log_errors", "log_since":
 		return h.singleLogs(ctx, request)
 	default:
-		return nil, fmt.Errorf("unsupported read-only ops verb %q", request.Verb)
+		return nil, errors.New(portable.UnknownVerbMessage("light_ops", request.Verb))
 	}
 }
 

@@ -3,8 +3,6 @@ package bash
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,19 +11,15 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/icediceice/light-tools/internal/childenv"
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
+	"github.com/icediceice/light-tools/internal/snapshot"
 )
 
-const (
-	outputLimit        = 128 * 1024
-	wildcardReceiptTTL = 10 * time.Minute
-	wildcardReceiptCap = 64
-)
+const outputLimit = 128 * 1024
 
 type Request struct {
 	Verb       string            `json:"verb,omitempty"`
@@ -42,6 +36,9 @@ type Request struct {
 	LineRange  string            `json:"line_range,omitempty"`
 	EnvRefs    map[string]string `json:"env_refs,omitempty"`
 	FileRefs   map[string]string `json:"file_refs,omitempty"`
+	// Confirm acknowledges one specific unprotectable surface by its digest.
+	// It is never needed for a surface the capture lane can back.
+	Confirm string `json:"confirm,omitempty"`
 }
 
 type Runner struct {
@@ -49,12 +46,13 @@ type Runner struct {
 	spills   *SpillStore
 	secrets  *secret.Vault
 	tasks    *TaskManager
-
-	wildcardMu       sync.Mutex
-	wildcardReceipts map[[sha256.Size]byte]time.Time
+	// captures backs glob mutators with a revertible snapshot of their whole
+	// surface. Nil disables the protected lane, which leaves every modeled
+	// glob on the confirm fence rather than running it unbacked.
+	captures *snapshot.Vault
 }
 
-func NewRunner(roots []string, spillRoot string, secrets *secret.Vault) (*Runner, error) {
+func NewRunner(roots []string, spillRoot string, secrets *secret.Vault, captures *snapshot.Vault) (*Runner, error) {
 	spills, err := NewSpillStore(spillRoot, time.Hour)
 	if err != nil {
 		return nil, err
@@ -63,10 +61,7 @@ func NewRunner(roots []string, spillRoot string, secrets *secret.Vault) (*Runner
 	if err != nil {
 		return nil, err
 	}
-	return &Runner{
-		confiner: confiner, spills: spills, secrets: secrets, tasks: NewTaskManager(),
-		wildcardReceipts: make(map[[sha256.Size]byte]time.Time),
-	}, nil
+	return &Runner{confiner: confiner, spills: spills, secrets: secrets, tasks: NewTaskManager(), captures: captures}, nil
 }
 
 func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, error) {
@@ -78,121 +73,152 @@ func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, erro
 	case "cancel":
 		return r.tasks.Cancel(request.TaskID)
 	}
-	if preview, guarded, err := r.guardWildcardRequest(request, runtime.GOOS, time.Now()); err != nil {
+	guard, refusal, err := r.prepareGlobGuard(request)
+	if err != nil {
 		return nil, err
-	} else if guarded {
-		return preview, nil
+	}
+	if refusal != nil {
+		return refusal, nil
 	}
 	if request.Async {
 		request.Async = false
 		id, err := r.tasks.Start(func(taskContext context.Context) (map[string]any, error) {
-			return r.runSync(taskContext, request)
+			result, err := r.runSync(taskContext, request)
+			return r.sealGuard(guard, result, err)
 		})
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"task_id": id, "status": "queued"}, nil
 	}
-	return r.runSync(ctx, request)
+	result, err := r.runSync(ctx, request)
+	return r.sealGuard(guard, result, err)
 }
 
-func (r *Runner) guardWildcardRequest(request Request, goos string, now time.Time) (map[string]any, bool, error) {
-	if request.Command == "" || !containsFilenameWildcard(request.Command, goos) {
-		return nil, false, nil
+// globGuard is the decision carried from admission through to the terminal.
+type globGuard struct {
+	CaptureID   string
+	Entries     int
+	Unprotected bool
+}
+
+// prepareGlobGuard implements the two lanes.
+//
+// A modeled mutator whose entire expanded surface is protectable is snapshotted
+// and then allowed through on FIRST contact — the backup replaces the
+// confirmation, because an acknowledgement that buys no recoverability is a
+// round trip that costs a turn and returns nothing.
+//
+// Anything else keeps the confirm fence, and says WHY it could not be backed.
+func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, error) {
+	if request.Command == "" || request.OutputMode == "read_block" {
+		return nil, nil, nil
 	}
-	encoded, err := json.Marshal(request)
+	plan, ok := planGlobMutation(request.Command)
+	if !ok {
+		return nil, nil, nil
+	}
+	globbed := false
+	for _, index := range plan.Operands {
+		if plan.Tokens[index].HasGlob && !plan.Tokens[index].Quoted {
+			globbed = true
+			break
+		}
+	}
+	if !globbed {
+		return nil, nil, nil
+	}
+	cwd := request.Cwd
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	resolvedCwd, err := r.confiner.Resolve(cwd)
 	if err != nil {
-		return nil, false, fmt.Errorf("encode wildcard guard request: %w", err)
+		return nil, nil, err
 	}
-	key := sha256.Sum256(encoded)
+	groups, err := expandSurface(plan, resolvedCwd)
+	if err != nil {
+		return nil, nil, err
+	}
+	flat := flattenSurface(groups)
+	if len(flat) == 0 {
+		return nil, nil, nil
+	}
+	decision := decideGlobProtection(plan, groups)
+	digest := surfaceDigest(plan.Command, flat)
 
-	r.wildcardMu.Lock()
-	defer r.wildcardMu.Unlock()
-	for receipt, expiresAt := range r.wildcardReceipts {
-		if !expiresAt.After(now) {
-			delete(r.wildcardReceipts, receipt)
+	if decision.Protectable && r.captures != nil {
+		paths := make([]string, 0, len(flat))
+		for _, entry := range flat {
+			paths = append(paths, entry.Path)
 		}
-	}
-	if _, exists := r.wildcardReceipts[key]; exists {
-		delete(r.wildcardReceipts, key)
-		return nil, false, nil
-	}
-	if len(r.wildcardReceipts) >= wildcardReceiptCap {
-		var oldestKey [sha256.Size]byte
-		var oldestExpiry time.Time
-		for receipt, expiresAt := range r.wildcardReceipts {
-			if oldestExpiry.IsZero() || expiresAt.Before(oldestExpiry) {
-				oldestKey, oldestExpiry = receipt, expiresAt
-			}
+		id := snapshot.NewCaptureID()
+		if _, err := r.captures.CaptureSurface(id, request.Command, paths); err != nil {
+			return nil, nil, fmt.Errorf("could not back up the surface before running: %w", err)
 		}
-		delete(r.wildcardReceipts, oldestKey)
+		return &globGuard{CaptureID: id, Entries: len(flat)}, nil, nil
 	}
-	r.wildcardReceipts[key] = now.Add(wildcardReceiptTTL)
-	return map[string]any{
-		"dry_run":          true,
-		"wildcard_preview": true,
-		"command":          request.Command,
-		"hint":             "retry the identical request once to execute, or name files explicitly",
-	}, true, nil
+
+	reason := decision.Reason
+	if reason == "" && r.captures == nil {
+		reason = "no snapshot vault is configured, so no revert could be recorded"
+	}
+	if confirmMatches(request.Confirm, digest) {
+		return &globGuard{Unprotected: true}, nil, nil
+	}
+	if strings.TrimSpace(request.Confirm) != "" {
+		return nil, map[string]any{
+			"protection":     "refused",
+			"error":          "confirm names a different surface",
+			"confirm_given":  strings.TrimSpace(request.Confirm),
+			"surface_digest": digest,
+			"surface":        renderSurface(flat),
+			"reason":         reason,
+			"hint": fmt.Sprintf(
+				"the surface changed since it was shown — re-send with confirm:%q for THIS surface, or drop confirm to see it printed again", digest),
+		}, nil
+	}
+	return nil, map[string]any{
+		"protection":     "refused",
+		"ran":            false,
+		"surface_digest": digest,
+		"surface":        renderSurface(flat),
+		"surface_count":  len(flat),
+		"reason":         reason,
+		"hint": fmt.Sprintf(
+			"this surface cannot be backed up, so nothing ran. Re-send the IDENTICAL call with confirm:%q to run it WITHOUT any revert, or name the files explicitly.", digest),
+	}, nil
 }
 
-func containsFilenameWildcard(command, goos string) bool {
-	var token strings.Builder
-	var singleQuoted, doubleQuoted, escaped, wildcard bool
-	flush := func() bool {
-		text := token.String()
-		isURL := strings.Contains(text, "://")
-		isAssignment := false
-		if equals := strings.IndexByte(text, '='); equals > 0 {
-			isAssignment = true
-			for _, character := range text[:equals] {
-				if !(character == '_' || character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9') {
-					isAssignment = false
-					break
-				}
-			}
-		}
-		match := wildcard && !isURL && !isAssignment
-		token.Reset()
-		wildcard = false
-		return match
+// sealGuard records what the command left behind and states the protection
+// outcome on the terminal. "ran" and "ran revertibly" are different facts, so
+// an unprotected confirmed run says so rather than staying silent.
+func (r *Runner) sealGuard(guard *globGuard, result map[string]any, err error) (map[string]any, error) {
+	if guard == nil || result == nil {
+		return result, err
 	}
-	for _, character := range command {
-		if escaped {
-			token.WriteRune(character)
-			escaped = false
-			continue
-		}
-		if character == '\\' && !singleQuoted {
-			escaped = true
-			token.WriteRune(character)
-			continue
-		}
-		if character == '\'' && !doubleQuoted {
-			singleQuoted = !singleQuoted
-			token.WriteRune(character)
-			continue
-		}
-		if character == '"' && !singleQuoted {
-			doubleQuoted = !doubleQuoted
-			token.WriteRune(character)
-			continue
-		}
-		if !singleQuoted && !doubleQuoted && (character == '*' || character == '?') {
-			wildcard = true
-		}
-		if goos == "windows" && (character == '*' || character == '?') {
-			wildcard = true
-		}
-		if !singleQuoted && !doubleQuoted && (character == ' ' || character == '\t' || character == '\n' || strings.ContainsRune("|&;()<>", character)) {
-			if flush() {
-				return true
-			}
-			continue
-		}
-		token.WriteRune(character)
+	if guard.Unprotected {
+		result["protection"] = "unprotected_confirmed"
+		result["protection_note"] = "this surface ran WITHOUT capture backing; no revert exists for it"
+		return result, err
 	}
-	return flush()
+	if guard.CaptureID == "" {
+		return result, err
+	}
+	if sealErr := r.captures.SealCapture(guard.CaptureID); sealErr != nil {
+		result["protection"] = "error"
+		result["capture_id"] = guard.CaptureID
+		result["protection_note"] = fmt.Sprintf(
+			"the capture could not be sealed (%v) — the effect's outcome is partially unknown; revert with light_file{verb:\"vault_restore\", capture_id:%q}",
+			sealErr, guard.CaptureID)
+		return result, err
+	}
+	result["protection"] = "capture-backed"
+	result["capture_id"] = guard.CaptureID
+	result["protection_note"] = fmt.Sprintf(
+		"%d path(s) under capture %s — revert with light_file{verb:\"vault_restore\", capture_id:%q} (add force:true to clobber later writers; non-force skips changed paths)",
+		guard.Entries, guard.CaptureID, guard.CaptureID)
+	return result, err
 }
 
 func (r *Runner) runSync(ctx context.Context, request Request) (map[string]any, error) {

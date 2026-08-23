@@ -112,7 +112,9 @@ func TestToolCallCoercesAndReportsSchemaErrorsAsToolResults(t *testing.T) {
 		t.Fatalf("handler received %s", received)
 	}
 
-	call.Params = json.RawMessage("{\"name\":\"sample\",\"arguments\":{\"unknown\":true}}")
+	// A value that cannot be coerced is still a schema failure, and it must
+	// still come back as a tool result rather than a protocol error.
+	call.Params = json.RawMessage("{\"name\":\"sample\",\"arguments\":{\"limit\":\"abc\"}}")
 	response = server.dispatch(context.Background(), call)
 	if response.Error != nil {
 		t.Fatalf("schema failure became a protocol error: %#v", response.Error)
@@ -120,6 +122,24 @@ func TestToolCallCoercesAndReportsSchemaErrorsAsToolResults(t *testing.T) {
 	result, ok := response.Result.(Result)
 	if !ok || !result.IsError || len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, "error[E_SCHEMA]") {
 		t.Fatalf("schema failure lost tool-result envelope: %#v", response.Result)
+	}
+
+	// An undeclared KEY is no longer a failure at all: Repair strips it and
+	// reports the strip, so the call succeeds and the model still learns.
+	call.Params = json.RawMessage("{\"name\":\"sample\",\"arguments\":{\"unknown\":true}}")
+	response = server.dispatch(context.Background(), call)
+	if response.Error != nil {
+		t.Fatalf("a repairable call became a protocol error: %#v", response.Error)
+	}
+	repaired, ok := response.Result.(Result)
+	if !ok || repaired.IsError {
+		t.Fatalf("an undeclared key should now be repaired, not refused: %#v", response.Result)
+	}
+	if received != "{}" {
+		t.Fatalf("handler received %s, want the undeclared key stripped", received)
+	}
+	if !strings.Contains(repaired.Content[0].Text, "unknown") {
+		t.Fatalf("the strip was silent, which defeats the point: %#v", repaired.Content)
 	}
 }
 

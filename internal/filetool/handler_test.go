@@ -11,6 +11,7 @@ import (
 
 	"github.com/icediceice/light-tools/internal/mcp"
 	"github.com/icediceice/light-tools/internal/security"
+	"github.com/icediceice/light-tools/internal/snapshot"
 )
 
 func newTestHandler(t *testing.T) (*Handler, string) {
@@ -29,6 +30,86 @@ func newTestHandler(t *testing.T) (*Handler, string) {
 		t.Fatal(err)
 	}
 	return handler, root
+}
+
+// The revert handle light_bash prints is only worth printing if light_file
+// actually accepts it. This walks the whole hop: raw JSON in through Portable,
+// where an unrecognised key would be normalized away before any handler saw
+// it, then capture_id dispatch, then the bytes back on disk.
+func TestCaptureIDRestoresThroughThePortableHandler(t *testing.T) {
+	handler, root := newTestHandler(t)
+	target := filepath.Join(root, "doomed.txt")
+	if err := os.WriteFile(target, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	capture, err := handler.vault.CaptureSurface(snapshot.NewCaptureID(), "rm *.txt", []string{target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.vault.SealCapture(capture.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	body := invokeRequest(t, handler, map[string]any{"verb": "vault_restore", "capture_id": capture.ID})
+	if !strings.Contains(body, capture.ID) {
+		t.Fatalf("restore did not echo the capture: %s", body)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("capture_id restore did not bring the file back: %v", err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("restored wrong bytes: %q", data)
+	}
+
+	listed := invokeRequest(t, handler, map[string]any{"verb": "vault_list", "capture_id": capture.ID})
+	if !strings.Contains(listed, "doomed.txt") {
+		t.Fatalf("vault_list by capture_id did not name the surface: %s", listed)
+	}
+}
+
+// A path a later writer touched must survive a non-force revert: the guard
+// exists so a revert cannot silently discard work the caller never saw.
+func TestNonForceRestoreSkipsAPathChangedSinceTheCommand(t *testing.T) {
+	handler, root := newTestHandler(t)
+	target := filepath.Join(root, "edited.txt")
+	if err := os.WriteFile(target, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	capture, err := handler.vault.CaptureSurface(snapshot.NewCaptureID(), "sed -i s/a/b/ *.txt", []string{target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("by the command"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := handler.vault.SealCapture(capture.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("by somebody else, afterwards"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	body := invokeRequest(t, handler, map[string]any{"verb": "vault_restore", "capture_id": capture.ID})
+	if !strings.Contains(body, "skipped") {
+		t.Fatalf("a later write was clobbered instead of skipped: %s", body)
+	}
+	data, _ := os.ReadFile(target)
+	if string(data) != "by somebody else, afterwards" {
+		t.Fatalf("non-force revert overwrote a later writer: %q", data)
+	}
+
+	forced := invokeRequest(t, handler, map[string]any{"verb": "vault_restore", "capture_id": capture.ID, "force": true})
+	if strings.Contains(forced, "\"skipped\"") {
+		t.Fatalf("force still skipped: %s", forced)
+	}
+	data, _ = os.ReadFile(target)
+	if string(data) != "original" {
+		t.Fatalf("forced revert did not restore the preimage: %q", data)
+	}
 }
 
 func invokeRequest(t *testing.T, handler *Handler, request any) string {

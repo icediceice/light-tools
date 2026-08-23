@@ -10,6 +10,7 @@ import (
 	"io"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/icediceice/light-tools/internal/portable"
@@ -35,6 +36,21 @@ func Image(data []byte, mimeType string) Content {
 type Result struct {
 	Content []Content `json:"content"`
 	IsError bool      `json:"isError,omitempty"`
+}
+
+// WithWarnings satisfies portable.WarningSink. Argument repairs are prepended
+// as their own text block rather than folded into the payload, so the model
+// reads what it got wrong before it reads the answer — a silent repair teaches
+// nothing and the same malformed call comes back next turn.
+func (r Result) WithWarnings(warnings []string) any {
+	if len(warnings) == 0 {
+		return r
+	}
+	notice := "arguments repaired:\n  - " + strings.Join(warnings, "\n  - ")
+	annotated := Result{Content: make([]Content, 0, len(r.Content)+1), IsError: r.IsError}
+	annotated.Content = append(annotated.Content, Text(notice))
+	annotated.Content = append(annotated.Content, r.Content...)
+	return annotated
 }
 
 type Tool struct {

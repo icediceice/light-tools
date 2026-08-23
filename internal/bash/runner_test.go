@@ -2,16 +2,15 @@ package bash
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/icediceice/light-tools/internal/secret"
+	"github.com/icediceice/light-tools/internal/snapshot"
 )
 
 func shellSource(posix, powershell string) string {
@@ -31,7 +30,7 @@ func TestRunnerResolvesExternalCommandAndKeepsEnvironmentMinimal(t *testing.T) {
 	t.Setenv("LIGHT_TOOLS_BOUNDARY_MARKER", "must-not-leak")
 
 	root := t.TempDir()
-	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")))
+	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")), snapshot.New(filepath.Join(root, "snapshots")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +62,7 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	if err := vault.Set("token", "top-secret-value"); err != nil {
 		t.Fatal(err)
 	}
-	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), vault)
+	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), vault, snapshot.New(filepath.Join(root, "snapshots")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,139 +90,209 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	}
 }
 
-func TestContainsFilenameWildcard(t *testing.T) {
-	cases := []struct {
-		name    string
-		command string
-		goos    string
-		want    bool
-	}{
-		{name: "star", command: "rm *.tmp", goos: "linux", want: true},
-		{name: "question marks", command: "rm ??", goos: "linux", want: true},
-		{name: "path segment", command: "rm build/*", goos: "linux", want: true},
-		{name: "single quoted literal", command: "printf '%s' '*.tmp'", goos: "linux", want: false},
-		{name: "double quoted literal", command: "printf \"%s\" \"*.tmp\"", goos: "linux", want: false},
-		{name: "escaped literal", command: "printf %s \\*", goos: "linux", want: false},
-		{name: "explicit files", command: "rm a.tmp b.tmp", goos: "linux", want: false},
-		{name: "url query", command: "curl https://example.test/?a=1", goos: "linux", want: false},
-		{name: "assignment", command: "PATTERN=*.tmp printf ok", goos: "linux", want: false},
-		{name: "powershell provider wildcard", command: "Remove-Item \"*.tmp\"", goos: "windows", want: true},
-	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			if got := containsFilenameWildcard(test.command, test.goos); got != test.want {
-				t.Fatalf("containsFilenameWildcard(%q, %q) = %v, want %v", test.command, test.goos, got, test.want)
-			}
-		})
-	}
-}
-
-func TestWildcardRequestPreviewsThenExecutesIdenticalRetry(t *testing.T) {
-	root := t.TempDir()
+// The defect this whole lane exists to fix: a protectable glob used to cost two
+// calls and hand back neither a path list nor a revert. It must now run on the
+// FIRST call, and the capture it returns must actually restore.
+func TestProtectableGlobRunsOnFirstContactAndReverts(t *testing.T) {
+	runner, vault, root := newGuardRunner(t)
 	for _, name := range []string{"a.tmp", "b.tmp"} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")))
+	result, err := runner.Run(context.Background(), Request{Command: "rm *.tmp", Cwd: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := Request{Command: "rm *.tmp", Cwd: root}
-	first, err := runner.Run(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
+	if result["protection"] != "capture-backed" {
+		t.Fatalf("protectable surface was not capture-backed: %#v", result)
 	}
-	if first["wildcard_preview"] != true || first["dry_run"] != true {
-		t.Fatalf("first request was not a no-execution preview: %#v", first)
+	captureID, _ := result["capture_id"].(string)
+	if captureID == "" {
+		t.Fatalf("no capture_id on a capture-backed run: %#v", result)
 	}
-	if _, err := os.Stat(filepath.Join(root, "a.tmp")); err != nil {
-		t.Fatalf("preview executed command: %v", err)
-	}
-
-	second, err := runner.Run(context.Background(), request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second["exit_code"] != 0 {
-		t.Fatalf("retry failed: %#v", second)
-	}
-	if _, err := os.Stat(filepath.Join(root, "a.tmp")); !os.IsNotExist(err) {
-		t.Fatalf("identical retry did not execute: %v", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(root, "named-a"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "named-b"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	explicit, err := runner.Run(context.Background(), Request{Command: "rm named-a named-b", Cwd: root})
-	if err != nil || explicit["wildcard_preview"] == true {
-		t.Fatalf("explicit filenames were guarded: result=%#v err=%v", explicit, err)
-	}
-}
-
-func TestWildcardReceiptKeysWholeRequestAndFailsSafe(t *testing.T) {
-	root := t.TempDir()
-	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Unix(100, 0)
-	base := Request{Command: "printf '%s' *", Cwd: root}
-	if _, guarded, err := runner.guardWildcardRequest(base, "linux", now); err != nil || !guarded {
-		t.Fatalf("first request: guarded=%v err=%v", guarded, err)
-	}
-	changed := base
-	changed.TimeoutMS = 1
-	if _, guarded, err := runner.guardWildcardRequest(changed, "linux", now); err != nil || !guarded {
-		t.Fatalf("changed request consumed receipt: guarded=%v err=%v", guarded, err)
-	}
-	if _, guarded, err := runner.guardWildcardRequest(base, "linux", now.Add(wildcardReceiptTTL+time.Second)); err != nil || !guarded {
-		t.Fatalf("expired receipt did not re-preview: guarded=%v err=%v", guarded, err)
-	}
-
-	runner.wildcardMu.Lock()
-	runner.wildcardReceipts = make(map[[32]byte]time.Time)
-	runner.wildcardMu.Unlock()
-	for index := 0; index < wildcardReceiptCap; index++ {
-		request := Request{Command: fmt.Sprintf("printf %%s file-%d-*", index), Cwd: root}
-		insertedAt := now.Add(time.Duration(index) * time.Second)
-		if _, guarded, err := runner.guardWildcardRequest(request, "linux", insertedAt); err != nil || !guarded {
-			t.Fatalf("cap fill %d: guarded=%v err=%v", index, guarded, err)
+	for _, name := range []string{"a.tmp", "b.tmp"} {
+		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
+			t.Fatalf("the command did not run on first contact: %s still present (%v)", name, err)
 		}
 	}
-	overflow := Request{Command: "printf %s file-overflow-*", Cwd: root}
-	if _, guarded, err := runner.guardWildcardRequest(overflow, "linux", now.Add(wildcardReceiptCap*time.Second)); err != nil || !guarded {
-		t.Fatalf("overflow request: guarded=%v err=%v", guarded, err)
+
+	results, err := vault.RestoreCapture(captureID, false)
+	if err != nil {
+		t.Fatalf("revert failed: %v", err)
 	}
-	evicted := Request{Command: "printf %s file-0-*", Cwd: root}
-	if _, guarded, err := runner.guardWildcardRequest(evicted, "linux", now); err != nil || !guarded {
-		t.Fatalf("evicted receipt did not fail safe: guarded=%v err=%v", guarded, err)
+	if len(results) != 2 {
+		t.Fatalf("revert covered %d paths, want 2: %#v", len(results), results)
+	}
+	for _, name := range []string{"a.tmp", "b.tmp"} {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatalf("revert did not restore %s: %v", name, err)
+		}
+		if string(data) != name {
+			t.Fatalf("revert restored wrong bytes for %s: %q", name, data)
+		}
 	}
 }
 
-func TestWildcardAsyncPreviewPrecedesTaskCreation(t *testing.T) {
-	root := t.TempDir()
-	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")))
+// A directory cannot be quarantined for rm — the coreutils call would fail on
+// it, and substituting success would change the command's own outcome. So the
+// surface is not protectable, nothing runs, and the reason names the blocker.
+func TestDirectoryInSurfaceRefusesWithoutRunning(t *testing.T) {
+	runner, _, root := newGuardRunner(t)
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), Request{Command: "rm *", Cwd: root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := Request{Command: "printf '%s' *", Cwd: root, Async: true}
-	first, err := runner.Run(context.Background(), request)
+	if result["protection"] != "refused" {
+		t.Fatalf("unprotectable surface was not refused: %#v", result)
+	}
+	if result["capture_id"] != nil {
+		t.Fatalf("a refused call must not mint a capture: %#v", result)
+	}
+	reason, _ := result["reason"].(string)
+	if !strings.Contains(reason, "nested") || !strings.Contains(reason, "directory") {
+		t.Fatalf("reason did not name the blocking directory: %q", reason)
+	}
+	if _, err := os.Stat(filepath.Join(root, "keep.txt")); err != nil {
+		t.Fatalf("a refused call ran anyway: %v", err)
+	}
+	if result["surface_digest"] == "" || result["surface_digest"] == nil {
+		t.Fatalf("refusal carried no digest to confirm with: %#v", result)
+	}
+}
+
+// Confirming an unprotectable surface runs it, but the terminal must say the
+// run has no revert. "ran" and "ran revertibly" are different facts.
+func TestConfirmedUnprotectableRunIsLabelledUnbacked(t *testing.T) {
+	runner, _, root := newGuardRunner(t)
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Command: "sed -i s/a/b/ *", Cwd: root}
+	refusal, err := runner.Run(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first["wildcard_preview"] != true {
-		t.Fatalf("first async request queued instead of previewing: %#v", first)
+	digest, _ := refusal["surface_digest"].(string)
+	if digest == "" {
+		t.Fatalf("no digest to confirm: %#v", refusal)
 	}
-	second, err := runner.Run(context.Background(), request)
+
+	request.Confirm = digest
+	confirmed, err := runner.Run(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second["task_id"] == nil || second["status"] != "queued" {
-		t.Fatalf("identical async retry did not queue: %#v", second)
+	if confirmed["protection"] != "unprotected_confirmed" {
+		t.Fatalf("confirmed run was not labelled unbacked: %#v", confirmed)
+	}
+	if confirmed["capture_id"] != nil {
+		t.Fatalf("an unbacked run must not advertise a capture: %#v", confirmed)
+	}
+}
+
+// A confirm carried forward onto a different surface must not succeed by
+// repetition: the digest binds one enumerated surface and nothing else.
+func TestStaleConfirmIsRefusedAndNamesBothSurfaces(t *testing.T) {
+	runner, _, root := newGuardRunner(t)
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := runner.Run(context.Background(), Request{Command: "rm *", Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, _ := first["surface_digest"].(string)
+
+	if err := os.WriteFile(filepath.Join(root, "two.txt"), []byte("two"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := runner.Run(context.Background(), Request{Command: "rm *", Cwd: root, Confirm: stale})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second["protection"] != "refused" {
+		t.Fatalf("a stale confirm was accepted: %#v", second)
+	}
+	fresh, _ := second["surface_digest"].(string)
+	if fresh == "" || fresh == stale {
+		t.Fatalf("the digest did not change with the surface: stale=%q fresh=%q", stale, fresh)
+	}
+}
+
+// Only an UNQUOTED glob on a modeled mutator enters the lane. A quoted pattern
+// is a literal, explicit filenames need no enumeration, and an unmodeled
+// command was never this guard's business.
+func TestUnguardedShapesPassStraightThrough(t *testing.T) {
+	runner, _, root := newGuardRunner(t)
+	for _, name := range []string{"named-a", "named-b"} {
+		if err := os.WriteFile(filepath.Join(root, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	explicit, err := runner.Run(context.Background(), Request{Command: "rm named-a named-b", Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicit["protection"] != nil {
+		t.Fatalf("explicit filenames were guarded: %#v", explicit)
+	}
+
+	quoted, err := runner.Run(context.Background(), Request{
+		Command: shellSource("printf '%s' '*.tmp'", "[Console]::Out.Write('*.tmp')"), Cwd: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quoted["protection"] != nil {
+		t.Fatalf("a quoted literal was guarded: %#v", quoted)
+	}
+}
+
+// A pipeline's surface cannot be honestly enumerated, so it never claims to be
+// capture-backed even though it contains a modeled mutator and a glob.
+func TestPipelineIsNeverClaimedAsProtected(t *testing.T) {
+	runner, _, root := newGuardRunner(t)
+	if err := os.WriteFile(filepath.Join(root, "a.tmp"), []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), Request{
+		Command: shellSource("printf '%s' ok | tee out.txt", "'ok' | Tee-Object out.txt"), Cwd: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["protection"] != nil {
+		t.Fatalf("a pipeline was given a protection verdict: %#v", result)
+	}
+}
+
+// The async lane captures BEFORE it queues, so a task that starts running
+// immediately is already backed.
+func TestAsyncProtectedGlobCapturesBeforeQueueing(t *testing.T) {
+	runner, _, root := newGuardRunner(t)
+	if err := os.WriteFile(filepath.Join(root, "a.tmp"), []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := runner.Run(context.Background(), Request{Command: "rm *.tmp", Cwd: root, Async: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued["task_id"] == nil || queued["status"] != "queued" {
+		t.Fatalf("async protected glob did not queue: %#v", queued)
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
 	"github.com/icediceice/light-tools/internal/settings"
+	"github.com/icediceice/light-tools/internal/snapshot"
 	"github.com/icediceice/light-tools/internal/state"
 	"github.com/icediceice/light-tools/internal/telemetry"
 	"github.com/icediceice/light-tools/internal/vaultui"
@@ -135,6 +136,9 @@ func main() {
 
 func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config, recorder telemetry.Recorder) error {
 	secretVault := secret.New(layout.Secrets)
+	// One vault instance shared by both tools: a capture light_bash takes has
+	// to be restorable through light_file, so they cannot own separate stores.
+	snapshotVault := snapshot.New(layout.Snapshots)
 	// Telemetry is denied too: a writable telemetry root would let light_file
 	// fabricate session-v1-*.json snapshots the vault UI renders as measured data.
 	deniedRoots := []string{layout.Secrets, layout.Snapshots, layout.Spills, layout.Telemetry}
@@ -144,12 +148,13 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	}
 	// The runner is built first so light_file can share its spill store: an
 	// oversized read then comes back as a spill_id readable via light_bash.
-	bashRunner, err := bash.NewRunner(configuration.AllowedRoots, layout.Spills, secretVault)
+	bashRunner, err := bash.NewRunner(configuration.AllowedRoots, layout.Spills, secretVault, snapshotVault)
 	if err != nil {
 		return err
 	}
 	fileHandler, err := filetool.New(filetool.Options{
-		Confiner: confiner, SnapshotRoot: layout.Snapshots, Spills: bashRunner.Spills(), Recorder: recorder,
+		Confiner: confiner, SnapshotRoot: layout.Snapshots, Vault: snapshotVault,
+		Spills: bashRunner.Spills(), Recorder: recorder,
 	})
 	if err != nil {
 		return err
@@ -203,7 +208,7 @@ func toolSchema(name string) map[string]any {
 	properties := map[string]any{}
 	switch name {
 	case "light_file":
-		for _, field := range []string{"verb", "path", "target", "from", "to", "payload", "patch", "patch_path", "content", "new_string", "find", "replace", "start_guard", "end_guard", "cursor", "name", "symbol", "pattern", "a", "b", "expected_sha", "context_epoch"} {
+		for _, field := range []string{"verb", "path", "target", "from", "to", "payload", "patch", "patch_path", "content", "new_string", "find", "replace", "start_guard", "end_guard", "cursor", "name", "symbol", "pattern", "a", "b", "expected_sha", "context_epoch", "capture_id"} {
 			properties[field] = stringType()
 		}
 		for _, field := range []string{"start_line", "end_line", "offset", "limit", "context", "diff_context", "fuzz", "count", "version"} {
@@ -217,7 +222,7 @@ func toolSchema(name string) map[string]any {
 		properties["reads"] = map[string]any{"type": "array", "items": readItem}
 		properties["spans"] = map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"start_line": integerType(), "end_line": integerType(), "start_guard": stringType(), "end_guard": stringType(), "new_string": stringType()}, "required": []string{"start_line", "new_string"}, "additionalProperties": false}}
 	case "light_bash":
-		for _, field := range []string{"verb", "task_id", "command", "cwd", "output_mode", "filter", "spill_id", "spill", "line_range"} {
+		for _, field := range []string{"verb", "task_id", "command", "cwd", "output_mode", "filter", "spill_id", "spill", "line_range", "confirm"} {
 			properties[field] = stringType()
 		}
 		properties["async"], properties["timeout_ms"], properties["lines"] = booleanType(), integerType(), integerType()

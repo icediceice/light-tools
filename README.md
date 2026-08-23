@@ -125,6 +125,126 @@ whole file, and captures a pre-mutation snapshot. `vault_restore` puts it back.
 **Run something noisy.** `light_bash` bounds the output, spills the rest to an
 indexed file, and hands back a cursor to grep or page through.
 
+## Why a layer, and not a passthrough
+
+Your agent already has a file reader and a terminal. light-tools does not replace
+what they do — it replaces how much it costs to use them.
+
+A native tool is built for a caller with unlimited attention. It reads a file by
+returning the file. It runs a command by returning everything the command
+printed. It edits by taking the new contents. None of that is wrong, and all of
+it is fine for a human at a keyboard. For a model, each of those is a bill paid
+out of the one budget that determines whether the task can be finished at all:
+the context window. An agent that spends its window on output it has already
+seen, or on the 19,800 lines it did not need, stops being able to reason about
+the 200 it did.
+
+The layer is the difference between those two callers:
+
+| The native tool | The same operation here |
+| --- | --- |
+| Returns the whole file | Returns the window you asked for, plus an exact `[CONTINUE]` cursor |
+| Re-sends bytes you already hold | Returns a `[dedup]` stub naming the path and content hash |
+| Takes the whole new file to change a span | Takes the span, and keeps a pre-mutation snapshot |
+| Has no undo | `vault_restore`, off a snapshot ring |
+| Prints everything the command printed | Bounds the output, spills the rest to an indexed file, hands back a cursor |
+| Expands `rm *.tmp` and runs it | Enumerates the surface first, captures it, and returns a revert handle |
+| Reports a bad call as a failure | Repairs what is unambiguous and tells the model what it repaired |
+
+Two consequences are worth naming because they are the actual product.
+
+**Bounded by construction, not by convention.** Every result has a ceiling that
+does not depend on the model choosing a sensible `limit`. A read is windowed
+whether or not it was asked to be; a noisy command spills rather than floods.
+The agent cannot blow its own context by being careless, which matters precisely
+because carelessness is not the exception.
+
+**One set of semantics across harnesses.** The five tools are one Go binary
+behind a single invocation seam, so `light_file edit` means the same thing in
+every harness that can speak MCP. Native tools differ per harness in name,
+shape, and limits; anything you teach an agent about them is relearned when it
+moves.
+
+## Engineered against how models actually fail
+
+The failure modes below are not hypothetical categories. They are the specific
+things models across different families do to these tools, and each one is a
+behaviour in the binary rather than an instruction in a prompt. Prompts are
+advice a model may ignore under load; the tool is the thing it actually hits.
+
+The governing rule for all of it: **repair, then say so.** A tool that silently
+fixes a malformed call is worse than one that refuses, because the model never
+learns the shape and makes the same call forever — the cost stops being one
+wasted turn and becomes a permanent tax. Every repair below rides back with a
+warning naming what changed.
+
+**A field name that is one character off.** Every tool schema sets
+`additionalProperties: false`, so `pth` instead of `path` used to be a hard
+refusal — a whole turn spent to learn one character. Near-miss keys are now
+repaired to the declared name. Distance is optimal string alignment rather than
+plain Levenshtein, because an adjacent transposition — `raed` for `read`, the
+most common typo there is — costs one edit, not two.
+
+**Dispatching on the wrong key.** Models reach for `cmd`, `action`, `op` or
+`mode` where the schema wants `verb`. Those fold onto `verb` when the tool
+declares one and none was given. An explicitly supplied `verb` always wins.
+
+**A verb that does not exist.** It is corrected to its nearest catalogue match —
+*unless* that match mutates the filesystem. A typo one edit away from `write`,
+`rename` or `vault_restore` is **refused, never coerced**, naming the candidate
+so the model can send it deliberately. A repair layer that can silently start
+writing files is worse than the refusal it replaced, so that branch is the one
+that never guesses. Where nothing is close enough to correct, the error carries
+the closest match *and* the full sorted vocabulary, so the next call is right
+rather than another sample from the same distribution.
+
+**Guessing when the answer is a coin flip.** A key equidistant from two declared
+fields is dropped, not assigned. An ambiguous repair presented to the model as a
+correction is worse than an honest one-line report of what was dropped.
+
+**A value of the right meaning and the wrong type.** `"12"` where an integer
+belongs is coerced; an optional null is omitted rather than rejected. A value
+that genuinely cannot be coerced is still an error — with a caret, line and
+column pointing at the offending character, not a restatement of the schema.
+
+**A payload too large to send in one call.** Multi-line writes go as a sealed
+heredoc, and a truncated one can be staged and resumed from the line it stopped
+at instead of being restarted from the top.
+
+**Destroying a surface the model never enumerated.** `rm *.tmp` is expanded and
+inspected before anything runs. When the whole surface can be durably captured,
+the command runs on first contact and the result carries a working
+`vault_restore` handle. When it cannot — a directory in the surface, a pipeline
+whose reach cannot be honestly enumerated — it refuses, names the specific
+reason, and shows the surface it computed. The agent is never asked to perform
+the same call twice to prove it meant it, which is a fence that costs a turn and
+protects nothing.
+
+**Reaching for a tool that was deliberately withheld.** A disabled tool is never
+registered at all, so it cannot be called and then apologised for. An unknown
+name in `--disable-tool` is refused at startup rather than silently ignored.
+
+## How much this is worth
+
+Two different measurements, kept apart on purpose.
+
+**At scale, on the Light stack** — the numbers in [Telemetry](#telemetry) below,
+across 319K tool calls. Of 2190.9M tokens considered, 345.0M were delivered:
+the context ledger closes at **1845.9M tokens saved, about 84% of the corpus the
+calls had in front of them.** That is the Light stack's figure, not this
+binary's — light-tools is one component of it, and context engineering is the
+part they share. Coverage there is partial (36.8% / 15.2%) and, as explained
+below, that can only under-state the saving.
+
+**Locally, in light-tools itself** — 12,194 tokens from terse output, 164,087 B
+from read dedup and 116,363 B from span writes, over 45 calls in three throwaway
+sessions on this repository. A deliberately small sample from one machine,
+reported as a persisted lower bound rather than extrapolated into a rate.
+
+The honest summary is that the two agree in direction and are not the same
+claim: the large number belongs to the stack, and the small one is what this
+binary measured about itself.
+
 ## Telemetry
 
 ### At scale, on the Light stack
