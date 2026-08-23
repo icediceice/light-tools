@@ -354,9 +354,80 @@ Built-in defaults are optional: any that do not exist on the machine are
 dropped. Roots you configure yourself are not — a missing one fails at startup
 rather than silently narrowing what is readable.
 
-Configuration, encrypted secrets, snapshots, and runtime spills have separate
-XDG roots. Parent directories are mode 0700 and private files are mode 0600
-where Unix permissions exist.
+Configuration, encrypted secrets, snapshots, runtime spills, and local-only
+telemetry have separate XDG roots. Parent directories are mode 0700 and private
+files are mode 0600 where Unix permissions exist.
+
+## Settings persistence
+
+Tool withholding is the UNION of two sources, and both only ever add:
+
+1. Launch arguments: repeatable `--disable-tool <name>`.
+2. UI-owned markers: one zero-byte mode-0600 file per withheld tool, named
+   exactly for the tool, under `$XDG_CONFIG_HOME/light-tools/disabled-tools/`.
+
+At startup the server loads the markers, refuses an unrecognized marker name
+exactly as it refuses an unknown flag, and registers every tool not withheld by
+either source. A flag-withheld tool therefore cannot be re-enabled through the
+UI: removing its marker changes nothing while the flag remains. The machine
+never writes `config.toml`, and no `disabled_tools` key exists there. Markers
+take effect at the next MCP start, never mid-process.
+
+Vault UI endpoints (behind pairing plus password, Host-pinned, same as the
+vault itself):
+
+- `GET /api/settings` → `{"tools":[{"name","disabled"}...],"ui_disabled":[...],`
+  `"launch_withholding_observable":false}`. `disabled` reflects ONLY the
+  marker state.
+- `POST /api/settings/tools` with exactly `{"tool":"<name>","disabled":<bool>}`
+  mutates ONE marker. Creating an existing marker and removing an absent one
+  are both success, so two processes (MCP server and UI) commute. Unknown
+  fields are refused; a whole replacement set is not expressible.
+
+## Local-only savings telemetry
+
+`$XDG_DATA_HOME/light-tools-telemetry/` holds cumulative per-session snapshots
+named `session-v1-<128-bit-session>-<generation>.json`, written by a background
+writer through temp+fsync+rename onto a name that did not exist, after which the
+prior generation is removed. Each generation carries the session's FULL
+cumulative totals, so a reader takes the highest generation per session — an
+interrupted flush can never double-count, and a session id is random 128-bit so
+PIDs being reused or two processes sharing the directory cannot collide.
+Reading (`GET /api/telemetry`, same auth gate) never mutates the store and
+never races a live writer. A fresh root carrying only `SCHEMA` and `.lock`
+reads as a clean zero. Snapshot files matching the name grammar but failing to
+decode are skipped and reported as health warnings.
+
+Retention and pruning belong to the writer: a session whose newest snapshot is
+older than 30 days is removed, and at most 50 sessions are kept (oldest evicted
+first; the live session is never pruned). Snapshots flush periodically, so the
+UI's totals are a persisted lower bound on true activity.
+
+Exact metric definitions:
+
+- **Terse tokens** — recorded only when terse formatting actually swaps a
+  result (`LIGHT_TERSE_OUTPUT=1`, non-error, strictly smaller): the internal
+  punctuation-aware token estimate of the original `content[0]` minus the
+  estimate of the terse replacement.
+- **Read-dedup bytes** — recorded only when the dedup ledger elides a repeated
+  read: the bounded response payload the caller would have received minus the
+  dedup stub, measured on the response, never the source file. For a batch item
+  the baseline is the rendered item section; in the rare oversized-single-line
+  case the baseline is the truncated content, so the credit is conservative.
+- **Writing bytes** — measured once per COMMIT for `write`, `edit`, `sed`, and
+  `rewrite`: `max(0, len(postimage) - payload bytes that commit actually
+  carried)` — the counterfactual bytes a full rewrite would have had to send to
+  reach the identical on-disk state; the UI labels it "vs. sending a full
+  rewrite". A grouped same-path batch sums its members' payloads against its
+  single commit. `rename` commits no content and `vault_restore` restores vault
+  content, so neither records.
+- **Call counts** — one per `tools/call` dispatched to a registered tool.
+  Counts are usage, not savings, and the UI renders them in a separate section.
+
+Opt out entirely with `DO_NOT_TRACK=1` or a non-empty `LIGHT_NO_TELEMETRY`; the
+check runs once at construction, and with it set no telemetry code records or
+writes anything. Recording is in-memory and non-blocking on the tool path; a
+recorder panic or a stalled filesystem cannot alter or delay a tool result.
 
 ## Symbol extraction
 
