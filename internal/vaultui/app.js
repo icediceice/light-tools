@@ -5,6 +5,14 @@
   const pairView = byId("pair-view");
   const passwordView = byId("password-view");
   const vaultView = byId("vault-view");
+  const vaultPanel = byId("vault-panel");
+  const settingsView = byId("settings-view");
+  const telemetryView = byId("telemetry-view");
+  const viewTabs = {
+    vault: byId("view-vault"),
+    settings: byId("view-settings"),
+    telemetry: byId("view-telemetry")
+  };
   const logoutButton = byId("logout");
   const message = byId("message");
   let token = sessionStorage.getItem("light-vault-session") || "";
