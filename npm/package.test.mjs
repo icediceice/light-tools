@@ -32,16 +32,16 @@ function countLiteral(text, needle) {
 }
 
 const platformNames = [
-  "@icediceice/light-tools-darwin-arm64",
-  "@icediceice/light-tools-darwin-x64",
-  "@icediceice/light-tools-linux-arm64",
-  "@icediceice/light-tools-linux-x64",
-  "@icediceice/light-tools-win32-arm64",
-  "@icediceice/light-tools-win32-x64",
+  "@factor-i-o/light-tools-darwin-arm64",
+  "@factor-i-o/light-tools-darwin-x64",
+  "@factor-i-o/light-tools-linux-arm64",
+  "@factor-i-o/light-tools-linux-x64",
+  "@factor-i-o/light-tools-win32-arm64",
+  "@factor-i-o/light-tools-win32-x64",
 ];
 
 test("the committed root manifest is inert and publish-safe", () => {
-  assert.equal(rootPackage.name, "@icediceice/light-tools");
+  assert.equal(rootPackage.name, "@factor-i-o/light-tools");
   assert.equal(rootPackage.version, "0.0.0-development");
   assert.deepEqual(rootPackage.bin, { "light-tools": "npm/cli.mjs" });
   assert.deepEqual(rootPackage.files, ["npm/cli.mjs", "npm/platform.mjs"]);
@@ -92,7 +92,7 @@ test("candidate root manifests pin every optional package to the release version
 
 test("platform manifests carry npm compatibility gates and no executable shim", () => {
   const linux = createPlatformManifest("linux-x64", "1.2.3");
-  assert.equal(linux.name, "@icediceice/light-tools-linux-x64");
+  assert.equal(linux.name, "@factor-i-o/light-tools-linux-x64");
   assert.deepEqual(linux.os, ["linux"]);
   assert.deepEqual(linux.cpu, ["x64"]);
   assert.deepEqual(linux.libc, ["glibc"]);

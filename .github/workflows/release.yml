@@ -206,13 +206,13 @@ jobs:
           node scripts/build-npm-packages.mjs             --version "$VERSION"             --artifacts artifacts             --output release > "$RUNNER_TEMP/npm-packages.json"
 
           npm_assets=(
-            "icediceice-light-tools-darwin-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-darwin-x64-${VERSION}.tgz"
-            "icediceice-light-tools-linux-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-linux-x64-${VERSION}.tgz"
-            "icediceice-light-tools-win32-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-win32-x64-${VERSION}.tgz"
-            "icediceice-light-tools-${VERSION}.tgz"
+            "factor-i-o-light-tools-darwin-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-darwin-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-linux-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-linux-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-win32-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-win32-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-${VERSION}.tgz"
           )
           printf '%s\n' "${npm_assets[@]}" | sort > "$RUNNER_TEMP/expected-npm-assets.txt"
           jq -r '.[].filename' "$RUNNER_TEMP/npm-packages.json" | sort > "$RUNNER_TEMP/actual-npm-assets.txt"
@@ -226,7 +226,7 @@ jobs:
           for asset in "${expected_assets[@]}"; do
             size="$(wc -c < "release/$asset")"
             limit=33554432
-            if [ "$asset" = "icediceice-light-tools-${VERSION}.tgz" ]; then
+            if [ "$asset" = "factor-i-o-light-tools-${VERSION}.tgz" ]; then
               limit=1048576
             fi
             if [ "$size" -gt "$limit" ]; then
@@ -417,8 +417,8 @@ jobs:
 
           $npmOs = if ("${{ matrix.os }}" -eq "windows") { "win32" } else { "${{ matrix.os }}" }
           $npmArch = if ("${{ matrix.arch }}" -eq "amd64") { "x64" } else { "arm64" }
-          $rootTgz = (Resolve-Path (Join-Path $candidate "icediceice-light-tools-$($env:VERSION).tgz")).Path
-          $nativeTgz = (Resolve-Path (Join-Path $candidate "icediceice-light-tools-$npmOs-$npmArch-$($env:VERSION).tgz")).Path
+          $rootTgz = (Resolve-Path (Join-Path $candidate "factor-i-o-light-tools-$($env:VERSION).tgz")).Path
+          $nativeTgz = (Resolve-Path (Join-Path $candidate "factor-i-o-light-tools-$npmOs-$npmArch-$($env:VERSION).tgz")).Path
           $npmPrefix = Join-Path $env:RUNNER_TEMP "npm-prefix"
           $npmCache = Join-Path $env:RUNNER_TEMP "npm-cache"
           $npmUserConfig = Join-Path $env:RUNNER_TEMP "empty-npmrc"
@@ -433,11 +433,11 @@ jobs:
 
           if ($env:RUNNER_OS -eq "Windows") {
             $npmShim = Join-Path $npmPrefix "light-tools.cmd"
-            $npmBinary = Join-Path $npmPrefix "node_modules/@icediceice/light-tools-$npmOs-$npmArch/bin/light-tools.exe"
+            $npmBinary = Join-Path $npmPrefix "node_modules/@factor-i-o/light-tools-$npmOs-$npmArch/bin/light-tools.exe"
           }
           else {
             $npmShim = Join-Path $npmPrefix "bin/light-tools"
-            $npmBinary = Join-Path $npmPrefix "lib/node_modules/@icediceice/light-tools-$npmOs-$npmArch/bin/light-tools"
+            $npmBinary = Join-Path $npmPrefix "lib/node_modules/@factor-i-o/light-tools-$npmOs-$npmArch/bin/light-tools"
           }
           if (-not (Test-Path -LiteralPath $npmShim -PathType Leaf)) {
             throw "npm did not create the documented shim: $npmShim"

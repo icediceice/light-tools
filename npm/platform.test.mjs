@@ -10,12 +10,12 @@ import {
 } from "./platform.mjs";
 
 const expected = [
-  ["darwin", "arm64", "darwin-arm64", "@icediceice/light-tools-darwin-arm64", "light-tools"],
-  ["darwin", "x64", "darwin-x64", "@icediceice/light-tools-darwin-x64", "light-tools"],
-  ["linux", "arm64", "linux-arm64", "@icediceice/light-tools-linux-arm64", "light-tools"],
-  ["linux", "x64", "linux-x64", "@icediceice/light-tools-linux-x64", "light-tools"],
-  ["win32", "arm64", "win32-arm64", "@icediceice/light-tools-win32-arm64", "light-tools.exe"],
-  ["win32", "x64", "win32-x64", "@icediceice/light-tools-win32-x64", "light-tools.exe"],
+  ["darwin", "arm64", "darwin-arm64", "@factor-i-o/light-tools-darwin-arm64", "light-tools"],
+  ["darwin", "x64", "darwin-x64", "@factor-i-o/light-tools-darwin-x64", "light-tools"],
+  ["linux", "arm64", "linux-arm64", "@factor-i-o/light-tools-linux-arm64", "light-tools"],
+  ["linux", "x64", "linux-x64", "@factor-i-o/light-tools-linux-x64", "light-tools"],
+  ["win32", "arm64", "win32-arm64", "@factor-i-o/light-tools-win32-arm64", "light-tools.exe"],
+  ["win32", "x64", "win32-x64", "@factor-i-o/light-tools-win32-x64", "light-tools.exe"],
 ];
 
 test("the public package matrix is exact and deterministic", () => {

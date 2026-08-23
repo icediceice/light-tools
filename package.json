@@ -1,5 +1,5 @@
 {
-  "name": "@icediceice/light-tools",
+  "name": "@factor-i-o/light-tools",
   "version": "0.0.0-development",
   "description": "Standalone Light-compatible MCP tools for local files, shell, SSH/SCP, and operations.",
   "type": "module",
@@ -34,11 +34,11 @@
   },
 
   "optionalDependencies": {
-    "@icediceice/light-tools-darwin-arm64": "0.0.0-development",
-    "@icediceice/light-tools-darwin-x64": "0.0.0-development",
-    "@icediceice/light-tools-linux-arm64": "0.0.0-development",
-    "@icediceice/light-tools-linux-x64": "0.0.0-development",
-    "@icediceice/light-tools-win32-arm64": "0.0.0-development",
-    "@icediceice/light-tools-win32-x64": "0.0.0-development"
+    "@factor-i-o/light-tools-darwin-arm64": "0.0.0-development",
+    "@factor-i-o/light-tools-darwin-x64": "0.0.0-development",
+    "@factor-i-o/light-tools-linux-arm64": "0.0.0-development",
+    "@factor-i-o/light-tools-linux-x64": "0.0.0-development",
+    "@factor-i-o/light-tools-win32-arm64": "0.0.0-development",
+    "@factor-i-o/light-tools-win32-x64": "0.0.0-development"
   }
 }

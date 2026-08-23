@@ -149,13 +149,13 @@ jobs:
             "light-tools_${VERSION}_linux_arm64.tar.gz"
             "light-tools_${VERSION}_windows_amd64.zip"
             "light-tools_${VERSION}_windows_arm64.zip"
-            "icediceice-light-tools-darwin-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-darwin-x64-${VERSION}.tgz"
-            "icediceice-light-tools-linux-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-linux-x64-${VERSION}.tgz"
-            "icediceice-light-tools-win32-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-win32-x64-${VERSION}.tgz"
-            "icediceice-light-tools-${VERSION}.tgz"
+            "factor-i-o-light-tools-darwin-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-darwin-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-linux-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-linux-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-win32-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-win32-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-${VERSION}.tgz"
           )
           printf '%s\n' "${expected_assets[@]}" | sort > expected-assets.txt
           find release -maxdepth 1 -type f -printf '%f\n' | sort > actual-files.txt
@@ -255,22 +255,22 @@ jobs:
           fi
 
           packages=(
-            "@icediceice/light-tools-darwin-arm64"
-            "@icediceice/light-tools-darwin-x64"
-            "@icediceice/light-tools-linux-arm64"
-            "@icediceice/light-tools-linux-x64"
-            "@icediceice/light-tools-win32-arm64"
-            "@icediceice/light-tools-win32-x64"
-            "@icediceice/light-tools"
+            "@factor-i-o/light-tools-darwin-arm64"
+            "@factor-i-o/light-tools-darwin-x64"
+            "@factor-i-o/light-tools-linux-arm64"
+            "@factor-i-o/light-tools-linux-x64"
+            "@factor-i-o/light-tools-win32-arm64"
+            "@factor-i-o/light-tools-win32-x64"
+            "@factor-i-o/light-tools"
           )
           tarballs=(
-            "icediceice-light-tools-darwin-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-darwin-x64-${VERSION}.tgz"
-            "icediceice-light-tools-linux-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-linux-x64-${VERSION}.tgz"
-            "icediceice-light-tools-win32-arm64-${VERSION}.tgz"
-            "icediceice-light-tools-win32-x64-${VERSION}.tgz"
-            "icediceice-light-tools-${VERSION}.tgz"
+            "factor-i-o-light-tools-darwin-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-darwin-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-linux-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-linux-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-win32-arm64-${VERSION}.tgz"
+            "factor-i-o-light-tools-win32-x64-${VERSION}.tgz"
+            "factor-i-o-light-tools-${VERSION}.tgz"
           )
 
           publish_one() {

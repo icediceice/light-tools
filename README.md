@@ -11,7 +11,7 @@ The public package installs the matching native binary from npm itself; it does
 not run a lifecycle downloader or contact GitHub during installation.
 
 ```sh
-npm install --global @icediceice/light-tools
+npm install --global @factor-i-o/light-tools
 light-tools init
 claude mcp add light-tools -- light-tools
 ```

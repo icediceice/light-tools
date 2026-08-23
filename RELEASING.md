@@ -86,13 +86,13 @@ the promoted `0.1.0` release is complete:
    Mac mini. Verify the manifest SHA-256 and each tarball before publishing.
 2. Publish these six platform packages first with `npm publish --access public
    --tag latest <tarball>`:
-   - `@icediceice/light-tools-darwin-arm64`
-   - `@icediceice/light-tools-darwin-x64`
-   - `@icediceice/light-tools-linux-arm64`
-   - `@icediceice/light-tools-linux-x64`
-   - `@icediceice/light-tools-win32-arm64`
-   - `@icediceice/light-tools-win32-x64`
-3. Publish `@icediceice/light-tools` last from its exact promoted tarball.
+   - `@factor-i-o/light-tools-darwin-arm64`
+   - `@factor-i-o/light-tools-darwin-x64`
+   - `@factor-i-o/light-tools-linux-arm64`
+   - `@factor-i-o/light-tools-linux-x64`
+   - `@factor-i-o/light-tools-win32-arm64`
+   - `@factor-i-o/light-tools-win32-x64`
+3. Publish `@factor-i-o/light-tools` last from its exact promoted tarball.
 4. With npm 11.19 or newer, create the publisher relationship for every package:
 
    ```sh
