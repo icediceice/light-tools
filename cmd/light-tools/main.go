@@ -117,7 +117,7 @@ func main() {
 	}
 }
 
-func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config) error {
+func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config, recorder telemetry.Recorder) error {
 	secretVault := secret.New(layout.Secrets)
 	// Telemetry is denied too: a writable telemetry root would let light_file
 	// fabricate session-v1-*.json snapshots the vault UI renders as measured data.
