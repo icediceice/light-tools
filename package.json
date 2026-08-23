@@ -3,7 +3,7 @@
   "version": "0.0.0-development",
   "description": "Standalone MCP server giving any agent bounded file, shell, SSH/SCP, and service-log tools. Every tool is registered by default; withhold one with --disable-tool.",
   "type": "module",
-  "license": "Apache-2.0",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/icediceice/light-tools.git"
