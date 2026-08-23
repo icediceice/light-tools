@@ -168,6 +168,7 @@ func (h *Handler) mutate(ctx context.Context, mutation fileop.Mutation) (any, er
 		return nil, err
 	}
 	h.cache.Invalidate(path)
+	h.recordWriteSavings(carriedBytes(mutation), transformed.Data)
 	response := map[string]any{"commit": result, "replacements": transformed.Replacements, "spans": transformed.Spans}
 	if mutation.Verb == fileop.VerbEdit {
 		response["numbered"] = numbered(transformed.Data)
