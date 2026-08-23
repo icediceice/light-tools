@@ -45,6 +45,13 @@ type session struct {
 type Server struct {
 	vault *secret.Vault
 	auth  *secret.PasswordAuth
+	// tools is the complete tool-name surface the settings view can toggle;
+	// settings holds the UI-owned disabled markers; telemetry reads aggregate
+	// snapshots. Both are optional: without them the corresponding view
+	// reports itself unavailable rather than the whole UI failing.
+	tools     []string
+	settings  *settings.Store
+	telemetry func() (telemetry.Totals, error)
 
 	mu          sync.Mutex
 	host        string
@@ -55,8 +62,17 @@ type Server struct {
 	now         func() time.Time
 }
 
-func New(vault *secret.Vault, auth *secret.PasswordAuth) (*Server, error) {
-	if vault == nil || auth == nil {
+// Options assembles a vault UI server. Vault and Auth are required.
+type Options struct {
+	Vault     *secret.Vault
+	Auth      *secret.PasswordAuth
+	Tools     []string
+	Settings  *settings.Store
+	Telemetry func() (telemetry.Totals, error)
+}
+
+func New(options Options) (*Server, error) {
+	if options.Vault == nil || options.Auth == nil {
 		return nil, fmt.Errorf("vault and password auth are required")
 	}
 	code, err := randomPairingCode()
@@ -65,7 +81,8 @@ func New(vault *secret.Vault, auth *secret.PasswordAuth) (*Server, error) {
 	}
 	now := time.Now()
 	return &Server{
-		vault: vault, auth: auth, pairingCode: code, pairExpires: now.Add(pairLifetime),
+		vault: options.Vault, auth: options.Auth, pairingCode: code, pairExpires: now.Add(pairLifetime),
+		tools: options.Tools, settings: options.Settings, telemetry: options.Telemetry,
 		sessions: make(map[string]session), now: time.Now,
 	}, nil
 }
