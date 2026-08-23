@@ -1,4 +1,4 @@
-const SCOPE = "@icediceice";
+const SCOPE = "@factor-i-o";
 
 const definitions = [
   {

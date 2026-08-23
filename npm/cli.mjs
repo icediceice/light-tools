@@ -31,7 +31,7 @@ export class NativeBinaryError extends Error {
     super(
       `native binary ${binary} for ${definition.packageName} could not be started; ` +
       `the installation is incomplete, not executable, or built for a different C library. ` +
-      `Reinstall with: npm install --global --force @icediceice/light-tools. ` +
+      `Reinstall with: npm install --global --force @factor-i-o/light-tools. ` +
       `Alpine/musl is unsupported because release binaries require glibc.`,
       { cause },
     );

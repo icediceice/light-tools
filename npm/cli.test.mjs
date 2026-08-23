@@ -36,7 +36,7 @@ test("npm bin symlinks still execute the installed module as main", () => {
   };
   assert.equal(
     isMain(
-      "file:///prefix/lib/node_modules/@icediceice/light-tools/npm/cli.mjs",
+      "file:///prefix/lib/node_modules/@factor-i-o/light-tools/npm/cli.mjs",
       "/prefix/bin/light-tools",
       canonicalize,
     ),
@@ -53,13 +53,13 @@ test("native resolution is anchored at the exact optional package", () => {
     arch: "x64",
     resolve(specifier) {
       calls.push(specifier);
-      return "/prefix/lib/node_modules/@icediceice/light-tools-linux-x64/package.json";
+      return "/prefix/lib/node_modules/@factor-i-o/light-tools-linux-x64/package.json";
     },
   });
-  assert.deepEqual(calls, ["@icediceice/light-tools-linux-x64/package.json"]);
+  assert.deepEqual(calls, ["@factor-i-o/light-tools-linux-x64/package.json"]);
   assert.equal(
     resolved,
-    "/prefix/lib/node_modules/@icediceice/light-tools-linux-x64/bin/light-tools",
+    "/prefix/lib/node_modules/@factor-i-o/light-tools-linux-x64/bin/light-tools",
   );
 });
 
@@ -76,7 +76,7 @@ test("a missing optional package gives one actionable deterministic error", () =
     }),
     (error) => {
       assert.ok(error instanceof NativePackageError);
-      assert.match(error.message, /@icediceice\/light-tools-linux-x64/);
+      assert.match(error.message, /@factor-i-o\/light-tools-linux-x64/);
       assert.match(error.message, /--omit=optional/);
       assert.match(error.message, /Alpine|musl/);
       return true;
@@ -155,8 +155,8 @@ test("native start failures are actionable and preserve their cause", async () =
       assert.ok(error instanceof NativeBinaryError);
       assert.equal(error.code, "E_NATIVE_BINARY_UNUSABLE");
       assert.equal(error.cause, failure);
-      assert.match(error.message, /@icediceice\/light-tools-linux-arm64/);
-      assert.match(error.message, /npm install --global --force @icediceice\/light-tools/);
+      assert.match(error.message, /@factor-i-o\/light-tools-linux-arm64/);
+      assert.match(error.message, /npm install --global --force @factor-i-o\/light-tools/);
       assert.match(error.message, /glibc/);
       return true;
     });
