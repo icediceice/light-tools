@@ -16,7 +16,7 @@ func TestResolveCreatesSeparatePrivateStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths := []string{layout.Config, layout.Secrets, layout.Snapshots, layout.Spills}
+	paths := []string{layout.Config, layout.Secrets, layout.Snapshots, layout.Spills, layout.Telemetry}
 	seen := make(map[string]bool)
 	for _, path := range paths {
 		if seen[path] {
