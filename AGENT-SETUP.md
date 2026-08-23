@@ -121,6 +121,15 @@ light-tools init --client claude --disable-tool light_ssh --disable-tool light_s
 If a tool is missing from your tool list, it was withheld deliberately. Say so
 plainly instead of falling back to a native tool.
 
+Withholding has two sources and they only ever add up: launch arguments like
+`--disable-tool`, and the operator's Settings view in `light-tools vault ui`,
+whose toggles take effect at the next MCP start. The UI cannot see the launch
+arguments, so a tool being enabled in that view does not mean it will register.
+When a tool you expect is missing, state that it was withheld, do not emulate it
+with native tools, and do not ask the operator to run the work by hand — say
+what you would have used it for and let the operator decide whether to restart
+the server without that withholding.
+
 The retired `--enable-shell`, `--enable-remote`, and `--enable-ops` flags still
 parse so existing configurations keep launching, but they no longer gate
 anything and warn on stderr.
