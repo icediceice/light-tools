@@ -29,6 +29,8 @@ type Options struct {
 	Confiner     *security.Confiner
 	SnapshotRoot string
 	Spills       spillStore
+	// Recorder receives local-only savings aggregates. Nil records nothing.
+	Recorder telemetry.Recorder
 }
 
 type Handler struct {
@@ -37,6 +39,7 @@ type Handler struct {
 	cache     *readcache.Ledger
 	assembler *payload.Assembler
 	spills    spillStore
+	recorder  telemetry.Recorder
 }
 
 type Item struct {
