@@ -133,7 +133,7 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 		return err
 	}
 	fileHandler, err := filetool.New(filetool.Options{
-		Confiner: confiner, SnapshotRoot: layout.Snapshots, Spills: bashRunner.Spills(),
+		Confiner: confiner, SnapshotRoot: layout.Snapshots, Spills: bashRunner.Spills(), Recorder: recorder,
 	})
 	if err != nil {
 		return err
