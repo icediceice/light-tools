@@ -333,13 +333,38 @@ type Totals struct {
 // counts, so an interrupted flush never double-counts. Files that match the
 // grammar but fail to decode are skipped and reported as health warnings.
 func Load(dir string) (Totals, error) {
-	totals := Totals{}
+	totals, superseded, err := scanTotals(dir)
+	if err != nil {
+		return Totals{}, err
+	}
+	if superseded {
+		// A grammar-matching snapshot vanished between listing and open: a
+		// concurrent writer published the next generation and removed the one
+		// this pass listed. The partial pass may have missed the replacement,
+		// so discard its state and scan once more from a fresh listing. One
+		// retry bounds the work; churn that outlives it surfaces as ordinary
+		// warnings on the second pass.
+		totals, _, err = scanTotals(dir)
+		if err != nil {
+			return Totals{}, err
+		}
+	}
+	return totals, nil
+}
+
+// scanTotals performs one aggregation pass over dir. superseded reports that a
+// snapshot matching the grammar disappeared mid-scan, so the caller must
+// discard this pass's partial totals and warnings — they may omit a session
+// whose only listed generation was superseded. Failures on files that still
+// exist (permission, decode, identity mismatch) remain health warnings.
+func scanTotals(dir string) (totals Totals, superseded bool, err error) {
+	totals = Totals{}
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return totals, nil
+		return totals, false, nil
 	}
 	if err != nil {
-		return totals, err
+		return totals, false, err
 	}
 	type retained struct {
 		data       snapshot
