@@ -199,24 +199,24 @@ information the caller believed was complete.
 
 ## How much this is worth
 
-Two different measurements, kept apart on purpose.
+One measurement, taken at two very different sample sizes.
 
 **At scale, on the Light stack** — the numbers in [Telemetry](#telemetry) below,
 across 319K tool calls. Of 2190.9M tokens considered, 345.0M were delivered:
 the context ledger closes at **1845.9M tokens saved, about 84% of the corpus the
-calls had in front of them.** That is the Light stack's figure, not this
-binary's — light-tools is one component of it, and context engineering is the
-part they share. Coverage there is partial (36.8% / 15.2%) and, as explained
-below, that can only under-state the saving.
+calls had in front of them.** The telemetry instruments tool calls and nothing
+else, and what it measures is the same targeting-and-compression primitive
+light-tools ships — so this is not a different claim scaled up, it is the same
+quantity over a much larger sample. Coverage there is partial (36.8% / 15.2%)
+and, as explained below, that can only under-state the saving.
 
 **Locally, in light-tools itself** — 12,194 tokens from terse output, 164,087 B
 from read dedup and 116,363 B from span writes, over 45 calls in three throwaway
 sessions on this repository. A deliberately small sample from one machine,
 reported as a persisted lower bound rather than extrapolated into a rate.
 
-The honest summary is that the two agree in direction and are not the same
-claim: the large number belongs to the stack, and the small one is what this
-binary measured about itself.
+What separates the two figures is how much was measured, not what: 319K calls
+against 45, on the same primitive.
 
 ## Install
 
@@ -303,9 +303,10 @@ open.
 
 ### At scale, on the Light stack
 
-These are the **Light stack's** measured numbers, not this binary's — light-tools
-is one component of it, and the context-engineering approach is the shared part.
-Reported by the platform's own telemetry over 319K tool calls:
+The Light stack's own telemetry, over 319K tool calls. It instruments tool calls
+and nothing else, and the primitive it measures — targeting and compressing what
+a tool hands back — is the one light-tools implements, so these numbers and the
+local ones below measure the same thing on very different sample sizes:
 
 | | |
 | --- | --- |
