@@ -30,8 +30,10 @@ Verbs: `read`, `list`, `symbol`, `outline`, `locate`, `diff`, `identity`,
 `write`, `edit`, `sed`, `rename`, `rewrite`, `vault_list`, `vault_restore`.
 
 Reads are windowed and paginated under a shared budget, returning an exact
-`[CONTINUE]` cursor rather than truncating. A repeat read of unchanged content
-returns a `[dedup]` stub naming the path and content hash instead of the bytes.
+`[CONTINUE]` cursor rather than truncating. A repeat read of the same window of
+unchanged content returns a `[dedup]` stub naming the path, content hash and
+line range instead of the bytes. Dedup is keyed on the window, not the file, so
+a different offset or limit is always served in full.
 
 Dedup needs no client cooperation: the server mints one epoch per process at
 startup and uses it whenever a request omits `context_epoch`, which scopes the
