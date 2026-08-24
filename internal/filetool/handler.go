@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 
 	"time"
 
@@ -36,6 +37,13 @@ type Options struct {
 	Spills spillStore
 	// Recorder receives local-only savings aggregates. Nil records nothing.
 	Recorder telemetry.Recorder
+	// DefaultEpoch scopes the read-dedup ledger for requests that do not carry
+	// their own context_epoch. Dedup used to be off unless the CLIENT thought to
+	// send an epoch, which made a headline saving opt-in behind a parameter no
+	// model knows to invent. main mints one per process; Serve is a single-client
+	// stdio loop, so process lifetime is connection lifetime. Empty keeps the old
+	// client-gated behaviour.
+	DefaultEpoch string
 }
 
 type Handler struct {
@@ -45,6 +53,8 @@ type Handler struct {
 	assembler *payload.Assembler
 	spills    spillStore
 	recorder  telemetry.Recorder
+	// defaultEpoch is used when a request omits context_epoch. See Options.
+	defaultEpoch string
 }
 
 type Item struct {
@@ -114,6 +124,7 @@ func New(options Options) (*Handler, error) {
 		confiner: options.Confiner, vault: vault,
 		cache: readcache.New(10*time.Minute, 512), assembler: payload.NewAssembler(),
 		spills: options.Spills, recorder: options.Recorder,
+		defaultEpoch: options.DefaultEpoch,
 	}, nil
 }
 
@@ -159,6 +170,26 @@ func (h *Handler) recordWriteSavings(carried int, postimage []byte) {
 	}
 }
 
+// noReadDedup is the operator kill switch, mirroring the DO_NOT_TRACK /
+// LIGHT_NO_TELEMETRY opt-out already used for telemetry. It exists because this
+// changes a default for every existing client, and an operator needs a way back
+// that is not a version downgrade.
+const noReadDedup = "LIGHT_NO_READ_DEDUP"
+
+// resolveEpoch decides the dedup scope for one request. The kill switch wins
+// over an explicit client epoch too: an operator turning dedup off means off,
+// not "off unless the caller asks for it". ShouldElide already treats an empty
+// epoch as disabled, so returning "" is the whole mechanism.
+func (h *Handler) resolveEpoch(requested string) string {
+	if os.Getenv(noReadDedup) != "" {
+		return ""
+	}
+	if requested != "" {
+		return requested
+	}
+	return h.defaultEpoch
+}
+
 func (h *Handler) Portable() portable.Handler {
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
 		var request Request
@@ -166,6 +197,7 @@ func (h *Handler) Portable() portable.Handler {
 			return nil, &portable.DiagnosticError{Code: "E_SCHEMA", Message: err.Error()}
 		}
 		request.normalize()
+		request.ContextEpoch = h.resolveEpoch(request.ContextEpoch)
 		if request.Payload != "" {
 			mutations, partial, err := h.assembler.Assemble(request.Payload)
 			if err != nil {

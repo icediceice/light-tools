@@ -345,8 +345,9 @@ Measured over 45 tool calls in three throwaway sessions on this repository:
 | Read dedup | 164,087 B |
 | Writing (vs. full rewrite) | 116,363 B |
 
-Read dedup only engages when the client sends a context epoch; without one it is
-disabled and records zero. Totals are a persisted lower bound.
+Read dedup is on by default: the server scopes it per connection, so a client
+that sends no context epoch still gets it. Set `LIGHT_NO_READ_DEDUP` to switch
+it off. Totals are a persisted lower bound.
 
 That local data never leaves the machine: aggregates only, no paths, arguments,
 commands, hostnames or usernames, and no network component of any kind. Opt out

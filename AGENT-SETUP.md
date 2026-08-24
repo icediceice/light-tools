@@ -117,9 +117,10 @@ block to paste.
 
 Do not route around a tool by asking the operator to run something by hand.
 
-Pass a stable `context_epoch` on reads within one task. It is what enables
-dedup: a repeat read of unchanged content returns a `[dedup]` stub instead of
-the file body. Without it, dedup is disabled.
+A repeat read of unchanged content returns a `[dedup]` stub instead of the file
+body. You do not have to arrange this: the server scopes dedup to its own
+connection automatically. Pass `context_epoch` only if you want to control that
+scope yourself, and `force: true` on a read whose bytes you no longer hold.
 
 ## 5. If a tool is missing
 

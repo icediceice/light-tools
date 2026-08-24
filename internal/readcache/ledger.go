@@ -35,8 +35,11 @@ func New(ttl time.Duration, capacity int) *Ledger {
 	return &Ledger{ttl: ttl, capacity: capacity, items: make(map[key]*list.Element), order: list.New()}
 }
 
-// ShouldElide is disabled when contextEpoch is empty. Otherwise it records the
-// content-hash key and returns true only for a live prior observation.
+// ShouldElide is disabled when contextEpoch is empty. That is now the kill
+// switch rather than the default: the filetool handler derives a per-process
+// epoch when the client sends none, and only LIGHT_NO_READ_DEDUP (or an
+// unseeded server) leaves it empty. Otherwise it records the content-hash key
+// and returns true only for a live prior observation.
 func (l *Ledger) ShouldElide(contextEpoch, path, hash string, force bool) bool {
 	if contextEpoch == "" {
 		return false

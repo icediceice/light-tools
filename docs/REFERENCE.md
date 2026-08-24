@@ -30,10 +30,15 @@ Verbs: `read`, `list`, `symbol`, `outline`, `locate`, `diff`, `identity`,
 `write`, `edit`, `sed`, `rename`, `rewrite`, `vault_list`, `vault_restore`.
 
 Reads are windowed and paginated under a shared budget, returning an exact
-`[CONTINUE]` cursor rather than truncating. Pass a stable `context_epoch` to
-enable dedup: a repeat read of unchanged content returns a `[dedup]` stub naming
-the path and content hash instead of the bytes. **Dedup is disabled when
-`context_epoch` is empty** and records nothing.
+`[CONTINUE]` cursor rather than truncating. A repeat read of unchanged content
+returns a `[dedup]` stub naming the path and content hash instead of the bytes.
+
+Dedup needs no client cooperation: the server mints one epoch per process at
+startup and uses it whenever a request omits `context_epoch`, which scopes the
+ledger to a single connection because the stdio loop serves a single client.
+Send `context_epoch` to choose that scope yourself, `force: true` to re-serve
+bytes the caller no longer holds, and set `LIGHT_NO_READ_DEDUP` to a non-empty
+value to switch dedup off entirely — that overrides a client-supplied epoch too.
 
 Mutations are confined to configured roots and use per-path locking, optional
 `expected_sha` compare-and-swap, mode-preserving atomic replacement, identity
@@ -183,6 +188,11 @@ a repo-local file must not be able to widen the boundary.
 
 Built-in defaults that do not exist are dropped; a root you configured yourself
 fails at startup rather than silently narrowing what is readable.
+
+Two environment switches turn behaviour off rather than configure it:
+`LIGHT_NO_READ_DEDUP` disables read dedup entirely, including for a client that
+sends its own `context_epoch`; `DO_NOT_TRACK` or `LIGHT_NO_TELEMETRY` disables
+telemetry. Both take any non-empty value.
 
 Configuration, secrets, snapshots, spills and telemetry have separate XDG roots
 (directories 0700, private files 0600).

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -152,9 +154,21 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	if err != nil {
 		return err
 	}
+	// One dedup epoch per process. mcp.Server.Serve is a single-client stdio
+	// loop, so process lifetime IS connection lifetime — exactly the scope read
+	// dedup wants. Deriving it here is what makes dedup work at all for a client
+	// that never sends context_epoch, which was every client that did not know
+	// the parameter existed. A rand failure degrades to no dedup, never to a
+	// shared constant: a fixed epoch would leak one client's ledger into the next.
+	epochSeed := make([]byte, 8)
+	defaultEpoch := ""
+	if _, randErr := rand.Read(epochSeed); randErr == nil {
+		defaultEpoch = hex.EncodeToString(epochSeed)
+	}
 	fileHandler, err := filetool.New(filetool.Options{
 		Confiner: confiner, SnapshotRoot: layout.Snapshots, Vault: snapshotVault,
 		Spills: bashRunner.Spills(), Recorder: recorder,
+		DefaultEpoch: defaultEpoch,
 	})
 	if err != nil {
 		return err
