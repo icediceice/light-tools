@@ -328,7 +328,7 @@
       el("div", "row-meta", authoritative
         ? "config.toml sets allowed_roots, which outranks this switch — edit the file to change the boundary"
         : confined
-          ? "light_file, light_bash and light_ops will be confined at the next MCP start"
+          ? "At the next MCP start: light_file paths, local SCP endpoints and caller-supplied light_ops paths are held inside the working directory. light_bash only has its cwd held there — the command itself still reaches any path."
           : "Unconfined: every path is reachable except light-tools' own secrets, snapshots, spills and telemetry")
     );
 
@@ -350,7 +350,7 @@
           body: JSON.stringify({ confine: wanted })
         });
         notice(wanted
-          ? "File tools will be confined to the working directory at the next MCP start."
+          ? "File paths will be confined to the working directory at the next MCP start. light_bash keeps full filesystem access; only its cwd is confined."
           : "Confinement removed; file tools reach any path at the next MCP start.");
         await loadSettings();
       } catch {

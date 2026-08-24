@@ -11,8 +11,10 @@ its own output.
 
 These are meant to REPLACE the file and shell tools your agent ships with, not
 sit beside them, so they reach any path by default. Confine them to a boundary
-with `allowed_roots` or the vault UI toggle — see
-[Confinement](docs/REFERENCE.md#confinement).
+with `allowed_roots` or the vault UI toggle — that bounds `light_file` paths,
+local SCP endpoints and caller-supplied `light_ops` paths, while `light_bash`
+only has its working directory bounded and its commands still reach anywhere.
+See [Confinement](docs/REFERENCE.md#confinement).
 
 Not sure? Ask your agent to read this README and compare light-tools against the
 file/shell tools it currently has.

@@ -149,8 +149,9 @@ proxy_jump = "bastion.internal"
 key_path = "/home/me/.ssh/id_ed25519"
 ```
 
-SCP requires exactly one remote endpoint, confines the local endpoint to an
-allowed root, and distinguishes SSH `-p` from SCP `-P`.
+SCP requires exactly one remote endpoint, resolves the local endpoint through
+the effective confinement policy — unconfined by default, so any path outside
+the denied private roots — and distinguishes SSH `-p` from SCP `-P`.
 
 ## `light_ops` (read-only)
 
@@ -185,19 +186,30 @@ receives none. The difference is intentional and worth stating plainly: that
 server is the agent's *only* filesystem access, so a boundary there removes a
 capability. Here it does not — your agent keeps its native tools either way.
 
-Three postures, narrowest wins:
+Three postures. `config.toml` is consulted first and settles the question by
+itself; the UI marker is consulted only when the config file is silent:
 
 | Setting | Effect |
 | --- | --- |
 | `allowed_roots` in `config.toml` | Confined to those roots. Operator-owned and authoritative. |
-| Vault UI confinement toggle | Confined to the server's working directory. |
+| No `allowed_roots`, vault UI toggle on | Confined to the server's working directory. |
 | Neither | **Unconfined** — the default. |
 
-The UI toggle can only tighten. When `config.toml` sets `allowed_roots`, the
-switch renders inert and says so, because a toggle that appears to work while a
-config file silently overrides it is worse than no toggle. Like the tool
-withholding markers, it takes effect **at the next MCP start** — the confiner is
-built once per process and is immutable.
+The order is by authority, not by breadth: an `allowed_roots` that is *wider*
+than the working directory still wins over the UI toggle, because the config
+file is the operator's and the UI is reachable by anyone who can already reach
+the vault. What the toggle can never do is widen a boundary the config file
+set. When `config.toml` sets `allowed_roots`, the switch renders inert and says
+so, because a toggle that appears to work while a config file silently
+overrides it is worse than no toggle. Like the tool withholding markers, it
+takes effect **at the next MCP start** — the confiner is built once per process
+and is immutable.
+
+**A boundary bounds the tools, not the shell.** `light_file` paths, the local
+endpoint of a `light_scp` transfer, and caller-supplied `light_ops` paths are
+resolved through the boundary and refused outside it. `light_bash` resolves
+only its working directory through the boundary; the command that then runs has
+the full same-user filesystem access, which no path check could take away.
 
 **Denied roots hold in every posture.** light-tools' own secrets, snapshots,
 spills and telemetry are refused whether confined or not; widening the boundary
@@ -214,9 +226,12 @@ allowed_roots = ["/work/project"]
 log_roots     = ["/var/log", "/srv/myapp/logs"]
 ```
 
-`allowed_roots` confines `light_file`, `light_bash` and `light_ops`; omit the key
-to run unconfined. An empty list is refused rather than treated as "no
-boundary" — that reading inverts the operator's evident intent.
+`allowed_roots` confines `light_file`, `light_scp` local endpoints and
+caller-supplied `light_ops` paths, and confines the working directory
+`light_bash` runs in (not the paths its command touches — see
+[Confinement](#confinement)); omit the key to run unconfined. An empty list is
+refused rather than treated as "no boundary" — that reading inverts the
+operator's evident intent.
 `log_roots` widens caller-supplied `light_ops` log paths and nothing else.
 
 `log_roots` precedence, highest first: `LIGHT_TOOLS_LOG_ROOTS` in the
@@ -253,10 +268,17 @@ mid-process. No `disabled_tools` key exists in `config.toml`.
 Endpoints (behind pairing plus password, Host-pinned):
 
 - `GET /api/settings` → `{"tools":[{"name","disabled"}...],"ui_disabled":[...],
-  "launch_withholding_observable":false}`. `disabled` reflects marker state only.
+  "launch_withholding_observable":false,"confine":<bool>,
+  "config_roots_authoritative":<bool>}`. `disabled` reflects marker state only.
+  `confine` is the UI confinement marker; `config_roots_authoritative` reports
+  that `config.toml` set `allowed_roots`, so the UI renders the switch inert.
 - `POST /api/settings/tools` with exactly `{"tool":"<name>","disabled":<bool>}`
   mutates one marker. Creating an existing marker and removing an absent one are
   both success, so the MCP server and UI commute.
+- `POST /api/settings/confine` with exactly `{"confine":<bool>}` sets or clears
+  the confinement marker, with the same idempotence. It takes effect at the next
+  MCP start and cannot reach a running server; it never overrides
+  `allowed_roots`.
 
 ## Telemetry
 

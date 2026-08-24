@@ -31,9 +31,19 @@ generate a replacement rather than silently starting over.
 **light-tools is unconfined by default** — every path on the machine is
 reachable by `light_file`, `light_bash` and `light_ops` unless you confine it.
 Set `allowed_roots` in `config.toml`, or flip the confinement toggle in
-`light-tools vault ui`, to pin the tools to a boundary; the UI toggle can only
-tighten and never overrides the config file. Both take effect at the next MCP
-start.
+`light-tools vault ui`, to pin the tools to a boundary. The config file is
+authoritative and the toggle applies only when it is silent, so the UI can
+never widen or replace a boundary an operator set in `config.toml`. Both take
+effect at the next MCP start.
+
+Confinement does not mean the same thing for every tool, and the difference
+matters before you rely on it. `light_file` paths, the local endpoint of an SCP
+transfer, and caller-supplied `light_ops` paths are each resolved through the
+boundary and refused outside it. `light_bash` is not: only its working
+directory is resolved through the boundary, and the command that then runs has
+the full filesystem access of your account, as the first line of this file
+says. No path check could make it otherwise, so read the boundary as a bound on
+what the *tools* address, never as a bound on what a shell command touches.
 
 This default is more permissive than `@modelcontextprotocol/server-filesystem`,
 which refuses to start without at least one allowed directory. The reasoning:
