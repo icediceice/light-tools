@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -140,7 +139,7 @@ func (h *Handler) handleSync(ctx context.Context, request Request) (any, error) 
 	case "log_window", "log_trace", "log_search", "log_errors", "log_since":
 		return h.singleLogs(ctx, request)
 	default:
-		return nil, errors.New(portable.UnknownVerbMessage("light_ops", request.Verb))
+		return nil, &portable.DiagnosticError{Code: "E_VERB", Message: portable.UnknownVerbMessage("light_ops", request.Verb)}
 	}
 }
 

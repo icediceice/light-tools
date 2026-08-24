@@ -27,8 +27,12 @@ func (e *PartialError) Unwrap() error { return e.Diagnostic }
 func Parse(input string) ([]fileop.Mutation, error) {
 	normalized := strings.ReplaceAll(input, "\r\n", "\n")
 	lines := strings.Split(normalized, "\n")
+	// At="payload" names the source, so a staged partial and a terminal parse
+	// error render the same at: prefix ahead of their line/column.
 	diagnostic := func(caret int, message string) error {
-		return portable.NewCaretError("E_PAYLOAD", message, normalized, caret)
+		caretError := portable.NewCaretError("E_PAYLOAD", message, normalized, caret)
+		caretError.At = "payload"
+		return caretError
 	}
 	var (
 		result     []fileop.Mutation
@@ -154,8 +158,10 @@ func Parse(input string) ([]fileop.Mutation, error) {
 	}
 	if bodyField != "" {
 		caret := len(normalized)
+		unterminated := portable.NewCaretError("E_PAYLOAD", "unterminated @"+bodyField+" body; expected exact "+terminator, normalized, caret)
+		unterminated.At = "payload"
 		return nil, &PartialError{
-			Diagnostic: portable.NewCaretError("E_PAYLOAD", "unterminated @"+bodyField+" body; expected exact "+terminator, normalized, caret),
+			Diagnostic: unterminated,
 			GotLines:   len(lines),
 		}
 	}

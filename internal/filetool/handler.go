@@ -3,7 +3,6 @@ package filetool
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 
@@ -236,7 +235,7 @@ func (h *Handler) Portable() portable.Handler {
 			// Names the closest match AND the whole vocabulary: a verb this far
 			// off was refused by the repair pass precisely because guessing
 			// would be unsafe, so the diagnostic has to be self-sufficient.
-			return nil, errors.New(portable.UnknownVerbMessage("light_file", request.Verb))
+			return nil, &portable.DiagnosticError{Code: "E_VERB", Message: portable.UnknownVerbMessage("light_file", request.Verb)}
 		}
 	}
 }

@@ -51,7 +51,16 @@ func TestParseRendersCaretEnvelope(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 	rendered := err.Error()
-	for _, expected := range []string{"error[E_PAYLOAD]", "line 2, column 1", "2 | not-a-header", "| ^"} {
+	// "at: payload, line 2, column 1" — the source name prefixes the position
+	// rather than replacing it, so both substrings must survive.
+	for _, expected := range []string{
+		"error[E_PAYLOAD]",
+		"at: payload, ",
+		"line 2, column 1",
+		"fix: correct the call arguments and retry",
+		"2 | not-a-header",
+		"| ^",
+	} {
 		if !strings.Contains(rendered, expected) {
 			t.Fatalf("caret envelope missing %q:\n%s", expected, rendered)
 		}

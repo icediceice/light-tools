@@ -136,6 +136,19 @@ belongs is coerced; an optional null is omitted rather than rejected. A value
 that genuinely cannot be coerced is still an error — with a caret, line and
 column pointing at the offending character, not a restatement of the schema.
 
+**Refusing without saying where, why, or what to do instead.** The caret envelope
+is not a payload-parser flourish — it is what all five tools return whenever they
+refuse. `error[CODE]` is followed by `at:`, `fix:` and `detail:`, always. `at:`
+names the origin at whatever precision is available: `light_ops/probe_port` for
+the call itself, `light_file.limit` for the field a schema check rejected, and
+`payload, line 2, column 1 (byte 14)` for a position inside a sealed body, which
+keeps its source line and `^` marker underneath. `fix:` is the remedy, and it
+draws the one distinction the caller actually acts on — correct the arguments and
+retry, versus a platform fault where sending the same call again is the wrong
+move. A repair applied before the failure is folded into `detail:` rather than
+discarded, so a call whose key was renamed and then refused reports both facts
+instead of only the second.
+
 **A payload too large to send in one call.** Multi-line writes go as a sealed
 heredoc, and a truncated one can be staged and resumed from the line it stopped
 at instead of being restarted from the top.

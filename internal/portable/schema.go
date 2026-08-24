@@ -257,5 +257,7 @@ func childPath(parent, child string) string {
 }
 
 func schemaError(path, message string) *DiagnosticError {
-	return &DiagnosticError{Code: "E_SCHEMA", Message: path + " " + message}
+	// At carries the JSON path so Invoke can re-root it at the tool; Message is
+	// left intact because existing tests assert the "$.path must be ..." text.
+	return &DiagnosticError{Code: "E_SCHEMA", At: path, Message: path + " " + message}
 }

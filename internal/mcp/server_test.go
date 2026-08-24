@@ -123,6 +123,14 @@ func TestToolCallCoercesAndReportsSchemaErrorsAsToolResults(t *testing.T) {
 	if !ok || !result.IsError || len(result.Content) != 1 || !strings.Contains(result.Content[0].Text, "error[E_SCHEMA]") {
 		t.Fatalf("schema failure lost tool-result envelope: %#v", response.Result)
 	}
+	// The at:/fix: lines are what makes the envelope recognisable downstream, so
+	// assert they survive the whole dispatch path and not just Error(). The
+	// schema path arrives as "$.limit" and is re-rooted at the tool.
+	for _, expected := range []string{"at: sample.limit", "fix: correct the call arguments and retry"} {
+		if !strings.Contains(result.Content[0].Text, expected) {
+			t.Fatalf("schema failure missing %q:\n%s", expected, result.Content[0].Text)
+		}
+	}
 
 	// An undeclared KEY is no longer a failure at all: Repair strips it and
 	// reports the strip, so the call succeeds and the model still learns.
