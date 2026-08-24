@@ -13,7 +13,12 @@ import (
 func TestAbsentAllowedRootsMeansUnconfined(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(path, []byte("log_roots = [\"/var/log\"]\n"), 0o600); err != nil {
+	// The log root only has to exist so that Load gets past resolveLogRoots —
+	// an explicitly configured root that is absent is a hard error by design.
+	// "/var/log" resolved to C:\var\log and failed both Windows runners, so
+	// use the temp directory, forward-slashed to stay TOML-safe on Windows.
+	body := "log_roots = [\"" + filepath.ToSlash(dir) + "\"]\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	value, err := Load(path, dir)

@@ -248,8 +248,13 @@ else {
     }
 }
 
-if (-not $enabledResponses[5].result.isError) {
-    throw "light_file unexpectedly read outside the isolated workspace"
+# Unconfined is the shipped default: with no allowed_roots configured,
+# light_file is meant to reach outside its working directory, which is what
+# lets it replace the agent's native file tools. Confinement is opt-in, and
+# unconfined still denies the private state roots this probe never touches.
+$outsideValue = Get-ToolValue $enabledResponses[5] "light_file read outside workspace"
+if ($outsideValue.content -notmatch "outside") {
+    throw "unconfined light_file did not read outside the workspace"
 }
 
 $opsValue = Get-ToolValue $enabledResponses[6] "light_ops"
