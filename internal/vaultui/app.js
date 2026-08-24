@@ -309,15 +309,63 @@
   async function loadSettings() {
     try {
       const state = await api("/api/settings");
-      renderSettings(state.tools || []);
+      renderSettings(state.tools || [], state);
     } catch {
       notice("Settings could not be loaded.", true);
     }
   }
 
-  function renderSettings(tools) {
+  // The confinement row sits above the tool toggles because it governs all of
+  // them at once. Default posture is unconfined: light-tools is meant to
+  // replace the agent's native edit tool, which has no boundary either.
+  function renderConfinement(container, state) {
+    const authoritative = Boolean(state.config_roots_authoritative);
+    const confined = Boolean(state.confine);
+    const row = el("div", "row toggle-row");
+    const main = el("div", "row-main");
+    main.append(
+      el("div", "row-title", "Confine file tools to the working directory"),
+      el("div", "row-meta", authoritative
+        ? "config.toml sets allowed_roots, which outranks this switch — edit the file to change the boundary"
+        : confined
+          ? "light_file, light_bash and light_ops will be confined at the next MCP start"
+          : "Unconfined: every path is reachable except light-tools' own secrets, snapshots, spills and telemetry")
+    );
+
+    const toggle = el("label", "switch");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = authoritative || confined;
+    input.disabled = authoritative;
+    input.setAttribute("aria-label", "Confine file tools to the working directory");
+    const slider = el("span", "slider");
+    slider.setAttribute("aria-hidden", "true");
+    toggle.append(input, slider);
+    input.addEventListener("change", async () => {
+      const wanted = input.checked;
+      notice("");
+      try {
+        await api("/api/settings/confine", {
+          method: "POST",
+          body: JSON.stringify({ confine: wanted })
+        });
+        notice(wanted
+          ? "File tools will be confined to the working directory at the next MCP start."
+          : "Confinement removed; file tools reach any path at the next MCP start.");
+        await loadSettings();
+      } catch {
+        input.checked = !wanted;
+        notice("The setting could not be saved.", true);
+      }
+    });
+    row.append(main, toggle);
+    container.append(row);
+  }
+
+  function renderSettings(tools, state) {
     const container = byId("settings-tools");
     container.replaceChildren();
+    renderConfinement(container, state || {});
     if (!tools.length) {
       container.append(empty("No tools are known to this UI."));
       return;

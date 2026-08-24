@@ -9,6 +9,11 @@ your agent already has, but windowed, deduplicated, snapshotted and bounded, so
 results stay small enough that the agent can keep working instead of drowning in
 its own output.
 
+These are meant to REPLACE the file and shell tools your agent ships with, not
+sit beside them, so they reach any path by default. Confine them to a boundary
+with `allowed_roots` or the vault UI toggle — see
+[Confinement](docs/REFERENCE.md#confinement).
+
 Not sure? Ask your agent to read this README and compare light-tools against the
 file/shell tools it currently has.
 

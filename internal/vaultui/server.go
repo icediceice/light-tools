@@ -52,6 +52,13 @@ type Server struct {
 	tools     []string
 	settings  *settings.Store
 	telemetry func() (telemetry.Totals, error)
+	// configConfined reports whether config.toml pins allowed_roots. It is a
+	// func, not a snapshot, because the UI outlives any single read and an
+	// operator may edit the file underneath it. When it reports true the
+	// confinement toggle is inert: operator config outranks a UI marker, and a
+	// switch that appears to work while config silently overrides it is worse
+	// than no switch at all.
+	configConfined func() (bool, error)
 
 	mu          sync.Mutex
 	host        string
@@ -64,11 +71,12 @@ type Server struct {
 
 // Options assembles a vault UI server. Vault and Auth are required.
 type Options struct {
-	Vault     *secret.Vault
-	Auth      *secret.PasswordAuth
-	Tools     []string
-	Settings  *settings.Store
-	Telemetry func() (telemetry.Totals, error)
+	Vault          *secret.Vault
+	Auth           *secret.PasswordAuth
+	Tools          []string
+	Settings       *settings.Store
+	Telemetry      func() (telemetry.Totals, error)
+	ConfigConfined func() (bool, error)
 }
 
 func New(options Options) (*Server, error) {
@@ -83,6 +91,7 @@ func New(options Options) (*Server, error) {
 	return &Server{
 		vault: options.Vault, auth: options.Auth, pairingCode: code, pairExpires: now.Add(pairLifetime),
 		tools: options.Tools, settings: options.Settings, telemetry: options.Telemetry,
+		configConfined: options.ConfigConfined,
 		sessions: make(map[string]session), now: time.Now,
 	}, nil
 }
@@ -140,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/vault", s.handleVault)
 	mux.HandleFunc("/api/settings", s.handleSettings)
 	mux.HandleFunc("/api/settings/tools", s.handleSettingsTool)
+	mux.HandleFunc("/api/settings/confine", s.handleSettingsConfine)
 	mux.HandleFunc("/api/telemetry", s.handleTelemetry)
 	mux.HandleFunc("/api/secret/set", s.handleSecretSet)
 	mux.HandleFunc("/api/secret/remove", s.handleSecretRemove)
@@ -359,9 +369,52 @@ func (s *Server) handleSettings(writer http.ResponseWriter, request *http.Reques
 			uiDisabled = append(uiDisabled, name)
 		}
 	}
+	// Confinement is reported with the same honesty as launch withholding: the
+	// UI states what IT owns and names anything that outranks it, rather than
+	// implying the toggle is the whole truth.
+	confine, err := s.settings.LoadConfine()
+	if err != nil {
+		http.Error(writer, "settings state could not be read", http.StatusBadRequest)
+		return
+	}
+	configConfined := false
+	if s.configConfined != nil {
+		if value, configErr := s.configConfined(); configErr == nil {
+			configConfined = value
+		}
+	}
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"tools": tools, "ui_disabled": uiDisabled, "launch_withholding_observable": false,
+		"confine": confine, "config_roots_authoritative": configConfined,
 	})
+}
+
+// handleSettingsConfine sets or clears the UI-owned confinement marker. It
+// accepts only {confine}. Like every marker here it takes effect at the next
+// MCP start: the confiner is built once when that process starts and is
+// immutable, so nothing this route does can reach a running server.
+func (s *Server) handleSettingsConfine(writer http.ResponseWriter, request *http.Request) {
+	if !s.requireJSONMutation(writer, request, http.MethodPost, normalBodyLimit) {
+		return
+	}
+	if _, ok := s.authorize(writer, request, true); !ok {
+		return
+	}
+	if s.settings == nil {
+		http.Error(writer, "settings unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Confine bool `json:"confine"`
+	}
+	if !decodeJSON(writer, request, &body) {
+		return
+	}
+	if err := s.settings.SetConfine(body.Confine); err != nil {
+		http.Error(writer, "settings update failed", http.StatusBadRequest)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"confine": body.Confine})
 }
 
 // handleSettingsTool mutates exactly ONE tool's marker. It accepts only

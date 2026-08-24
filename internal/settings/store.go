@@ -12,10 +12,18 @@ import (
 	"path/filepath"
 )
 
-// Store owns the disabled-tools marker directory beneath a config root.
+// confineMarker is the UI-owned request to run confined. It sits BESIDE the
+// disabled-tools directory, never inside it: LoadDisabled refuses any name in
+// that directory that is not a known tool, so a marker filed there would break
+// tool loading rather than configure confinement.
+const confineMarker = "confine"
+
+// Store owns the disabled-tools marker directory beneath a config root, and the
+// confinement marker beside it.
 type Store struct {
-	dir   string
-	known map[string]bool
+	dir        string
+	configRoot string
+	known      map[string]bool
 }
 
 // New returns the settings store for configRoot. known is the complete tool
@@ -25,7 +33,49 @@ func New(configRoot string, known []string) *Store {
 	for _, name := range known {
 		names[name] = true
 	}
-	return &Store{dir: filepath.Join(configRoot, "disabled-tools"), known: names}
+	return &Store{dir: filepath.Join(configRoot, "disabled-tools"), configRoot: configRoot, known: names}
+}
+
+// LoadConfine reports whether the UI has asked for confinement. Absent means
+// the default posture, unconfined — the same "missing means default" rule the
+// disabled-tools markers follow. The answer is consumed once at MCP start; a
+// running server's confiner is immutable.
+func (s *Store) LoadConfine() (bool, error) {
+	info, err := os.Lstat(filepath.Join(s.configRoot, confineMarker))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, fmt.Errorf("confinement marker %q is not a regular file", confineMarker)
+	}
+	return true, nil
+}
+
+// SetConfine creates or removes the confinement marker. Creating one that
+// exists is success and removing an absent one is success, so two stores
+// operating concurrently commute exactly as SetDisabled does.
+func (s *Store) SetConfine(confine bool) error {
+	path := filepath.Join(s.configRoot, confineMarker)
+	if !confine {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(s.configRoot, 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	return file.Close()
 }
 
 // LoadDisabled returns the withheld set implied by the markers on disk. A

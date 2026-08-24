@@ -28,9 +28,28 @@ generate a replacement rather than silently starting over.
 
 ## Roots
 
+**light-tools is unconfined by default** — every path on the machine is
+reachable by `light_file`, `light_bash` and `light_ops` unless you confine it.
+Set `allowed_roots` in `config.toml`, or flip the confinement toggle in
+`light-tools vault ui`, to pin the tools to a boundary; the UI toggle can only
+tighten and never overrides the config file. Both take effect at the next MCP
+start.
+
+This default is more permissive than `@modelcontextprotocol/server-filesystem`,
+which refuses to start without at least one allowed directory. The reasoning:
+that server is typically an agent's only filesystem access, so a boundary there
+removes a capability, whereas light-tools sits alongside the agent's own
+unconfined file and shell tools. Confining light-tools does not stop an agent
+reaching a path — it only sends it back to the tool that has no snapshots, no
+locking and no audit trail. Given the first line of this file, a boundary that
+merely reroutes an agent is not worth the safety it appears to offer.
+
+If that trade is wrong for your setup, confine it. The mechanism is there and
+it is one line.
+
 The file, SCP and operations handlers deny the secrets, snapshot, spill and
 telemetry roots at the direct, rename-target, registry-log, directory-list and
-recursive-locate seams. The telemetry root is denied so a tool call cannot
+recursive-locate seams, **in every posture including unconfined**. The telemetry root is denied so a tool call cannot
 fabricate the aggregates the vault UI renders as measured data. These are
 path-based checks — defense in depth against accidental escape, not isolation.
 Externally created hardlinks are outside the boundary.

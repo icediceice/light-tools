@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/icediceice/light-tools/internal/security"
 )
 
 // A caller-supplied path outside every configured root must be refused. Before
@@ -17,7 +19,7 @@ func TestCallerSuppliedPathOutsideRootsIsRefused(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("classified\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New([]string{root}, nil, nil)
+	handler, err := New(testPolicy(root), nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -57,7 +59,7 @@ func TestPathUnderLogRootIsAllowed(t *testing.T) {
 	if err := os.WriteFile(logFile, []byte("2026-08-16T10:00:00Z INFO up\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New([]string{allowed}, []string{logRoot}, nil)
+	handler, err := New(testPolicy(allowed), []string{logRoot})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -78,7 +80,7 @@ func TestAbsentRootDoesNotPoisonTheUnion(t *testing.T) {
 		t.Fatal(err)
 	}
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	handler, err := New([]string{root}, []string{missing}, nil)
+	handler, err := New(testPolicy(root), []string{missing})
 	if err != nil {
 		t.Fatalf("New should drop the absent root, not fail: %v", err)
 	}
@@ -88,12 +90,23 @@ func TestAbsentRootDoesNotPoisonTheUnion(t *testing.T) {
 	}
 }
 
-// With no readable root at all, light_ops must refuse to start rather than
-// come up with an empty boundary that would refuse or admit everything.
+// With no readable root at all, a CONFINED light_ops must refuse to start
+// rather than come up with an empty boundary that would refuse or admit
+// everything.
 func TestNewFailsWithNoReadableRoot(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "gone")
-	if _, err := New([]string{missing}, []string{missing}, nil); err == nil {
+	if _, err := New(security.Policy{Roots: []string{missing}}, []string{missing}); err == nil {
 		t.Fatal("ops.New must fail when no configured root exists")
+	}
+}
+
+// The readable-root requirement is a CONFINED-posture check. Under the
+// unconfined default there is no boundary to populate, so demanding a root
+// would refuse to start the very posture that is meant not to have one.
+func TestNewStartsUnconfinedWithNoReadableRoot(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "gone")
+	if _, err := New(security.Policy{Unconfined: true}, []string{missing}); err != nil {
+		t.Fatalf("ops.New must start unconfined with no readable root: %v", err)
 	}
 }
 
@@ -108,7 +121,7 @@ func TestRegistryDiscoveredLogOutsideRootsStaysReadable(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("2026-08-16T11:00:00Z ERROR boom\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New([]string{root}, nil, nil)
+	handler, err := New(testPolicy(root), nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

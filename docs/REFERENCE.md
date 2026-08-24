@@ -42,10 +42,10 @@ Send `context_epoch` to choose that scope yourself, `force: true` to re-serve
 bytes the caller no longer holds, and set `LIGHT_NO_READ_DEDUP` to a non-empty
 value to switch dedup off entirely — that overrides a client-supplied epoch too.
 
-Mutations are confined to configured roots and use per-path locking, optional
-`expected_sha` compare-and-swap, mode-preserving atomic replacement, identity
-rechecks, file and directory fsync, and a three-version pre-mutation snapshot
-ring.
+Mutations reach any path by default (see [Confinement](#confinement)) and use
+per-path locking, optional `expected_sha` compare-and-swap, mode-preserving
+atomic replacement, identity rechecks, file and directory fsync, and a
+three-version pre-mutation snapshot ring.
 
 Edits take `start_line`, optional `end_line`, stale `start_guard`/`end_guard`
 relocation, bounded ±3 closer-only auto-snap, `allow_unbalanced` and `spans`.
@@ -74,8 +74,11 @@ commit.
 
 ## `light_bash`
 
-Commands run under a root-confined `cwd`, a minimal inherited environment, and a
-timeout that terminates the whole process group. Results preserve `stdout`,
+Commands run under a `cwd` resolved by the same confinement policy as
+`light_file` (unconfined by default), a minimal inherited environment, and a
+timeout that terminates the whole process group. The policy governs where `cwd`
+may point; it does not bound what a command writes once running, which no path
+check could do. Results preserve `stdout`,
 `stderr` and `exit_code`.
 
 A timed-out command carries `timed_out: true`, the `timeout_ms` that applied, an
@@ -162,23 +165,58 @@ Ambiguous bare names return candidates.
 There is no start/stop/restart verb.
 
 Two kinds of path are governed differently on purpose. **Caller-supplied paths**
-(a `path` argument, or a `file:/absolute/path` service ID) are confined to
-`allowed_roots` plus `log_roots`. **Registry-discovered service logs** — what
-`journalctl`, `docker` or `pm2` reports for a discovered service — are not
-confined; they live wherever the service manager puts them, and reading them is
-the point of the tool.
+(a `path` argument, or a `file:/absolute/path` service ID) follow the
+confinement policy, widened by `log_roots` when confined.
+**Registry-discovered service logs** — what `journalctl`, `docker` or `pm2`
+reports for a discovered service — are never confined; they live wherever the
+service manager puts them, and reading them is the point of the tool.
+
+## Confinement
+
+**light-tools is unconfined by default: every path on the machine is reachable.**
+That is deliberate. light-tools exists to replace the file and shell tools your
+agent already has, and those are unconfined — an editor restricted to the spawn
+directory does not replace one that edits anywhere, it just sends the agent back
+to the unbounded tool for everything else.
+
+This is more permissive than `@modelcontextprotocol/server-filesystem`, which
+starts with no allowed directories and errors during initialization if it
+receives none. The difference is intentional and worth stating plainly: that
+server is the agent's *only* filesystem access, so a boundary there removes a
+capability. Here it does not — your agent keeps its native tools either way.
+
+Three postures, narrowest wins:
+
+| Setting | Effect |
+| --- | --- |
+| `allowed_roots` in `config.toml` | Confined to those roots. Operator-owned and authoritative. |
+| Vault UI confinement toggle | Confined to the server's working directory. |
+| Neither | **Unconfined** — the default. |
+
+The UI toggle can only tighten. When `config.toml` sets `allowed_roots`, the
+switch renders inert and says so, because a toggle that appears to work while a
+config file silently overrides it is worse than no toggle. Like the tool
+withholding markers, it takes effect **at the next MCP start** — the confiner is
+built once per process and is immutable.
+
+**Denied roots hold in every posture.** light-tools' own secrets, snapshots,
+spills and telemetry are refused whether confined or not; widening the boundary
+never widens that. Canonicalization and symlink evaluation also run in every
+posture. See [SECURITY.md](../SECURITY.md).
 
 ## Configuration
 
-No config file is required; the default allowed root is the server's working
-directory. Optional overrides at `$XDG_CONFIG_HOME/light-tools/config.toml`:
+No config file is required. Optional overrides at
+`$XDG_CONFIG_HOME/light-tools/config.toml`:
 
 ```toml
 allowed_roots = ["/work/project"]
 log_roots     = ["/var/log", "/srv/myapp/logs"]
 ```
 
-`allowed_roots` is the filesystem boundary for `light_file` and `light_bash`.
+`allowed_roots` confines `light_file`, `light_bash` and `light_ops`; omit the key
+to run unconfined. An empty list is refused rather than treated as "no
+boundary" — that reading inverts the operator's evident intent.
 `log_roots` widens caller-supplied `light_ops` log paths and nothing else.
 
 `log_roots` precedence, highest first: `LIGHT_TOOLS_LOG_ROOTS` in the

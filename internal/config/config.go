@@ -18,7 +18,16 @@ type RemoteProfile struct {
 }
 
 type Config struct {
+	// AllowedRoots is empty when no allowed_roots key was present, which means
+	// UNCONFINED. That is the default posture: light-tools is meant to replace
+	// the agent's native edit tool, and a tool confined to the spawn directory
+	// cannot replace one that edits anywhere — it only sends the agent back to
+	// the unbounded tool. Setting the key narrows; nothing widens it.
 	AllowedRoots []string
+	// RootsConfigured distinguishes an absent allowed_roots key from one present
+	// but empty, so an operator who writes allowed_roots = [] gets a hard error
+	// rather than silently inheriting the unconfined default.
+	RootsConfigured bool
 	// LogRoots widens light_ops beyond AllowedRoots for caller-supplied log
 	// paths only. Registry-discovered service logs are never checked against it.
 	LogRoots []string
@@ -26,7 +35,10 @@ type Config struct {
 }
 
 func Load(path string, defaultRoot string) (Config, error) {
-	value := Config{AllowedRoots: []string{defaultRoot}, Remote: make(map[string]RemoteProfile)}
+	// No AllowedRoots seed: an absent allowed_roots key means unconfined. This
+	// is the line that used to pin every file tool to the server's working
+	// directory. defaultRoot is still the base for RELATIVE roots below.
+	value := Config{Remote: make(map[string]RemoteProfile)}
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
 		// No config file is a supported setup, but log roots still resolve from
@@ -73,6 +85,7 @@ func Load(path string, defaultRoot string) (Config, error) {
 				if err != nil {
 					return Config{}, fmt.Errorf("config line %d: %w", lineNumber, err)
 				}
+				value.RootsConfigured = true
 				value.AllowedRoots = make([]string, 0, len(roots))
 				for _, root := range roots {
 					if strings.HasPrefix(root, "~") {
@@ -119,6 +132,12 @@ func Load(path string, defaultRoot string) (Config, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return Config{}, err
+	}
+	// An operator who writes allowed_roots = [] is asking for confinement and
+	// would otherwise get the unconfined default — the opposite of the intent.
+	// Refuse rather than guess.
+	if value.RootsConfigured && len(value.AllowedRoots) == 0 {
+		return Config{}, fmt.Errorf("allowed_roots is present but empty; remove the key to run unconfined, or list at least one root")
 	}
 	logRoots, err := resolveLogRoots(value.LogRoots, filepath.Dir(path))
 	if err != nil {

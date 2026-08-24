@@ -11,8 +11,16 @@ import (
 	"testing"
 
 	"github.com/icediceice/light-tools/internal/secret"
+	"github.com/icediceice/light-tools/internal/security"
 	"github.com/icediceice/light-tools/internal/snapshot"
 )
+
+// testPolicy is the confined posture these tests assert against. They predate
+// the unconfined default and are still about behaviour INSIDE a boundary, so
+// they keep one explicitly.
+func testPolicy(roots ...string) security.Policy {
+	return security.Policy{Roots: roots}
+}
 
 func shellSource(posix, powershell string) string {
 	if runtime.GOOS == "windows" {
@@ -31,7 +39,7 @@ func TestRunnerResolvesExternalCommandAndKeepsEnvironmentMinimal(t *testing.T) {
 	t.Setenv("LIGHT_TOOLS_BOUNDARY_MARKER", "must-not-leak")
 
 	root := t.TempDir()
-	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")), snapshot.New(filepath.Join(root, "snapshots")))
+	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")), snapshot.New(filepath.Join(root, "snapshots")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +71,7 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	if err := vault.Set("token", "top-secret-value"); err != nil {
 		t.Fatal(err)
 	}
-	runner, err := NewRunner([]string{root}, filepath.Join(root, "spills"), vault, snapshot.New(filepath.Join(root, "snapshots")))
+	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, snapshot.New(filepath.Join(root, "snapshots")))
 	if err != nil {
 		t.Fatal(err)
 	}

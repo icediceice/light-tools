@@ -10,7 +10,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/icediceice/light-tools/internal/security"
 )
+
+// testPolicy is the confined posture these tests assert against. light_ops is
+// unconfined by default now, but these cases are about behaviour INSIDE a
+// boundary, so they keep one explicitly.
+func testPolicy(roots ...string) security.Policy {
+	return security.Policy{Roots: roots}
+}
 
 func callOps(t *testing.T, handler *Handler, request any) map[string]any {
 	t.Helper()
@@ -53,7 +62,7 @@ func testLogHandler(t *testing.T) (*Handler, string, string) {
 		"2026-08-16T10:30:00Z INFO idle",
 		"2026-08-16T11:00:01Z WARN request_id=trace-123456789 retry",
 	}, "\n")+"\n"), 0o600)
-	handler, err := New([]string{root}, nil, nil)
+	handler, err := New(testPolicy(root), nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -162,7 +171,7 @@ func TestPM2RegistryLogsRespectPrivateRoots(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte("ciphertext"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New([]string{root}, nil, []string{private})
+	handler, err := New(security.Policy{Roots: []string{root}, Denied: []string{private}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

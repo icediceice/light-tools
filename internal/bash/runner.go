@@ -55,12 +55,17 @@ type Runner struct {
 	captureLimit int
 }
 
-func NewRunner(roots []string, spillRoot string, secrets *secret.Vault, captures *snapshot.Vault) (*Runner, error) {
+// NewRunner builds the shell runner under the resolved confinement policy. The
+// confiner here governs ONLY the resolution of cwd (see prepareGlobGuard and
+// runSync) — it never bounds what a shell command writes, which no path check
+// could do anyway. It still carries the policy's denied roots, so an unconfined
+// policy cannot park cwd inside light-tools' own secrets or telemetry state.
+func NewRunner(policy security.Policy, spillRoot string, secrets *secret.Vault, captures *snapshot.Vault) (*Runner, error) {
 	spills, err := NewSpillStore(spillRoot, time.Hour)
 	if err != nil {
 		return nil, err
 	}
-	confiner, err := security.NewConfiner(roots, nil)
+	confiner, err := policy.Confiner()
 	if err != nil {
 		return nil, err
 	}

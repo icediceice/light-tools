@@ -57,23 +57,30 @@ type Handler struct {
 // canonicalizes every root on each call and errors on the first one that does
 // not exist, so a single absent root would otherwise disable every other root
 // on every request. Absent roots are dropped here instead.
-func New(allowedRoots, logRoots, deniedRoots []string) (*Handler, error) {
-	union := make([]string, 0, len(allowedRoots)+len(logRoots))
-	seen := make(map[string]bool)
-	for _, root := range append(append([]string{}, allowedRoots...), logRoots...) {
-		if root == "" || seen[root] {
-			continue
+func New(policy security.Policy, logRoots []string) (*Handler, error) {
+	// An unconfined policy has no root union to build and nothing to require:
+	// the "at least one readable root" check below exists to catch a confined
+	// setup whose roots have all gone missing, and applying it here would refuse
+	// to start the very posture that is meant to have no boundary.
+	if !policy.Unconfined {
+		union := make([]string, 0, len(policy.Roots)+len(logRoots))
+		seen := make(map[string]bool)
+		for _, root := range append(append([]string{}, policy.Roots...), logRoots...) {
+			if root == "" || seen[root] {
+				continue
+			}
+			if _, err := os.Stat(root); err != nil {
+				continue
+			}
+			seen[root] = true
+			union = append(union, root)
 		}
-		if _, err := os.Stat(root); err != nil {
-			continue
+		if len(union) == 0 {
+			return nil, fmt.Errorf("light_ops needs at least one readable root; check allowed_roots and log_roots")
 		}
-		seen[root] = true
-		union = append(union, root)
+		policy.Roots = union
 	}
-	if len(union) == 0 {
-		return nil, fmt.Errorf("light_ops needs at least one readable root; check allowed_roots and log_roots")
-	}
-	confiner, err := security.NewConfiner(union, deniedRoots)
+	confiner, err := policy.Confiner()
 	if err != nil {
 		return nil, err
 	}

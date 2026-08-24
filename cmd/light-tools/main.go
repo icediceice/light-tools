@@ -122,6 +122,11 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	uiConfine, err := toolSettings.LoadConfine()
+	if err != nil {
+		fatal(err)
+	}
+	configuration = resolveConfinement(configuration, uiConfine, workingDirectory)
 	server := mcp.New("light-tools", version, os.Getenv("LIGHT_TERSE_OUTPUT") == "1")
 	// The telemetry store is constructed once; its env check never re-runs on a
 	// hot path. A nil store (opt-out) is a valid no-op recorder.
@@ -136,6 +141,24 @@ func main() {
 	}
 }
 
+// resolveConfinement applies the confinement precedence, narrowest wins: an
+// operator's config.toml allowed_roots is authoritative; otherwise the vault
+// UI's confine marker pins every tool to the server's working directory;
+// otherwise unconfined, the default that lets light-tools replace the agent's
+// native file and shell tools rather than sit beside them.
+//
+// The UI can only TIGHTEN. It never widens or overrides what the operator put
+// in config.toml — the same rule the disabled-tools markers follow, so a toggle
+// can never quietly contradict the file the operator wrote.
+func resolveConfinement(configuration config.Config, uiConfine bool, workingDirectory string) config.Config {
+	if len(configuration.AllowedRoots) > 0 || !uiConfine {
+		return configuration
+	}
+	configuration.AllowedRoots = []string{workingDirectory}
+	configuration.RootsConfigured = true
+	return configuration
+}
+
 func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config, recorder telemetry.Recorder) error {
 	secretVault := secret.New(layout.Secrets)
 	// One vault instance shared by both tools: a capture light_bash takes has
@@ -144,13 +167,26 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	// Telemetry is denied too: a writable telemetry root would let light_file
 	// fabricate session-v1-*.json snapshots the vault UI renders as measured data.
 	deniedRoots := []string{layout.Secrets, layout.Snapshots, layout.Spills, layout.Telemetry}
-	confiner, err := security.NewConfiner(configuration.AllowedRoots, deniedRoots)
+	// One policy, three tools. Resolving it here is what keeps light_file,
+	// light_bash and light_ops from disagreeing about where the boundary is.
+	// Unconfined is the default posture; denied roots hold in BOTH postures.
+	// Keyed on the roots themselves, not on RootsConfigured: any Config holding
+	// roots is confined by them, however it was built. Load already refuses a
+	// present-but-empty allowed_roots, so the two are equivalent for real
+	// config — but a hand-built Config cannot silently mean the opposite of
+	// what it plainly says.
+	policy := security.Policy{
+		Roots:      configuration.AllowedRoots,
+		Denied:     deniedRoots,
+		Unconfined: len(configuration.AllowedRoots) == 0,
+	}
+	confiner, err := policy.Confiner()
 	if err != nil {
 		return err
 	}
 	// The runner is built first so light_file can share its spill store: an
 	// oversized read then comes back as a spill_id readable via light_bash.
-	bashRunner, err := bash.NewRunner(configuration.AllowedRoots, layout.Spills, secretVault, snapshotVault)
+	bashRunner, err := bash.NewRunner(policy, layout.Spills, secretVault, snapshotVault)
 	if err != nil {
 		return err
 	}
@@ -174,7 +210,7 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 		return err
 	}
 	remoteTransport := remote.New(configuration.Remote, confiner, secretVault)
-	opsHandler, err := ops.New(configuration.AllowedRoots, configuration.LogRoots, deniedRoots)
+	opsHandler, err := ops.New(policy, configuration.LogRoots)
 	if err != nil {
 		return err
 	}
@@ -333,6 +369,19 @@ func runVaultUI(layout state.Layout, vault *secret.Vault) error {
 		Settings: settings.New(layout.Config, toolNames),
 		Telemetry: func() (telemetry.Totals, error) {
 			return telemetry.Load(layout.Telemetry)
+		},
+		// Re-read per request: this process outlives any single read and the
+		// operator may edit config.toml while the UI is open.
+		ConfigConfined: func() (bool, error) {
+			workingDirectory, err := os.Getwd()
+			if err != nil {
+				return false, err
+			}
+			configuration, err := config.Load(filepath.Join(layout.Config, "config.toml"), workingDirectory)
+			if err != nil {
+				return false, err
+			}
+			return configuration.RootsConfigured, nil
 		},
 	})
 	if err != nil {
