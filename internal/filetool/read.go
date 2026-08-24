@@ -113,7 +113,13 @@ func (h *Handler) readItems(request Request) (any, error) {
 		// contribution the un-elided section could have made to THIS response,
 		// never the raw section size. ShouldElide is query-and-mark, so it must
 		// run exactly once per item either way.
-		if window != nil && h.cache.ShouldElide(request.ContextEpoch, window.path, window.hash, request.Force) {
+		//
+		// startByte > 0 means this is a continuation page resuming INTO bytes
+		// the caller has NOT received. Its first page already marked the item,
+		// so consulting the ledger here can only swap the remainder for a stub
+		// shorter than the cursor and strand the caller on a cursor this tool
+		// issued itself. Only a fresh item is eligible for elision.
+		if window != nil && startByte == 0 && h.cache.ShouldElide(request.ContextEpoch, window.path, window.hash, request.Force) {
 			remaining := readBudget - builder.Len()
 			prospective := budgetSlice(section[startByte:], remaining)
 			actual := budgetSlice(window.stub, remaining)
@@ -240,8 +246,13 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, *rend
 	fmt.Fprintf(&builder, "[meta total_lines=%d bytes=%d tokens=%d next_offset=%d continued=%t]\n", len(lines), len(data), estimateTokens(data), end, end < len(lines))
 	return builder.String(), &renderedWindow{
 		path: path,
-		hash: hash,
-		stub: header + fmt.Sprintf("[dedup] sha256:%s\n", hash),
+		// Mirror readWindow's key (see the comment above its ShouldElide call):
+		// the ledger keys on the whole-file hash, so two DISTINCT windows of one
+		// unchanged file would collide and the second would come back as a stub
+		// for bytes the caller never received. Fold the span into the key here
+		// too — one file, one keying rule for both read lanes.
+		hash: fmt.Sprintf("%s#%d-%d", hash, offset, end),
+		stub: header + fmt.Sprintf("[dedup] sha256:%s lines %d-%d\n", hash, offset, end),
 	}, nil
 }
 
