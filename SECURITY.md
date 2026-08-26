@@ -94,35 +94,42 @@ zero-byte marker files written by the UI's Settings view. The UI can never
 re-enable what launch arguments withhold. Treat the launch arguments in your MCP
 client configuration as the boundary they are.
 
-The shell wildcard guard runs in two lanes, decided by whether the expanded
-surface can be backed up.
+The shell mutation guard has three outcomes: capture-backed, unbacked, and
+refused. It applies only to simple invocations of the mutators it models
+(`rm`, `unlink`, single-source `mv`, `sed -i`, `gofmt -w`, and
+`go fmt`) whose pathname operands it can enumerate.
 
-A surface it can fully protect is snapshotted before anything runs, executes on
-first contact, and returns a capture id that restores every path in the
-snapshot. Where the shell supports an exact-path pin, the executed command is
-pinned to the captured paths, so the shell cannot re-expand the pattern onto a
-different set between the snapshot and the effect.
+A protectable surface is snapshotted before anything runs, executes on first
+contact, and returns a capture id that restores every pathname in that
+snapshot. Explicit non-glob surfaces use a bounded capture entry point: at most
+64 MiB of regular-file preimages are retained, with the limit enforced on the
+bytes actually read rather than on earlier file-size observations.
 
-Windows is the exception. The pin is a POSIX-shell construct, and PowerShell
-parses a quoted leading word as a string rather than a command, so no pin is
-issued there and the shell expands the pattern itself. The snapshot and its
-revert still apply to every path that existed when it was taken, and the result
-carries `pinned: false` to say so — but a file created between the snapshot and
-the effect is outside the capture and cannot be restored from it.
+A capture is a pre-execution observation, not an atomic filesystem
+transaction. It records the pathname state seen before the command starts. An
+unrelated process can replace a pathname between capture and execution, so the
+capture is not a claim that it contains the exact object the command later
+consumed. On POSIX systems, an unquoted glob is pinned to the captured paths to
+remove the shell's second expansion of that pattern. On Windows the POSIX pin
+is unavailable; the result carries `pinned:false` and the shell expands the
+pattern itself, so a pathname created after capture can be affected without
+being restorable.
 
-A surface it cannot protect — a directory, an invalid-UTF-8 name, a
-multi-source `mv`, or a missing snapshot vault — does not run at all. It returns
-the fully expanded surface, the reason protection was unavailable, and an 8-hex
-digest binding that command, that working directory and those paths together.
-Only an identical call carrying that digest runs, and it runs unprotected: no
-snapshot is taken, and the shell expands the pattern itself rather than
-receiving pinned paths. A digest naming a different surface is refused rather
-than reinterpreted.
+An explicit surface that cannot be protected, has no snapshot vault, or
+exceeds the 64 MiB bounded-capture ceiling still runs on first contact. Its
+result says `protection:"unbacked"`, gives the reason, and advertises no
+capture id or revert.
 
-The guard sees only an unquoted, lexical filename glob on a mutator it models.
-It does not classify danger, inspect scripts, expand variables, or understand a
-program's own pattern syntax; a wildcard from `$VAR`, command substitution or
-`find` is outside its view.
+An unprotectable unquoted glob does not run on first contact. It returns the
+complete expanded surface, the reason protection was unavailable, and an
+8-hex digest binding that command, working directory, and surface. Only an
+identical call carrying that digest runs, labelled
+`protection:"unprotected_confirmed"`. A digest naming a different surface is
+refused rather than reinterpreted.
+
+Quoted patterns, pipelines, variables, command substitutions, and a program's
+own pattern language are outside this guard. It does not classify general
+danger or infer effects from scripts.
 
 ## Telemetry
 
