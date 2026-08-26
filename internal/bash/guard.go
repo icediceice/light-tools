@@ -168,7 +168,8 @@ func planGlobMutation(command string) (globPlan, bool) {
 			}
 			if !terminated {
 				switch {
-				case raw == "-i" || strings.HasPrefix(raw, "-i"):
+			case raw == "-i" || raw == "--in-place" ||
+				strings.HasPrefix(raw, "-i") || strings.HasPrefix(raw, "--in-place="):
 					inPlace = true
 					continue
 				case raw == "-e" || raw == "-f":
@@ -249,7 +250,8 @@ func unmodeledGlobFlags(plan globPlan) []string {
 			continue
 		}
 		switch {
-		case plan.Command == "sed" && (token.Raw == "-i" || token.Raw == "-e" || token.Raw == "-f" ||
+		case plan.Command == "sed" && (token.Raw == "-i" || token.Raw == "--in-place" ||
+			token.Raw == "-e" || token.Raw == "-f" ||
 			(len(token.Raw) > 2 && (strings.HasPrefix(token.Raw, "-e") || strings.HasPrefix(token.Raw, "-f")))):
 			continue
 		case plan.Command == "gofmt" && token.Raw == "-w":
