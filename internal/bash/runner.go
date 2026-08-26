@@ -154,27 +154,43 @@ func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, 
 		return nil, nil, nil
 	}
 	decision := decideGlobProtection(plan, groups)
+	paths := capturePaths(flat)
+	reason := decision.Reason
 
 	if decision.Protectable && r.captures != nil {
-		paths := capturePaths(flat)
 		id := snapshot.NewCaptureID()
-		if _, err := r.captures.CaptureSurface(id, request.Command, paths); err != nil {
-			return nil, nil, fmt.Errorf("could not back up the surface before running: %w", err)
-		}
-		pinned := request.Command
 		if hasGlob {
-			pinned = pinCommand(plan, groups)
+			if _, err := r.captures.CaptureSurface(id, request.Command, paths); err != nil {
+				return nil, nil, fmt.Errorf("could not back up the surface before running: %w", err)
+			}
+			return &globGuard{
+				CaptureID: id,
+				Entries:   len(paths),
+				Pinned:    pinCommand(plan, groups),
+			}, nil, nil
 		}
-		return &globGuard{CaptureID: id, Entries: len(paths), Pinned: pinned}, nil, nil
-	}
 
-	reason := decision.Reason
+		if _, err := r.captures.CaptureSurfaceBounded(id, request.Command, paths); err == nil {
+			return &globGuard{
+				CaptureID: id,
+				Entries:   len(paths),
+				Pinned:    request.Command,
+			}, nil, nil
+		} else {
+			var tooLarge *snapshot.TooLarge
+			if !errors.As(err, &tooLarge) {
+				return nil, nil, fmt.Errorf("could not back up the surface before running: %w", err)
+			}
+			reason = err.Error()
+		}
+	}
 	if reason == "" && r.captures == nil {
 		reason = "no snapshot vault is configured, so no revert could be recorded"
 	}
 	if !hasGlob {
-		return &globGuard{Unprotected: true}, nil, nil
+		return &globGuard{Unbacked: reason}, nil, nil
 	}
+
 	digest := surfaceDigest(request.Command, resolvedCwd, flat)
 	if confirmMatches(request.Confirm, digest) {
 		return &globGuard{Unprotected: true}, nil, nil
