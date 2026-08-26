@@ -425,6 +425,23 @@ func flattenSurface(groups [][]surfaceEntry) []surfaceEntry {
 	return flat
 }
 
+// capturePaths returns the unique, cleaned paths whose preimages need storage.
+// flattenSurface deliberately remains positional because mv protection and glob
+// pinning depend on operand grouping.
+func capturePaths(entries []surfaceEntry) []string {
+	seen := make(map[string]bool, len(entries))
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		path := filepath.Clean(entry.Path)
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		paths = append(paths, path)
+	}
+	return paths
+}
+
 // surfaceDigest binds a confirmation to exactly the mutation that was printed:
 // the first 8 hex of sha256 over the WHOLE command, the resolved cwd, and the
 // sorted, deduped surface.
