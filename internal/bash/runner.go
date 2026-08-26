@@ -233,6 +233,12 @@ func (r *Runner) sealGuard(guard *globGuard, result map[string]any, err error) (
 	if guard == nil || result == nil {
 		return result, err
 	}
+	if guard.Unbacked != "" {
+		result["protection"] = "unbacked"
+		result["reason"] = guard.Unbacked
+		result["protection_note"] = "this explicit surface ran WITHOUT capture backing; no revert exists for it"
+		return result, err
+	}
 	if guard.Unprotected {
 		result["protection"] = "unprotected_confirmed"
 		result["protection_note"] = "this surface ran WITHOUT capture backing; no revert exists for it"
