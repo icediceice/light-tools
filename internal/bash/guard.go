@@ -168,8 +168,8 @@ func planGlobMutation(command string) (globPlan, bool) {
 			}
 			if !terminated {
 				switch {
-			case raw == "-i" || raw == "--in-place" ||
-				strings.HasPrefix(raw, "-i") || strings.HasPrefix(raw, "--in-place="):
+				case raw == "-i" || raw == "--in-place" ||
+					strings.HasPrefix(raw, "-i") || strings.HasPrefix(raw, "--in-place="):
 					inPlace = true
 					continue
 				case raw == "-e" || raw == "-f":
