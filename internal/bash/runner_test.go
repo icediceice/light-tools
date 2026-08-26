@@ -365,10 +365,10 @@ func TestStaleConfirmIsRefusedAndNamesBothSurfaces(t *testing.T) {
 // Only an UNQUOTED glob on a modeled mutator enters the lane. A quoted pattern
 // is a literal, explicit filenames need no enumeration, and an unmodeled
 // command was never this guard's business.
-func TestUnguardedShapesPassStraightThrough(t *testing.T) {
-	runner, _, root := newGuardRunner(t)
+func TestExplicitMutationsAreCapturedAndQuotedLiteralsPassThrough(t *testing.T) {
+	runner, vault, root := newGuardRunner(t)
 	for _, name := range []string{"named-a", "named-b"} {
-		if err := os.WriteFile(filepath.Join(root, name), nil, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -376,8 +376,20 @@ func TestUnguardedShapesPassStraightThrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if explicit["protection"] != nil {
-		t.Fatalf("explicit filenames were guarded: %#v", explicit)
+	if explicit["protection"] != "capture-backed" {
+		t.Fatalf("explicit filenames were not captured: %#v", explicit)
+	}
+	captureID, _ := explicit["capture_id"].(string)
+	if captureID == "" {
+		t.Fatalf("explicit capture returned no id: %#v", explicit)
+	}
+	if _, err := vault.RestoreCapture(captureID, false); err != nil {
+		t.Fatalf("explicit capture could not restore: %v", err)
+	}
+	for _, name := range []string{"named-a", "named-b"} {
+		if data, err := os.ReadFile(filepath.Join(root, name)); err != nil || string(data) != name {
+			t.Fatalf("restore %s: data=%q err=%v", name, data, err)
+		}
 	}
 
 	quoted, err := runner.Run(context.Background(), Request{
