@@ -144,6 +144,55 @@ func planGlobMutation(command string) (globPlan, bool) {
 		}
 		return indexes
 	}
+	hasFlag := func(from int, want string) bool {
+		for index := from; index < len(tokens); index++ {
+			if tokens[index].Raw == "--" {
+				return false
+			}
+			if tokens[index].Raw == want {
+				return true
+			}
+		}
+		return false
+	}
+	sedOperands := func(from int) ([]int, bool) {
+		var indexes []int
+		terminated := false
+		sawScript := false
+		inPlace := false
+		for index := from; index < len(tokens); index++ {
+			raw := tokens[index].Raw
+			if !terminated && raw == "--" {
+				terminated = true
+				continue
+			}
+			if !terminated {
+				switch {
+				case raw == "-i" || strings.HasPrefix(raw, "-i"):
+					inPlace = true
+					continue
+				case raw == "-e" || raw == "-f":
+					if index+1 >= len(tokens) {
+						return nil, false
+					}
+					index++
+					sawScript = true
+					continue
+				case strings.HasPrefix(raw, "-e") || strings.HasPrefix(raw, "-f"):
+					sawScript = true
+					continue
+				case strings.HasPrefix(raw, "-") && raw != "-":
+					continue
+				}
+			}
+			if !sawScript {
+				sawScript = true
+				continue
+			}
+			indexes = append(indexes, index)
+		}
+		return indexes, inPlace
+	}
 
 	switch plan.Command {
 	case "rm", "unlink":
@@ -153,14 +202,16 @@ func planGlobMutation(command string) (globPlan, bool) {
 		plan.Effect = effectRename
 		plan.Operands = nonFlag(1)
 	case "sed":
-		// sed's first non-flag word is the script, not a path.
-		plan.Effect = effectEdit
-		operands := nonFlag(1)
-		if len(operands) < 2 {
+		var inPlace bool
+		plan.Operands, inPlace = sedOperands(1)
+		if !inPlace {
 			return globPlan{}, false
 		}
-		plan.Operands = operands[1:]
+		plan.Effect = effectEdit
 	case "gofmt":
+		if !hasFlag(1, "-w") {
+			return globPlan{}, false
+		}
 		plan.Effect = effectEdit
 		plan.Operands = nonFlag(1)
 	case "go":
@@ -237,19 +288,18 @@ func expandSurface(plan globPlan, cwd string) ([][]surfaceEntry, error) {
 		for _, match := range matches {
 			group = append(group, surfaceEntry{Path: match, Hazards: pathHazards(match)})
 		}
-		groups = append(groups, group)
-	}
-	return groups, nil
-}
-
-func pathHazards(path string) []string {
-	var hazards []string
-	if !utf8.ValidString(path) {
-		hazards = append(hazards, "invalid_utf8")
-	}
-	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return append(hazards, "missing")
+		switch {
+		case plan.Command == "sed" && (token.Raw == "-i" || token.Raw == "-e" || token.Raw == "-f" ||
+			(len(token.Raw) > 2 && (strings.HasPrefix(token.Raw, "-e") || strings.HasPrefix(token.Raw, "-f")))):
+			continue
+		case plan.Command == "gofmt" && token.Raw == "-w":
+			continue
+		case plan.Command == "rm" && (token.Raw == "-f" || token.Raw == "-r" || token.Raw == "-rf" || token.Raw == "-fr"):
+			// -r still cannot protect a directory; that is caught by hazards,
+			// not here, so the reason names the actual blocking path.
+			continue
+		}
+		bad = append(bad, token.Raw)
 	}
 	if err != nil {
 		return append(hazards, "unreadable")
