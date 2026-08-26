@@ -151,8 +151,11 @@ func (v *Vault) captureSurfaceBounded(id, command string, paths []string, ceilin
 	}
 	record = CaptureRecord{ID: id, Command: command, Created: time.Now().UTC()}
 	defer func() {
-		if err != nil {
-			_ = v.DeleteCapture(id)
+		if err == nil {
+			return
+		}
+		if cleanupErr := v.DeleteCapture(id); cleanupErr != nil {
+			err = fmt.Errorf("%w; could not remove partial capture %s: %v", err, id, cleanupErr)
 		}
 	}()
 
