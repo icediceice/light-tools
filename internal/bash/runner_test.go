@@ -495,6 +495,47 @@ func TestAsyncProtectedGlobCapturesBeforeQueueing(t *testing.T) {
 	}
 }
 
+func TestAsyncAdmissionFailureDeletesUnsealedCapture(t *testing.T) {
+	runner, vault, root := newGuardRunner(t)
+	runner.tasks.maximum = 0
+	path := filepath.Join(root, "a.tmp")
+	if err := os.WriteFile(path, []byte("a"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(context.Background(), Request{Command: "rm a.tmp", Cwd: root, Async: true}); err == nil {
+		t.Fatal("async admission unexpectedly succeeded")
+	}
+	records, err := vault.ListCaptures()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("rejected async task orphaned captures: %#v", records)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "a" {
+		t.Fatalf("rejected async task mutated the file: data=%q err=%v", data, err)
+	}
+}
+
+func TestExplicitDuplicatePathsCapturedOnce(t *testing.T) {
+	runner, vault, root := newGuardRunner(t)
+	path := filepath.Join(root, "same.txt")
+	if err := os.WriteFile(path, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard, refusal, err := runner.prepareGlobGuard(Request{Command: "rm same.txt same.txt", Cwd: root})
+	if err != nil || refusal != nil || guard == nil {
+		t.Fatalf("prepare duplicate surface: guard=%#v refusal=%#v err=%v", guard, refusal, err)
+	}
+	record, err := vault.LoadCapture(guard.CaptureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(record.Entries) != 1 || guard.Entries != 1 {
+		t.Fatalf("duplicate path was stored more than once: guard=%#v entries=%#v", guard, record.Entries)
+	}
+}
+
 func TestGoModuleErrorAnnotation(t *testing.T) {
 	got := annotateGoModuleError("missing go.sum entry for module")
 	if !strings.Contains(got, "run go mod tidy") {
