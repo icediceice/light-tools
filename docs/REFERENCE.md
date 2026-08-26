@@ -99,12 +99,17 @@ Async:
 {"verb":"cancel","task_id":"TASK_ID"}
 ```
 
-A filename-wildcard guard catches shell arguments containing an active `*` or
-`?`: the first request returns `dry_run:true` without starting a process, and
-one identical retry may execute. Explicit lists such as `rm a.tmp b.tmp` run
-immediately. This is lexical accident protection only — it cannot see a wildcard
-arriving through a variable, command substitution, or a program's own pattern
-language such as `find -name '*.tmp' -delete`.
+The mutation guard models `rm`, `unlink`, single-source `mv`, `sed -i`,
+`gofmt -w`, and `go fmt`. It enumerates both explicit operands such as
+`rm a.tmp b.tmp` and unquoted filename globs such as `rm *.tmp`. A
+protectable surface is captured before execution and returns a
+`vault_restore` handle. Explicit non-glob captures are bounded to 64 MiB of
+regular-file preimages, measured while the bytes are read; an explicit surface
+that is unprotectable or over that ceiling still runs and reports
+`protection:"unbacked"` with the reason. Only an unprotectable unquoted glob
+is refused and shown with a confirmation digest. Quoted patterns, pipelines,
+variables, command substitutions, and program-specific patterns such as
+`find -name '*.tmp' -delete` stay outside this guard.
 
 ## Secret vault
 
