@@ -27,6 +27,19 @@ import (
 
 const captureDirectory = "captures"
 
+const captureCeilingBytes int64 = 64 << 20
+
+// TooLarge reports a capture surface whose regular-file preimages exceed the
+// bounded lane's byte ceiling.
+type TooLarge struct {
+	Path  string
+	Limit int64
+}
+
+func (e *TooLarge) Error() string {
+	return fmt.Sprintf("capture surface exceeds %d-byte ceiling while reading %s", e.Limit, e.Path)
+}
+
 // Kinds a capture can restore. A symlink is not a file with link-shaped
 // content: the delete matrix admits symlinks as the ONLY hazard, so a revert
 // that turns one back into a regular file has changed the filesystem rather
