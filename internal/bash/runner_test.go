@@ -145,6 +145,40 @@ func TestModeledMutatorCaptureContract(t *testing.T) {
 	}
 }
 
+func TestSedMultipleExpressionsKeepsScriptsOutOfGlobSurface(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("acceptance case uses POSIX sed")
+	}
+	if _, err := exec.LookPath("sed"); err != nil {
+		t.Skip("sed is unavailable")
+	}
+	runner, vault, root := newGuardRunner(t)
+	path := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(path, []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), Request{
+		Command: "sed -i -e s/a/b/ -e s/b/c/ *.txt",
+		Cwd:     root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["protection"] != "capture-backed" {
+		t.Fatalf("sed scripts leaked into the path surface: %#v", result)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "c\n" {
+		t.Fatalf("sed did not edit the captured file: data=%q err=%v", data, err)
+	}
+	captureID, _ := result["capture_id"].(string)
+	if _, err := vault.RestoreCapture(captureID, false); err != nil {
+		t.Fatalf("sed capture did not restore: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "a\n" {
+		t.Fatalf("sed restore returned data=%q err=%v", data, err)
+	}
+}
+
 // The defect this whole lane exists to fix: a protectable glob used to cost two
 // calls and hand back neither a path list nor a revert. It must now run on the
 // FIRST call, and the capture it returns must actually restore.
