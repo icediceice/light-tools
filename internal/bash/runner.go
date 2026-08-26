@@ -95,6 +95,11 @@ func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, erro
 			return r.sealGuard(guard, result, err)
 		})
 		if err != nil {
+			if guard != nil && guard.CaptureID != "" {
+				if cleanupErr := r.captures.DeleteCapture(guard.CaptureID); cleanupErr != nil {
+					return nil, fmt.Errorf("%w; could not discard unqueued capture %s: %v", err, guard.CaptureID, cleanupErr)
+				}
+			}
 			return nil, err
 		}
 		return map[string]any{"task_id": id, "status": "queued"}, nil
