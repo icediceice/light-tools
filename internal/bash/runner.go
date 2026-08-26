@@ -45,9 +45,8 @@ type Runner struct {
 	spills   *SpillStore
 	secrets  *secret.Vault
 	tasks    *TaskManager
-	// captures backs glob mutators with a revertible snapshot of their whole
-	// surface. Nil disables the protected lane, which leaves every modeled
-	// glob on the confirm fence rather than running it unbacked.
+	// captures backs modeled mutators with revertible snapshots. Nil leaves
+	// explicit surfaces unbacked and unprotectable globs on the confirm fence.
 	captures *snapshot.Vault
 	// captureLimit is the per-stream in-memory ceiling for command output.
 	// Zero means captureLimit. It is a field rather than a bare constant so a
