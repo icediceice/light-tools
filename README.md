@@ -108,6 +108,18 @@ Use whatever code-intelligence layer you prefer.
 
 `light-tools` handles a different part of the problem: **how the agent reads, writes and operates on the machine after it knows what it wants to do.**
 
+### Mutation safety
+
+Modeled mutations are enumerated before execution whether they name explicit
+paths (`rm a.tmp b.tmp`) or an unquoted glob (`rm *.tmp`). When the whole
+surface can be durably captured, the command runs on first contact and returns
+a working `vault_restore` handle. Explicit non-glob captures are limited to
+64 MiB of regular-file preimages measured as they are read; an explicit surface
+that is unprotectable or exceeds that ceiling still runs, but reports
+`protection:"unbacked"` and the reason. An unprotectable unquoted glob is the
+only case that refuses: it names the blocker, shows the complete expanded
+surface, and binds an unbacked retry to that exact surface with a digest.
+
 ## Install
 
 ```sh
