@@ -138,6 +138,100 @@ func (v *Vault) CaptureSurface(id, command string, paths []string) (CaptureRecor
 	return record, nil
 }
 
+// CaptureSurfaceBounded snapshots an explicitly enumerated mutation surface
+// without duplicating each preimage into the per-path ring. The fixed ceiling is
+// enforced on bytes read, not on an earlier stat result that can go stale.
+func (v *Vault) CaptureSurfaceBounded(id, command string, paths []string) (CaptureRecord, error) {
+	return v.captureSurfaceBounded(id, command, paths, captureCeilingBytes)
+}
+
+func (v *Vault) captureSurfaceBounded(id, command string, paths []string, ceiling int64) (record CaptureRecord, err error) {
+	if err := validCaptureID(id); err != nil {
+		return CaptureRecord{}, err
+	}
+	record = CaptureRecord{ID: id, Command: command, Created: time.Now().UTC()}
+	defer func() {
+		if err != nil {
+			_ = v.DeleteCapture(id)
+		}
+	}()
+
+	remaining := ceiling
+	for index, path := range paths {
+		clean := filepath.Clean(path)
+		info, statErr := os.Lstat(clean)
+		if os.IsNotExist(statErr) {
+			record.Entries = append(record.Entries, CaptureEntry{Path: clean, Existed: false})
+			continue
+		}
+		if statErr != nil {
+			return CaptureRecord{}, statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, readErr := os.Readlink(clean)
+			if readErr != nil {
+				return CaptureRecord{}, readErr
+			}
+			record.Entries = append(record.Entries, CaptureEntry{
+				Path: clean, Existed: true, Kind: kindSymlink, LinkTarget: target,
+			})
+			continue
+		}
+
+		data, readErr := readCaptureFile(clean, remaining, ceiling)
+		if readErr != nil {
+			return CaptureRecord{}, readErr
+		}
+		remaining -= int64(len(data))
+		blob, writeErr := v.writeCaptureBlob(id, index, data)
+		if writeErr != nil {
+			return CaptureRecord{}, writeErr
+		}
+		record.Entries = append(record.Entries, CaptureEntry{
+			Path: clean, Existed: true, Kind: kindFile, SHA256: hash(data),
+			Blob: blob, Mode: uint32(info.Mode().Perm()),
+		})
+	}
+	if err := v.writeCapture(record); err != nil {
+		return CaptureRecord{}, err
+	}
+	return record, nil
+}
+
+func readCaptureFile(path string, remaining, ceiling int64) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, remaining+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > remaining {
+		return nil, &TooLarge{Path: path, Limit: ceiling}
+	}
+	return data, nil
+}
+
+// DeleteCapture removes both the published record and any owned preimage blobs.
+// It is also safe for a capture that failed before publication.
+func (v *Vault) DeleteCapture(id string) error {
+	if err := validCaptureID(id); err != nil {
+		return err
+	}
+	recordErr := os.Remove(v.capturePath(id))
+	if os.IsNotExist(recordErr) {
+		recordErr = nil
+	}
+	blobErr := os.RemoveAll(filepath.Join(v.root, captureDirectory, id))
+	if recordErr != nil {
+		return recordErr
+	}
+	return blobErr
+}
+
 // stateOf describes what is on disk now in the same terms the capture recorded.
 // An unreadable or absent path is the empty state, which is exactly what a
 // completed delete should look like.
