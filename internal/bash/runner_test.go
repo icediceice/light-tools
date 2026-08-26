@@ -420,9 +420,8 @@ func TestStaleConfirmIsRefusedAndNamesBothSurfaces(t *testing.T) {
 	}
 }
 
-// Only an UNQUOTED glob on a modeled mutator enters the lane. A quoted pattern
-// is a literal, explicit filenames need no enumeration, and an unmodeled
-// command was never this guard's business.
+// Explicit operands on modeled mutators are captured; a quoted pattern on an
+// unmodeled command remains a literal and never enters the guard.
 func TestExplicitMutationsAreCapturedAndQuotedLiteralsPassThrough(t *testing.T) {
 	runner, vault, root := newGuardRunner(t)
 	for _, name := range []string{"named-a", "named-b"} {
