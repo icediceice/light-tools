@@ -99,6 +99,52 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	}
 }
 
+func TestModeledMutatorCaptureContract(t *testing.T) {
+	tests := []struct {
+		name          string
+		command       string
+		captureBacked bool
+	}{
+		{name: "rm", command: "rm target.txt", captureBacked: true},
+		{name: "unlink", command: "unlink target.txt", captureBacked: true},
+		{name: "mv", command: "mv target.txt moved.txt", captureBacked: true},
+		{name: "sed in place", command: "sed -i s/a/b/ target.txt", captureBacked: true},
+		{name: "sed multiple expressions", command: "sed -i -e s/a/b/ -e s/b/c/ target.txt", captureBacked: true},
+		{name: "gofmt write", command: "gofmt -w target.go", captureBacked: true},
+		{name: "go fmt", command: "go fmt target.go", captureBacked: true},
+		{name: "sed read only", command: "sed -e s/a/b/ target.txt"},
+		{name: "gofmt read only", command: "gofmt target.go"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner, _, root := newGuardRunner(t)
+			for _, name := range []string{"target.txt", "target.go"} {
+				if err := os.WriteFile(filepath.Join(root, name), []byte("package sample\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			guard, refusal, err := runner.prepareGlobGuard(Request{Command: test.command, Cwd: root})
+			if err != nil || refusal != nil {
+				t.Fatalf("prepare guard: guard=%#v refusal=%#v err=%v", guard, refusal, err)
+			}
+			if !test.captureBacked {
+				if guard != nil {
+					t.Fatalf("read-only shape entered mutation lane: %#v", guard)
+				}
+				return
+			}
+			if guard == nil || guard.CaptureID == "" {
+				t.Fatalf("modeled mutation was not captured: %#v", guard)
+			}
+			result, err := runner.sealGuard(guard, map[string]any{}, nil)
+			if err != nil || result["protection"] != "capture-backed" {
+				t.Fatalf("modeled mutation did not come back capture-backed: result=%#v err=%v", result, err)
+			}
+		})
+	}
+}
+
 // The defect this whole lane exists to fix: a protectable glob used to cost two
 // calls and hand back neither a path list nor a revert. It must now run on the
 // FIRST call, and the capture it returns must actually restore.
