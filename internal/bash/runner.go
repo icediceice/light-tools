@@ -111,6 +111,7 @@ type globGuard struct {
 	// replaces the caller's command so the shell cannot expand the glob a
 	// second time and mutate something the capture never saw.
 	Pinned      string
+	Unbacked    string
 	Unprotected bool
 }
 
