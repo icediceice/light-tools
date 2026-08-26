@@ -154,24 +154,28 @@ func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, 
 		return nil, nil, nil
 	}
 	decision := decideGlobProtection(plan, groups)
-	digest := surfaceDigest(request.Command, resolvedCwd, flat)
 
 	if decision.Protectable && r.captures != nil {
-		paths := make([]string, 0, len(flat))
-		for _, entry := range flat {
-			paths = append(paths, entry.Path)
-		}
+		paths := capturePaths(flat)
 		id := snapshot.NewCaptureID()
 		if _, err := r.captures.CaptureSurface(id, request.Command, paths); err != nil {
 			return nil, nil, fmt.Errorf("could not back up the surface before running: %w", err)
 		}
-		return &globGuard{CaptureID: id, Entries: len(flat), Pinned: pinCommand(plan, groups)}, nil, nil
+		pinned := request.Command
+		if hasGlob {
+			pinned = pinCommand(plan, groups)
+		}
+		return &globGuard{CaptureID: id, Entries: len(paths), Pinned: pinned}, nil, nil
 	}
 
 	reason := decision.Reason
 	if reason == "" && r.captures == nil {
 		reason = "no snapshot vault is configured, so no revert could be recorded"
 	}
+	if !hasGlob {
+		return &globGuard{Unprotected: true}, nil, nil
+	}
+	digest := surfaceDigest(request.Command, resolvedCwd, flat)
 	if confirmMatches(request.Confirm, digest) {
 		return &globGuard{Unprotected: true}, nil, nil
 	}
