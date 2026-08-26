@@ -153,14 +153,16 @@ instead of only the second.
 heredoc, and a truncated one can be staged and resumed from the line it stopped
 at instead of being restarted from the top.
 
-**Destroying a surface the model never enumerated.** `rm *.tmp` is expanded and
-inspected before anything runs. When the whole surface can be durably captured,
-the command runs on first contact and the result carries a working
-`vault_restore` handle. When it cannot — a directory in the surface, a pipeline
-whose reach cannot be honestly enumerated — it refuses, names the specific
-reason, and shows the surface it computed. The agent is never asked to perform
-the same call twice to prove it meant it, which is a fence that costs a turn and
-protects nothing.
+**Destroying a surface the model never enumerated.** Modeled mutations are
+enumerated before execution whether they name explicit paths (`rm a.tmp b.tmp`)
+or an unquoted glob (`rm *.tmp`). When the whole surface can be durably
+captured, the command runs on first contact and the result carries a working
+`vault_restore` handle. Explicit non-glob captures are limited to 64 MiB of
+regular-file preimages measured as they are read; an explicit surface that is
+unprotectable or exceeds that ceiling still runs, but reports
+`protection:"unbacked"` and the reason. An unprotectable unquoted glob is the
+only case that refuses: it names the blocker, shows the complete expanded
+surface, and binds an unbacked retry to that exact surface with a digest.
 
 **Reaching for a tool that was deliberately withheld.** A disabled tool is never
 registered at all, so it cannot be called and then apologised for. An unknown
