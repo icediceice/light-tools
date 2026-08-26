@@ -178,11 +178,7 @@ func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, 
 				Pinned:    request.Command,
 			}, nil, nil
 		} else {
-			var tooLarge *snapshot.TooLarge
-			if !errors.As(err, &tooLarge) {
-				return nil, nil, fmt.Errorf("could not back up the surface before running: %w", err)
-			}
-			reason = err.Error()
+			reason = fmt.Sprintf("the surface could not be captured: %v", err)
 		}
 	}
 	if reason == "" && r.captures == nil {
