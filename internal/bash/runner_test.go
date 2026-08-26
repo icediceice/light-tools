@@ -264,6 +264,30 @@ func TestPinnedSurfaceSurvivesAwkwardFilenames(t *testing.T) {
 	}
 }
 
+func TestExplicitDirectoryRunsUnbacked(t *testing.T) {
+	runner, _, root := newGuardRunner(t)
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := runner.Run(context.Background(), Request{Command: "rm nested", Cwd: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["protection"] != "unbacked" {
+		t.Fatalf("explicit unprotectable surface did not run unbacked: %#v", result)
+	}
+	if result["ran"] == false {
+		t.Fatalf("explicit unprotectable surface was refused: %#v", result)
+	}
+	if result["capture_id"] != nil {
+		t.Fatalf("unbacked run advertised a capture: %#v", result)
+	}
+	reason, _ := result["reason"].(string)
+	if !strings.Contains(reason, "nested") || !strings.Contains(reason, "directory") {
+		t.Fatalf("unbacked reason did not name the directory: %q", reason)
+	}
+}
+
 // A directory cannot be quarantined for rm — the coreutils call would fail on
 // it, and substituting success would change the command's own outcome. So the
 // surface is not protectable, nothing runs, and the reason names the blocker.
