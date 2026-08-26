@@ -289,18 +289,19 @@ func expandSurface(plan globPlan, cwd string) ([][]surfaceEntry, error) {
 		for _, match := range matches {
 			group = append(group, surfaceEntry{Path: match, Hazards: pathHazards(match)})
 		}
-		switch {
-		case plan.Command == "sed" && (token.Raw == "-i" || token.Raw == "-e" || token.Raw == "-f" ||
-			(len(token.Raw) > 2 && (strings.HasPrefix(token.Raw, "-e") || strings.HasPrefix(token.Raw, "-f")))):
-			continue
-		case plan.Command == "gofmt" && token.Raw == "-w":
-			continue
-		case plan.Command == "rm" && (token.Raw == "-f" || token.Raw == "-r" || token.Raw == "-rf" || token.Raw == "-fr"):
-			// -r still cannot protect a directory; that is caught by hazards,
-			// not here, so the reason names the actual blocking path.
-			continue
-		}
-		bad = append(bad, token.Raw)
+		groups = append(groups, group)
+	}
+	return groups, nil
+}
+
+func pathHazards(path string) []string {
+	var hazards []string
+	if !utf8.ValidString(path) {
+		hazards = append(hazards, "invalid_utf8")
+	}
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return append(hazards, "missing")
 	}
 	if err != nil {
 		return append(hazards, "unreadable")
