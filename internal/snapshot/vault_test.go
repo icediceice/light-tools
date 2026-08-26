@@ -158,3 +158,66 @@ func TestAcceptanceCaptureRestoresSymlinkIdentity(t *testing.T) {
 		t.Fatalf("restored symlink target=%q err=%v; want %q", got, err, target)
 	}
 }
+
+func TestBoundedCaptureEnforcesReadCeilingWithoutPartialState(t *testing.T) {
+	if captureCeilingBytes != 64<<20 {
+		t.Fatalf("capture ceiling = %d, want 64 MiB", captureCeilingBytes)
+	}
+	root := t.TempDir()
+	vault := New(filepath.Join(root, "snapshots"))
+	first := filepath.Join(root, "first.txt")
+	second := filepath.Join(root, "second.txt")
+	if err := os.WriteFile(first, []byte("1234"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("56"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	id := NewCaptureID()
+	_, err := vault.captureSurfaceBounded(id, "rm first.txt second.txt", []string{first, second}, 5)
+	var tooLarge *TooLarge
+	if !errors.As(err, &tooLarge) {
+		t.Fatalf("oversized surface returned %T %v, want TooLarge", err, err)
+	}
+	if tooLarge.Limit != 5 || tooLarge.Path != second {
+		t.Fatalf("TooLarge = %#v", tooLarge)
+	}
+	if _, err := vault.LoadCapture(id); err == nil {
+		t.Fatal("oversized surface published a partial record")
+	}
+	if _, err := os.Stat(filepath.Join(vault.root, captureDirectory, id)); !os.IsNotExist(err) {
+		t.Fatalf("oversized surface left staged blobs behind: %v", err)
+	}
+	if entries, err := vault.List(first); err != nil || len(entries) != 0 {
+		t.Fatalf("bounded lane double-wrote the first preimage into the ring: entries=%#v err=%v", entries, err)
+	}
+}
+
+func TestBoundedCaptureOwnsPreimageWithoutRingWrite(t *testing.T) {
+	root := t.TempDir()
+	vault := New(filepath.Join(root, "snapshots"))
+	path := filepath.Join(root, "captured.txt")
+	if err := os.WriteFile(path, []byte("original"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	capture, err := vault.captureSurfaceBounded(NewCaptureID(), "rm captured.txt", []string{path}, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entries, err := vault.List(path); err != nil || len(entries) != 0 {
+		t.Fatalf("bounded lane wrote the per-path ring: entries=%#v err=%v", entries, err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.SealCapture(capture.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vault.RestoreCapture(capture.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "original" {
+		t.Fatalf("owned preimage restored data=%q err=%v", data, err)
+	}
+}
