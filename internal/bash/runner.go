@@ -119,14 +119,10 @@ type globGuard struct {
 	Unprotected bool
 }
 
-// prepareGlobGuard implements the two lanes.
-//
-// A modeled mutator whose entire expanded surface is protectable is snapshotted
-// and then allowed through on FIRST contact — the backup replaces the
-// confirmation, because an acknowledgement that buys no recoverability is a
-// round trip that costs a turn and returns nothing.
-//
-// Anything else keeps the confirm fence, and says WHY it could not be backed.
+// prepareGlobGuard chooses among three outcomes. A protectable modeled surface
+// is captured and runs on first contact. An explicit surface that cannot be
+// captured still runs, labelled unbacked. Only an unprotectable unquoted glob
+// stays behind the digest-bound confirmation fence.
 func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, error) {
 	if request.Command == "" || request.OutputMode == "read_block" {
 		return nil, nil, nil
