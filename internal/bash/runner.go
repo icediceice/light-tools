@@ -130,15 +130,12 @@ func (r *Runner) prepareGlobGuard(request Request) (*globGuard, map[string]any, 
 	if !ok {
 		return nil, nil, nil
 	}
-	globbed := false
+	hasGlob := false
 	for _, index := range plan.Operands {
 		if plan.Tokens[index].HasGlob && !plan.Tokens[index].Quoted {
-			globbed = true
+			hasGlob = true
 			break
 		}
-	}
-	if !globbed {
-		return nil, nil, nil
 	}
 	cwd := request.Cwd
 	if cwd == "" {
