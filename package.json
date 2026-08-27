@@ -1,7 +1,7 @@
 {
   "name": "@factor-i-o/light-tools",
   "version": "0.0.0-development",
-  "description": "Standalone MCP server giving any agent bounded file, shell, SSH/SCP, and service-log tools. Every tool is registered by default; withhold one with --disable-tool.",
+  "description": "MCP file and shell tools for coding agents: bounded multi-file reads, span edits, deduplication, searchable command output, SSH/SCP, and service-log inspection.",
   "type": "module",
   "license": "GPL-3.0-or-later",
   "repository": {
@@ -14,8 +14,15 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "model-context-protocol",
+    "coding-agents",
+    "ai-agents",
     "developer-tools",
+    "file-tools",
+    "shell-tools",
+    "context-engineering",
+    "token-efficiency",
     "tree-sitter"
   ],
   "bin": {
