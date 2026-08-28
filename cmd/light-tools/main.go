@@ -19,6 +19,7 @@ import (
 	"github.com/icediceice/light-tools/internal/bash"
 	"github.com/icediceice/light-tools/internal/config"
 	"github.com/icediceice/light-tools/internal/filetool"
+	"github.com/icediceice/light-tools/internal/logs"
 	"github.com/icediceice/light-tools/internal/mcp"
 	"github.com/icediceice/light-tools/internal/ops"
 	"github.com/icediceice/light-tools/internal/portable"
@@ -159,6 +160,26 @@ func resolveConfinement(configuration config.Config, uiConfine bool, workingDire
 	return configuration
 }
 
+// recoveryStore decides whether light_ssh and light_ops may compact at all.
+//
+// Elision implies recovery, and every recovery pointer those two tools publish
+// names light_bash — read_block is the only verb that reads a spill. So in the
+// supported posture where the operator withholds light_bash but keeps light_ssh
+// or light_ops, an outline would advertise a call the client cannot make and
+// the exact bytes it points at become unreachable. Withholding the store
+// instead costs those two tools their compaction in that posture and keeps the
+// invariant: both fail open to exact output when this is nil.
+//
+// The return type is load-bearing. A nil *bash.SpillStore boxed in a non-nil
+// interface would pass every `spills == nil` check downstream and then hand out
+// pointers nothing can resolve, so the nil must be the interface's own.
+func recoveryStore(opts options, spills *bash.SpillStore) logs.Spiller {
+	if opts.disabled["light_bash"] {
+		return nil
+	}
+	return spills
+}
+
 func registerTools(server *mcp.Server, opts options, layout state.Layout, configuration config.Config, recorder telemetry.Recorder) error {
 	secretVault := secret.New(layout.Secrets)
 	// One vault instance shared by both tools: a capture light_bash takes has
@@ -213,8 +234,11 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	// the store is what lets an outline from light_ssh or light_ops be
 	// recovered through light_bash read_block; sharing the recorder is what
 	// keeps the compaction ratio a whole-process number instead of one tool's.
-	remoteTransport := remote.New(configuration.Remote, confiner, secretVault, bashRunner.Spills(), recorder)
-	opsHandler, err := ops.New(policy, configuration.LogRoots, bashRunner.Spills(), recorder)
+	//
+	// The store is withheld when light_bash is: see recoveryStore.
+	recovery := recoveryStore(opts, bashRunner.Spills())
+	remoteTransport := remote.New(configuration.Remote, confiner, secretVault, recovery, recorder)
+	opsHandler, err := ops.New(policy, configuration.LogRoots, recovery, recorder)
 	if err != nil {
 		return err
 	}

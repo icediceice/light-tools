@@ -120,8 +120,21 @@ with `compaction_skipped` — never an outline whose pointer does not resolve, a
 never a lost `exit_code`, because the command has already run by then.
 
 Small output passes through untouched rather than spending a spill record on
-something already legible. Set `LIGHT_NO_COMPACT=1` to disable compaction
-entirely and get the exact legacy bytes with none of the keys above.
+something already legible.
+
+`LIGHT_NO_COMPACT=1` is a compatibility hatch, not just an off switch: it
+restores the pre-compaction result shape exactly. Output within the size limit
+comes back as the exact bytes with none of the keys above; oversized output
+comes back the way it did before compaction existed — the combined aggregate
+under `spill_id` (not `source_spill_id`), both streams cut to their last 80
+lines, and `truncated: true`. The one deliberate difference is that a failed
+spill still returns the command's output and `exit_code` rather than an error,
+because the command has already run.
+
+Recovery for `light_ssh` and `light_ops` runs through `light_bash`'s
+`read_block`, so withholding `light_bash` (via `--disable-tool` or the vault UI)
+also turns compaction off for those two tools: they return exact output rather
+than an outline pointing at a tool that is not registered.
 
 Async:
 

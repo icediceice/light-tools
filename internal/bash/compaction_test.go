@@ -188,6 +188,43 @@ func TestNoCompactEnvReturnsExactOutput(t *testing.T) {
 	}
 }
 
+// The hatch is a COMPATIBILITY contract, so it has to hold at the size that
+// actually changed shape. Oversized output under LIGHT_NO_COMPACT must return
+// the pre-compaction result: the aggregate under spill_id, both streams cut to
+// 80 lines, truncated:true — and none of the new per-stream keys.
+func TestNoCompactEnvRestoresLegacyOversizedShape(t *testing.T) {
+	t.Setenv("LIGHT_NO_COMPACT", "1")
+	runner, root := compactionRunner(t)
+	// Wide enough that stdout alone clears outputLimit (128 KiB) and the
+	// aggregate spill is taken, which is the branch whose shape regressed.
+	result := runCompacted(t, runner, root, emitLines(6000, "compiling module %s of 6000"))
+
+	stdout, _ := result["stdout"].(string)
+	if lines := len(strings.Split(stdout, "\n")); lines != 80 {
+		t.Fatalf("legacy shape cuts stdout to 80 lines, got %d", lines)
+	}
+	if !strings.Contains(stdout, "compiling module 6000 of 6000") {
+		t.Fatalf("the 80-line cut must keep the TAIL:\n%s", stdout)
+	}
+	if id, _ := result["spill_id"].(string); id == "" {
+		t.Fatalf("legacy spill_id missing: %#v", result)
+	}
+	if result["truncated"] != true {
+		t.Fatalf("legacy truncated flag missing: %#v", result)
+	}
+	for _, key := range []string{
+		"source_spill_id", "stdout_spill_id", "stdout_recover",
+		"stdout_compaction_skipped", "stderr_spill_id", "stderr_recover",
+	} {
+		if _, present := result[key]; present {
+			t.Fatalf("escape hatch leaked post-compaction key %q: %#v", key, result)
+		}
+	}
+	if result["exit_code"] != 0 {
+		t.Fatalf("exit_code = %#v, want 0", result["exit_code"])
+	}
+}
+
 // Acceptance: at BOTH ends of the size range — a small-but-repetitive 200-line
 // output and a 5,000-line flood — the view must be an outline and the pointer
 // beside it must return that stream byte-for-byte.

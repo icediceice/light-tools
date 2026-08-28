@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/icediceice/light-tools/internal/bash"
 	"github.com/icediceice/light-tools/internal/config"
@@ -268,6 +269,76 @@ func TestRegistrationHonorsPersistedMarkers(t *testing.T) {
 	want := []string{"light_bash", "light_file", "light_ssh"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools/list = %v, want %v (light_ops by marker, light_scp by flag)", got, want)
+	}
+}
+
+// Elision implies recovery, across registration postures. Every recovery
+// pointer light_ssh and light_ops publish names light_bash read_block, so
+// withholding light_bash has to withhold their spill store too — otherwise
+// those tools keep compacting and hand back outlines pointing at a tool the
+// client cannot call.
+func TestRecoveryStoreFollowsLightBashRegistration(t *testing.T) {
+	root := t.TempDir()
+	store, err := bash.NewSpillStore(filepath.Join(root, "spills"), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := recoveryStore(options{disabled: map[string]bool{}}, store); got == nil {
+		t.Fatal("light_bash registered: light_ssh and light_ops must share its spill store")
+	}
+	got := recoveryStore(options{disabled: map[string]bool{"light_bash": true}}, store)
+	// Compared against a nil INTERFACE deliberately: a nil *bash.SpillStore
+	// boxed in a non-nil logs.Spiller would satisfy neither the downstream
+	// `spills == nil` checks nor this assertion, and would restore the bug.
+	if got != nil {
+		t.Fatalf("light_bash withheld: recovery store must be nil, got %#v", got)
+	}
+}
+
+// The posture the invariant above protects is real and reachable: withholding
+// light_bash leaves light_ssh and light_ops registered and serving.
+func TestWithholdingLightBashKeepsSSHAndOpsRegistered(t *testing.T) {
+	root := t.TempDir()
+	layout := state.Layout{
+		Config: filepath.Join(root, "config"), Secrets: filepath.Join(root, "secrets"),
+		Snapshots: filepath.Join(root, "snapshots"), Spills: filepath.Join(root, "spills"),
+	}
+	for _, path := range []string{layout.Config, layout.Secrets, layout.Snapshots, layout.Spills} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opts, err := newOptions([]string{"light_bash"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := mcp.New("test", "1")
+	configuration := config.Config{AllowedRoots: []string{root}, Remote: map[string]config.RemoteProfile{}}
+	if err := registerTools(server, opts, layout, configuration, nil); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n")
+	if err := server.Serve(context.Background(), input, &output); err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(output.String()), &response); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tool := range response.Result.Tools {
+		got = append(got, tool.Name)
+	}
+	want := []string{"light_file", "light_ops", "light_scp", "light_ssh"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("tools/list = %v, want %v", got, want)
 	}
 }
 

@@ -384,6 +384,25 @@ func (r *Runner) runSync(ctx context.Context, request Request, guard *globGuard)
 		result["timeout_ms"] = timeout.Milliseconds()
 		result["error"] = fmt.Sprintf("command timed out after %s", timeout)
 	}
+	// LIGHT_NO_COMPACT is a COMPATIBILITY hatch, not merely a compaction
+	// switch: a client sets it to keep parsing the result shape it already
+	// knows. Before compaction, oversized output meant the aggregate under
+	// spill_id, both streams cut to their last 80 lines, and truncated:true —
+	// so restore exactly that, rather than full streams under the new
+	// source_spill_id key, which is a contract this hatch never promised.
+	if logs.Disabled() {
+		if sourceSpillID != "" {
+			result["spill_id"] = sourceSpillID
+			result["stdout"] = tail(stdoutText, 80)
+			result["stderr"] = tail(stderrText, 80)
+			result["truncated"] = true
+		}
+		// A failed aggregate Store keeps the fail-open behaviour and does NOT
+		// restore the legacy `return nil, err`. The command has already run by
+		// this point, and the hatch is a request for the old result SHAPE, not
+		// a licence to discard an executed command's exit code.
+		return result, nil
+	}
 	if sourceSpillID != "" {
 		result["source_spill_id"] = sourceSpillID
 	}
