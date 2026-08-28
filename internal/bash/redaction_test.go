@@ -48,7 +48,7 @@ func TestShortSecretCannotInflateCappedOutputPastTheLimit(t *testing.T) {
 	if err := vault.Set("pin", "x"); err != nil {
 		t.Fatal(err)
 	}
-	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, nil)
+	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

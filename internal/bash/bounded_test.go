@@ -73,7 +73,7 @@ func TestRunawayCommandIsCappedAndReportsWhatItDropped(t *testing.T) {
 	}
 	root := t.TempDir()
 	vault := secret.New(filepath.Join(root, "secrets"))
-	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, nil)
+	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestOrdinaryCommandIsNotReportedAsCapped(t *testing.T) {
 	}
 	root := t.TempDir()
 	vault := secret.New(filepath.Join(root, "secrets"))
-	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, nil)
+	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

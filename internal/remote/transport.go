@@ -15,8 +15,10 @@ import (
 
 	"github.com/icediceice/light-tools/internal/childenv"
 	"github.com/icediceice/light-tools/internal/config"
+	"github.com/icediceice/light-tools/internal/logs"
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
+	"github.com/icediceice/light-tools/internal/telemetry"
 )
 
 type SSHRequest struct {
@@ -29,6 +31,13 @@ type SSHRequest struct {
 	Port      int    `json:"port,omitempty"`
 	ProxyJump string `json:"proxy_jump,omitempty"`
 	TimeoutMS int    `json:"timeout_ms,omitempty"`
+	// Compact is the exact-output valve, and it is a POINTER because its three
+	// states are genuinely different: nil auto-detects, false guarantees the
+	// bytes are returned verbatim, true compacts even a payload auto would have
+	// left alone. light_ssh callers decode stdout — NDJSON, base64, tar bytes —
+	// so an unconditional default-on would silently corrupt an existing
+	// contract. The valve is what makes default-on safe rather than breaking.
+	Compact *bool `json:"compact,omitempty"`
 }
 
 type SCPRequest struct {
@@ -58,10 +67,15 @@ type Transport struct {
 	confiner *security.Confiner
 	secrets  *secret.Vault
 	runner   commandRunner
+	// spills is the SAME store light_bash owns, so a remote outline is
+	// recovered through light_bash read_block. Nil disables compaction
+	// entirely rather than emitting an outline nothing can recover.
+	spills   logs.Spiller
+	recorder telemetry.Recorder
 }
 
-func New(profiles map[string]config.RemoteProfile, confiner *security.Confiner, secrets *secret.Vault) *Transport {
-	return &Transport{profiles: profiles, confiner: confiner, secrets: secrets, runner: runCommand}
+func New(profiles map[string]config.RemoteProfile, confiner *security.Confiner, secrets *secret.Vault, spills logs.Spiller, recorder telemetry.Recorder) *Transport {
+	return &Transport{profiles: profiles, confiner: confiner, secrets: secrets, runner: runCommand, spills: spills, recorder: recorder}
 }
 
 func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -102,7 +116,85 @@ func (t *Transport) SSH(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"stdout": stdout, "stderr": stderr, "exit_code": exitCode}, nil
+	result := map[string]any{"exit_code": exitCode}
+	if !t.compactionWanted(request, stdout) {
+		result["stdout"], result["stderr"] = stdout, stderr
+		return result, nil
+	}
+	opts := logs.Options{Budget: remoteOutputLimit}
+	outStream := logs.Compact(stdout, opts, t.spills, t.recorder)
+	errStream := logs.Compact(stderr, opts, t.spills, t.recorder)
+	result["stdout"], result["stderr"] = outStream.Text, errStream.Text
+	attachStream(result, "stdout", outStream)
+	attachStream(result, "stderr", errStream)
+	return result, nil
+}
+
+// remoteOutputLimit mirrors light_bash's own ceiling: the two tools return the
+// same shape of thing to the same reader, so they bound it the same way.
+const remoteOutputLimit = 128 * 1024
+
+// compactionWanted resolves the three-state valve.
+//
+// AUTO BYPASSES STRUCTURED PAYLOADS. Today light_ssh returns stdout verbatim
+// with no limit, filter or spill, so callers already decode it — NDJSON from a
+// log query, a base64 blob, a JSON document. Those have an exact-output
+// contract that a template outline would silently break, and unlike prose the
+// breakage is not visible in the result: json.Unmarshal simply fails somewhere
+// downstream. So auto errs toward exactness and the caller can force the other
+// way with compact:true.
+func (t *Transport) compactionWanted(request SSHRequest, stdout string) bool {
+	if t.spills == nil {
+		// No shared spill store means no resolvable recovery pointer, and an
+		// outline that cannot be recovered is worse than no compaction at all.
+		return false
+	}
+	if request.Compact != nil {
+		return *request.Compact
+	}
+	return !looksStructured(stdout)
+}
+
+// looksStructured reports whether stdout is a machine-readable payload rather
+// than human output. It judges the FIRST non-blank line only: NDJSON is a
+// stream of independent documents, so its first line is representative, and
+// scanning the whole body would make the verdict depend on how far a stream
+// happened to get.
+func looksStructured(stdout string) bool {
+	trimmed := strings.TrimLeft(stdout, " \t\r\n")
+	if trimmed == "" {
+		return false
+	}
+	line := trimmed
+	if idx := strings.IndexByte(line, '\n'); idx >= 0 {
+		line = line[:idx]
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return false
+	}
+	switch line[0] {
+	case '{', '[':
+		return json.Valid([]byte(line)) || json.Valid([]byte(trimmed))
+	}
+	return false
+}
+
+// attachStream puts one compacted stream's recovery metadata on the result. A
+// spill id travels WITH the outline it backs: light_ssh renders two streams and
+// a bare id would not say which one its ranges address.
+func attachStream(result map[string]any, name string, stream logs.Stream) {
+	if stream.Skipped {
+		if stream.SpillFailed {
+			result[name+"_compaction_skipped"] = true
+		}
+		return
+	}
+	if stream.SpillID == "" {
+		return
+	}
+	result[name+"_spill_id"] = stream.SpillID
+	result[name+"_recover"] = logs.RecoveryHint(stream.SpillID)
 }
 
 func (t *Transport) SCP(ctx context.Context, raw json.RawMessage) (any, error) {

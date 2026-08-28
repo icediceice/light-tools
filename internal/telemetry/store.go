@@ -45,6 +45,13 @@ type Recorder interface {
 	RecordTerseTokens(saved int)
 	RecordDedupBytes(saved int)
 	RecordWriteBytes(saved int)
+	// RecordCompactBytes records BOTH sides of one output-compaction pass.
+	// The other Record methods take a single "saved" difference, which is why
+	// no compaction RATIO is derivable from the counters that predate this one:
+	// a difference cannot say what it was a difference OF. Callers pass what
+	// went in and what came out, including the pass-through case where the two
+	// are equal — a stream that did not compact is data, not a non-event.
+	RecordCompactBytes(considered, delivered int)
 }
 
 // snapshot is the persisted, cumulative state of one session. Every generation
@@ -58,6 +65,10 @@ type snapshot struct {
 	TerseTokensSaved int64            `json:"terse_tokens_saved,omitempty"`
 	DedupBytesSaved  int64            `json:"dedup_bytes_saved,omitempty"`
 	WriteBytesSaved  int64            `json:"write_bytes_saved,omitempty"`
+	// The compaction pair is stored as two absolute totals rather than one
+	// saving, so the ratio delivered/considered stays derivable after the fact.
+	CompactBytesConsidered int64 `json:"compact_bytes_considered,omitempty"`
+	CompactBytesDelivered  int64 `json:"compact_bytes_delivered,omitempty"`
 }
 
 // Store is the in-memory recorder for one process plus the writer goroutine
@@ -159,6 +170,26 @@ func (s *Store) RecordWriteBytes(saved int) {
 		return
 	}
 	s.recordTotal(&s.current.WriteBytesSaved, saved)
+}
+
+// RecordCompactBytes takes both totals under ONE lock. Two separate recordTotal
+// calls would let a concurrent flush publish a snapshot between them, persisting
+// a considered without its delivered and skewing the very ratio this exists to
+// measure. A pass-through (delivered == considered) is recorded, not skipped:
+// dropping it would silently bias the aggregate toward the streams that
+// happened to compact.
+func (s *Store) RecordCompactBytes(considered, delivered int) {
+	if s == nil || considered <= 0 {
+		return
+	}
+	if delivered < 0 {
+		delivered = 0
+	}
+	s.mu.Lock()
+	s.current.CompactBytesConsidered += int64(considered)
+	s.current.CompactBytesDelivered += int64(delivered)
+	s.version++
+	s.mu.Unlock()
 }
 
 func (s *Store) recordTotal(field *int64, saved int) {
@@ -330,7 +361,12 @@ type Totals struct {
 	TerseTokensSaved int64            `json:"terse_tokens_saved"`
 	DedupBytesSaved  int64            `json:"dedup_bytes_saved"`
 	WriteBytesSaved  int64            `json:"write_bytes_saved"`
-	Warnings         []string         `json:"warnings,omitempty"`
+	// CompactBytesConsidered is what the three shell tools handed the logs
+	// engine; CompactBytesDelivered is what it handed back. Their ratio is the
+	// compaction rate, measured rather than asserted.
+	CompactBytesConsidered int64    `json:"compact_bytes_considered"`
+	CompactBytesDelivered  int64    `json:"compact_bytes_delivered"`
+	Warnings               []string `json:"warnings,omitempty"`
 }
 
 // Load aggregates a telemetry directory. Only the strict snapshot grammar is
@@ -438,6 +474,8 @@ func scanTotals(dir string, retryAvailable bool) (totals Totals, superseded bool
 		totals.TerseTokensSaved += entry.data.TerseTokensSaved
 		totals.DedupBytesSaved += entry.data.DedupBytesSaved
 		totals.WriteBytesSaved += entry.data.WriteBytesSaved
+		totals.CompactBytesConsidered += entry.data.CompactBytesConsidered
+		totals.CompactBytesDelivered += entry.data.CompactBytesDelivered
 	}
 	return totals, false, nil
 }

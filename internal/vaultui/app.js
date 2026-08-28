@@ -426,7 +426,8 @@
     cards.append(
       card("Terse output", (Number(totals.terse_tokens_saved) || 0).toLocaleString() + " tokens", "saved by terse result formatting"),
       card("Read dedup", formatBytes(Number(totals.dedup_bytes_saved) || 0), "not re-sent for repeated reads"),
-      card("Writing", formatBytes(Number(totals.write_bytes_saved) || 0), "vs. sending a full rewrite")
+      card("Writing", formatBytes(Number(totals.write_bytes_saved) || 0), "vs. sending a full rewrite"),
+      compactionCard(totals)
     );
 
     const warnings = byId("telemetry-warnings");
@@ -457,6 +458,24 @@
       );
       calls.append(row);
     }
+  }
+
+  // The compaction pair is stored as two absolute totals rather than one
+  // saving, so the ratio is derived here rather than asserted by the server.
+  // Zero considered bytes is the honest "nothing measured yet" case and must
+  // not render as 100% saved — or as NaN.
+  function compactionCard(totals) {
+    const considered = Number(totals.compact_bytes_considered) || 0;
+    const delivered = Number(totals.compact_bytes_delivered) || 0;
+    if (considered <= 0) {
+      return card("Compaction", "—", "no shell output compacted yet");
+    }
+    const percent = Math.round((1 - delivered / considered) * 100);
+    return card(
+      "Compaction",
+      percent + "% smaller",
+      formatBytes(considered) + " of shell output delivered as " + formatBytes(delivered)
+    );
   }
 
   function card(title, value, label) {

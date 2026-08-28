@@ -19,7 +19,7 @@ func TestCallerSuppliedPathOutsideRootsIsRefused(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("classified\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New(testPolicy(root), nil)
+	handler, err := New(testPolicy(root), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestPathUnderLogRootIsAllowed(t *testing.T) {
 	if err := os.WriteFile(logFile, []byte("2026-08-16T10:00:00Z INFO up\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New(testPolicy(allowed), []string{logRoot})
+	handler, err := New(testPolicy(allowed), []string{logRoot}, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestAbsentRootDoesNotPoisonTheUnion(t *testing.T) {
 		t.Fatal(err)
 	}
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
-	handler, err := New(testPolicy(root), []string{missing})
+	handler, err := New(testPolicy(root), []string{missing}, nil, nil)
 	if err != nil {
 		t.Fatalf("New should drop the absent root, not fail: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestAbsentRootDoesNotPoisonTheUnion(t *testing.T) {
 // everything.
 func TestNewFailsWithNoReadableRoot(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "gone")
-	if _, err := New(security.Policy{Roots: []string{missing}}, []string{missing}); err == nil {
+	if _, err := New(security.Policy{Roots: []string{missing}}, []string{missing}, nil, nil); err == nil {
 		t.Fatal("ops.New must fail when no configured root exists")
 	}
 }
@@ -105,7 +105,7 @@ func TestNewFailsWithNoReadableRoot(t *testing.T) {
 // would refuse to start the very posture that is meant not to have one.
 func TestNewStartsUnconfinedWithNoReadableRoot(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "gone")
-	if _, err := New(security.Policy{Unconfined: true}, []string{missing}); err != nil {
+	if _, err := New(security.Policy{Unconfined: true}, []string{missing}, nil, nil); err != nil {
 		t.Fatalf("ops.New must start unconfined with no readable root: %v", err)
 	}
 }
@@ -121,7 +121,7 @@ func TestRegistryDiscoveredLogOutsideRootsStaysReadable(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("2026-08-16T11:00:00Z ERROR boom\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New(testPolicy(root), nil)
+	handler, err := New(testPolicy(root), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

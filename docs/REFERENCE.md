@@ -86,9 +86,42 @@ A timed-out command carries `timed_out: true`, the `timeout_ms` that applied, an
 produced before the kill — usually the only evidence of where it hung. An
 ordinary non-zero exit is never relabelled as a timeout.
 
-Output modes: `auto`, `head`, `tail`, `grep`, `read_block`. Large output is
-compressed behind an opaque `spill_id`; recover exact ranges with `read_block`
-plus `line_range`. `light_file` shares the same spill store.
+Output modes: `auto`, `head`, `tail`, `grep`, `read_block`. Oversized combined
+output is still stored whole behind an opaque `source_spill_id`; recover exact
+ranges with `read_block` plus `line_range`. `light_file` shares the same spill
+store.
+
+### Output compaction
+
+`stdout` and `stderr` are compacted INDEPENDENTLY. Lines that differ only by a
+varying token — a counter, a pid, a uuid, a duration — collapse into one
+template row carrying the values that actually changed, so a climbing restart
+counter stays visible instead of hiding inside a repeated line. Every distinct
+line kind is rendered, INCLUDING one that occurs exactly once: a verdict
+(`BUILD FAILED`, `panic:`, `exit status 1`) is by nature a singleton, and it is
+the line you came for.
+
+Compaction runs AFTER your own `head`/`tail`/`grep` filter, so a rendered range
+and the bytes behind it address the same text.
+
+When a stream's view is not the bytes the command produced, that stream gets its
+OWN spill and reports:
+
+| Key | Meaning |
+| --- | --- |
+| `stdout_spill_id` / `stderr_spill_id` | recovers THAT stream, numbered from its own line 1 |
+| `stdout_recover` / `stderr_recover` | the ready-made `read_block` call for it |
+| `truncated` | at least one stream was compacted |
+| `stdout_compaction_skipped` | the view would have elided, but no spill could back it, so the EXACT output was returned instead |
+
+Elision implies recovery, and the failure mode is fail-open. The spill store
+holds 64 live records; when it is full the exact output comes back untouched
+with `compaction_skipped` — never an outline whose pointer does not resolve, and
+never a lost `exit_code`, because the command has already run by then.
+
+Small output passes through untouched rather than spending a spill record on
+something already legible. Set `LIGHT_NO_COMPACT=1` to disable compaction
+entirely and get the exact legacy bytes with none of the keys above.
 
 Async:
 
@@ -145,6 +178,23 @@ Named TOML profiles with per-call `remote`, `key`, `key_ref`, `cert_ref`,
 noninteractive batch mode, inherits `SSH_AUTH_SOCK`, retries exactly once and
 only after a timeout.
 
+`light_ssh` compacts its output the same way `light_bash` does, with the same
+per-stream spill keys, and recovery runs through `light_bash` `read_block`
+because the two share one spill store.
+
+The `compact` field is the exact-output valve, and it has three states:
+
+| `compact` | Behaviour |
+| --- | --- |
+| omitted | auto — compact prose, leave JSON and NDJSON payloads byte-exact |
+| `false` | never compact; `stdout` is guaranteed verbatim |
+| `true` | compact even a payload auto would have left alone |
+
+Auto errs toward exactness because `light_ssh` callers decode `stdout` — NDJSON
+from a log query, base64, tar bytes — and an outline would break that decode far
+downstream from here. Use `compact: false` whenever you intend to parse the
+output and want the guarantee in writing.
+
 ```toml
 [remote.production]
 host = "example.internal"
@@ -169,6 +219,14 @@ Ambiguous bare names return candidates.
 - `status`, `collect`, `cancel` for local async scans
 
 There is no start/stop/restart verb.
+
+Log bodies — `log_window` and its siblings' `content`, and `log_correlate`'s
+`timeline` — are compacted the same way `light_bash` output is, and a compacted
+body carries `spill_id` plus a ready-made `recover` call that resolves through
+`light_bash` `read_block`. `capped: true` still means the byte ceiling dropped
+the oldest lines before compaction ever saw them; those bytes were never stored
+and are not recoverable. `log_investigate` is deliberately NOT compacted: it
+returns an assembled structured result, not a log body.
 
 Two kinds of path are governed differently on purpose. **Caller-supplied paths**
 (a `path` argument, or a `file:/absolute/path` service ID) follow the
@@ -294,7 +352,11 @@ generation is removed. Each generation carries the session's full cumulative
 totals, so a reader takes the highest generation per session.
 
 Metrics: per-tool call counts, `terse_tokens_saved`, `dedup_bytes_saved`,
-`write_bytes_saved`. Totals are a persisted lower bound — the most recent
+`write_bytes_saved`, and the output-compaction pair
+`compact_bytes_considered` / `compact_bytes_delivered`. The compaction pair is
+stored as two absolute totals rather than one difference, because a difference
+cannot say what it was a difference OF — keeping both is what makes the ratio
+measured rather than asserted. Totals are a persisted lower bound — the most recent
 activity may not be on disk yet, and old sessions are pruned by retention and a
 session cap.
 

@@ -73,10 +73,11 @@ type captureRecorder struct {
 	writes []int
 }
 
-func (c *captureRecorder) RecordCall(tool string)     { c.calls = append(c.calls, tool) }
-func (c *captureRecorder) RecordTerseTokens(int)      {}
-func (c *captureRecorder) RecordDedupBytes(saved int) { c.dedup = append(c.dedup, saved) }
-func (c *captureRecorder) RecordWriteBytes(saved int) { c.writes = append(c.writes, saved) }
+func (c *captureRecorder) RecordCall(tool string)      { c.calls = append(c.calls, tool) }
+func (c *captureRecorder) RecordTerseTokens(int)       {}
+func (c *captureRecorder) RecordDedupBytes(saved int)  { c.dedup = append(c.dedup, saved) }
+func (c *captureRecorder) RecordWriteBytes(saved int)  { c.writes = append(c.writes, saved) }
+func (c *captureRecorder) RecordCompactBytes(int, int) {}
 
 func recorderHandler(t *testing.T) (*Handler, *captureRecorder, string) {
 	t.Helper()

@@ -186,7 +186,7 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	}
 	// The runner is built first so light_file can share its spill store: an
 	// oversized read then comes back as a spill_id readable via light_bash.
-	bashRunner, err := bash.NewRunner(policy, layout.Spills, secretVault, snapshotVault)
+	bashRunner, err := bash.NewRunner(policy, layout.Spills, secretVault, snapshotVault, recorder)
 	if err != nil {
 		return err
 	}
@@ -209,8 +209,12 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	if err != nil {
 		return err
 	}
-	remoteTransport := remote.New(configuration.Remote, confiner, secretVault)
-	opsHandler, err := ops.New(policy, configuration.LogRoots)
+	// One spill store and one recorder across all three shell tools. Sharing
+	// the store is what lets an outline from light_ssh or light_ops be
+	// recovered through light_bash read_block; sharing the recorder is what
+	// keeps the compaction ratio a whole-process number instead of one tool's.
+	remoteTransport := remote.New(configuration.Remote, confiner, secretVault, bashRunner.Spills(), recorder)
+	opsHandler, err := ops.New(policy, configuration.LogRoots, bashRunner.Spills(), recorder)
 	if err != nil {
 		return err
 	}
@@ -282,6 +286,9 @@ func toolSchema(name string) map[string]any {
 			properties[field] = stringType()
 		}
 		properties["port"], properties["timeout_ms"] = integerType(), integerType()
+		// compact is the exact-output valve. Declared here so a caller decoding
+		// stdout can turn compaction off without guessing at an undocumented key.
+		properties["compact"] = booleanType()
 	case "light_scp":
 		for _, field := range []string{"profile", "src", "dst", "key", "key_ref", "cert_ref", "proxy_jump"} {
 			properties[field] = stringType()

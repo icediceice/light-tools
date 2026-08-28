@@ -39,7 +39,7 @@ func TestRunnerResolvesExternalCommandAndKeepsEnvironmentMinimal(t *testing.T) {
 	t.Setenv("LIGHT_TOOLS_BOUNDARY_MARKER", "must-not-leak")
 
 	root := t.TempDir()
-	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")), snapshot.New(filepath.Join(root, "snapshots")))
+	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")), snapshot.New(filepath.Join(root, "snapshots")), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestSecretRefsAreResolvedAndScrubbed(t *testing.T) {
 	if err := vault.Set("token", "top-secret-value"); err != nil {
 		t.Fatal(err)
 	}
-	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, snapshot.New(filepath.Join(root, "snapshots")))
+	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), vault, snapshot.New(filepath.Join(root, "snapshots")), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

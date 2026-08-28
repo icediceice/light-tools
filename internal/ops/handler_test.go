@@ -62,7 +62,7 @@ func testLogHandler(t *testing.T) (*Handler, string, string) {
 		"2026-08-16T10:30:00Z INFO idle",
 		"2026-08-16T11:00:01Z WARN request_id=trace-123456789 retry",
 	}, "\n")+"\n"), 0o600)
-	handler, err := New(testPolicy(root), nil)
+	handler, err := New(testPolicy(root), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestPM2RegistryLogsRespectPrivateRoots(t *testing.T) {
 	if err := os.WriteFile(logPath, []byte("ciphertext"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	handler, err := New(security.Policy{Roots: []string{root}, Denied: []string{private}}, nil)
+	handler, err := New(security.Policy{Roots: []string{root}, Denied: []string{private}}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

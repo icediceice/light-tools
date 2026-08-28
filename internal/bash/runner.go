@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/icediceice/light-tools/internal/childenv"
+	"github.com/icediceice/light-tools/internal/logs"
 	"github.com/icediceice/light-tools/internal/secret"
 	"github.com/icediceice/light-tools/internal/security"
 	"github.com/icediceice/light-tools/internal/snapshot"
+	"github.com/icediceice/light-tools/internal/telemetry"
 )
 
 const outputLimit = 128 * 1024
@@ -52,6 +54,9 @@ type Runner struct {
 	// Zero means captureLimit. It is a field rather than a bare constant so a
 	// test can drive the truncation path without generating 24 MiB.
 	captureLimit int
+	// recorder counts compaction bytes considered vs delivered. Nil is valid
+	// and records nothing.
+	recorder telemetry.Recorder
 }
 
 // NewRunner builds the shell runner under the resolved confinement policy. The
@@ -59,7 +64,7 @@ type Runner struct {
 // runSync) — it never bounds what a shell command writes, which no path check
 // could do anyway. It still carries the policy's denied roots, so an unconfined
 // policy cannot park cwd inside light-tools' own secrets or telemetry state.
-func NewRunner(policy security.Policy, spillRoot string, secrets *secret.Vault, captures *snapshot.Vault) (*Runner, error) {
+func NewRunner(policy security.Policy, spillRoot string, secrets *secret.Vault, captures *snapshot.Vault, recorder telemetry.Recorder) (*Runner, error) {
 	spills, err := NewSpillStore(spillRoot, time.Hour)
 	if err != nil {
 		return nil, err
@@ -68,7 +73,7 @@ func NewRunner(policy security.Policy, spillRoot string, secrets *secret.Vault, 
 	if err != nil {
 		return nil, err
 	}
-	return &Runner{confiner: confiner, spills: spills, secrets: secrets, tasks: NewTaskManager(), captures: captures}, nil
+	return &Runner{confiner: confiner, spills: spills, secrets: secrets, tasks: NewTaskManager(), captures: captures, recorder: recorder}, nil
 }
 
 func (r *Runner) Run(ctx context.Context, request Request) (map[string]any, error) {
@@ -331,12 +336,22 @@ func (r *Runner) runSync(ctx context.Context, request Request, guard *globGuard)
 	}
 	rawStdout := scrub(stdout.String(), values)
 	rawStderr := annotateGoModuleError(scrub(stderr.String(), values))
-	var spillID string
+	// The legacy aggregate spill, kept exactly where it was but under its own
+	// key. It stores "STDOUT\n…\nSTDERR\n…" as ONE document, so it can never
+	// back a per-stream outline: a [1-20] range over stdout would return the
+	// literal STDOUT header plus nineteen lines, and every stderr range would
+	// carry the whole stdout length as an offset. It survives only as the
+	// pre-filter source of record.
+	//
+	// Its failure is now swallowed rather than returned. command.Run() has
+	// ALREADY happened by this point, so returning an error here would report
+	// an RPC failure for a command whose side effect landed — inviting a retry
+	// that performs it twice.
+	var sourceSpillID string
 	if len(rawStdout)+len(rawStderr) > outputLimit {
 		full := "STDOUT\n" + rawStdout + "\nSTDERR\n" + rawStderr
-		spillID, err = r.spills.Store([]byte(full))
-		if err != nil {
-			return nil, err
+		if id, spillErr := r.spills.Store([]byte(full)); spillErr == nil {
+			sourceSpillID = id
 		}
 	}
 	stdoutText, stderrText := rawStdout, rawStderr
@@ -344,7 +359,14 @@ func (r *Runner) runSync(ctx context.Context, request Request, guard *globGuard)
 		stdoutText = filterOutput(stdoutText, request.OutputMode, request.Lines, request.Filter)
 		stderrText = filterOutput(stderrText, request.OutputMode, request.Lines, request.Filter)
 	}
-	result := map[string]any{"stdout": stdoutText, "stderr": stderrText, "exit_code": exitCode}
+	// Compact AFTER the user's own filter, and once per stream. Filtering first
+	// is what keeps an outline's [lo-hi] aligned with the spill backing it:
+	// compacting the pre-filter text would index lines that stream's spill does
+	// not contain. Each stream gets its OWN spill so its line 1 is its line 1.
+	compactOpts := logs.Options{Budget: outputLimit}
+	outStream := logs.Compact(stdoutText, compactOpts, r.spills, r.recorder)
+	errStream := logs.Compact(stderrText, compactOpts, r.spills, r.recorder)
+	result := map[string]any{"stdout": outStream.Text, "stderr": errStream.Text, "exit_code": exitCode}
 	if dropped := stdout.Dropped() + stderr.Dropped(); dropped > 0 {
 		// Deliberately NOT the same signal as "truncated" below. That one says
 		// the output moved to a spill and is recoverable in full. These bytes
@@ -362,13 +384,36 @@ func (r *Runner) runSync(ctx context.Context, request Request, guard *globGuard)
 		result["timeout_ms"] = timeout.Milliseconds()
 		result["error"] = fmt.Sprintf("command timed out after %s", timeout)
 	}
-	if spillID != "" {
-		result["spill_id"] = spillID
-		result["stdout"] = tail(stdoutText, 80)
-		result["stderr"] = tail(stderrText, 80)
+	if sourceSpillID != "" {
+		result["source_spill_id"] = sourceSpillID
+	}
+	attachStream(result, "stdout", outStream)
+	attachStream(result, "stderr", errStream)
+	if outStream.Elided || errStream.Elided {
 		result["truncated"] = true
 	}
 	return result, nil
+}
+
+// attachStream puts one compacted stream's recovery metadata on the result.
+//
+// A spill id is emitted ONLY alongside the outline it actually backs, and the
+// hint naming it sits next to it — the pointer and the view it recovers must
+// travel together or a reader has no way to know which stream a range
+// addresses. compaction_skipped says the opposite thing to truncated: the text
+// is exact BECAUSE compaction stood down, so there is nothing to recover.
+func attachStream(result map[string]any, name string, stream logs.Stream) {
+	if stream.Skipped {
+		if stream.SpillFailed {
+			result[name+"_compaction_skipped"] = true
+		}
+		return
+	}
+	if stream.SpillID == "" {
+		return
+	}
+	result[name+"_spill_id"] = stream.SpillID
+	result[name+"_recover"] = logs.RecoveryHint(stream.SpillID)
 }
 
 // Spills exposes the store so light_file can hand oversized reads to the SAME

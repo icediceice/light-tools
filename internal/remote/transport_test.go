@@ -53,7 +53,7 @@ func TestConnectionProfileAndSecureRefs(t *testing.T) {
 	}
 	transport := New(map[string]config.RemoteProfile{
 		"prod": {Host: "example", User: "deploy", Port: 2222, ProxyJump: "jump", KeyPath: "/keys/id"},
-	}, confiner, vault)
+	}, confiner, vault, nil, nil)
 	settings, err := transport.connection("prod")
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +210,7 @@ func TestTransportRunnerSeamCapturesSSHAndSCPContracts(t *testing.T) {
 	}
 	transport := New(map[string]config.RemoteProfile{
 		"base": {Host: "profile.example", User: "profile", Port: 22, ProxyJump: "old-jump", KeyPath: "/old/key"},
-	}, confiner, secret.New(filepath.Join(root, "secrets")))
+	}, confiner, secret.New(filepath.Join(root, "secrets")), nil, nil)
 
 	type invocation struct {
 		executable string

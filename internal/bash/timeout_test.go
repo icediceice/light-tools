@@ -22,7 +22,7 @@ func newGuardRunner(t *testing.T) (*Runner, *snapshot.Vault, string) {
 	t.Helper()
 	root := t.TempDir()
 	vault := snapshot.New(filepath.Join(root, "snapshots"))
-	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")), vault)
+	runner, err := NewRunner(testPolicy(root), filepath.Join(root, "spills"), secret.New(filepath.Join(root, "secrets")), vault, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

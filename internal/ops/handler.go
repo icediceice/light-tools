@@ -15,8 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/icediceice/light-tools/internal/logs"
 	"github.com/icediceice/light-tools/internal/portable"
 	"github.com/icediceice/light-tools/internal/security"
+	"github.com/icediceice/light-tools/internal/telemetry"
 )
 
 const (
@@ -50,13 +52,18 @@ type Handler struct {
 	// confiner applies the same private-state deny list to caller paths and
 	// registry-discovered file logs.
 	confiner *security.Confiner
+	// spills is the SAME store light_bash owns, so an ops outline is recovered
+	// through light_bash read_block. Nil means an elided view degrades to the
+	// exact text rather than to an unrecoverable outline.
+	spills   logs.Spiller
+	recorder telemetry.Recorder
 }
 
 // New compiles the caller-path root union ONCE. security.ResolveBeneath
 // canonicalizes every root on each call and errors on the first one that does
 // not exist, so a single absent root would otherwise disable every other root
 // on every request. Absent roots are dropped here instead.
-func New(policy security.Policy, logRoots []string) (*Handler, error) {
+func New(policy security.Policy, logRoots []string, spills logs.Spiller, recorder telemetry.Recorder) (*Handler, error) {
 	// An unconfined policy has no root union to build and nothing to require:
 	// the "at least one readable root" check below exists to catch a confined
 	// setup whose roots have all gone missing, and applying it here would refuse
@@ -83,7 +90,7 @@ func New(policy security.Policy, logRoots []string) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{registry: &Registry{}, tasks: newTaskStore(), confiner: confiner}, nil
+	return &Handler{registry: &Registry{}, tasks: newTaskStore(), confiner: confiner, spills: spills, recorder: recorder}, nil
 }
 
 // resolveCallerPath confines a path the CALLER supplied. Registry-discovered
@@ -189,8 +196,10 @@ func (h *Handler) singleLogs(ctx context.Context, request Request) (map[string]a
 		return nil, err
 	}
 	filtered := filterLines(content, request)
-	filtered, capped := capOutput(filtered, request.Drill)
-	return map[string]any{"service": id, "content": filtered, "capped": capped}, nil
+	capped, stream := h.capOutput(filtered, request.Drill)
+	result := map[string]any{"service": id, "content": stream.Text, "capped": capped}
+	attachStream(result, stream)
+	return result, nil
 }
 
 // sourceLogs has three branches and only the FIRST TWO are confined. Those two
@@ -306,8 +315,10 @@ func (h *Handler) correlate(ctx context.Context, request Request) (map[string]an
 		}
 	}
 	sort.Strings(timeline)
-	content, capped := capOutput(strings.Join(timeline, "\n"), request.Drill)
-	return map[string]any{"services": request.Services, "timeline": content, "capped": capped}, nil
+	capped, stream := h.capOutput(strings.Join(timeline, "\n"), request.Drill)
+	result := map[string]any{"services": request.Services, "timeline": stream.Text, "capped": capped}
+	attachStream(result, stream)
+	return result, nil
 }
 
 func (h *Handler) investigate(ctx context.Context, request Request) (map[string]any, error) {
@@ -466,15 +477,47 @@ func compileFilter(pattern string) *regexp.Regexp {
 	return expression
 }
 
-func capOutput(content string, drill bool) (string, bool) {
+// capOutput is the chokepoint singleLogs (content) and correlate (timeline)
+// both funnel through, which is why compaction lands HERE rather than in each
+// verb. Before this it elided with a bare capped:true and NO recovery path at
+// all: the dropped head was simply gone.
+//
+// investigate is deliberately NOT routed here. It holds no raw line body — it
+// returns summary/errors/identifiers/traces assembled from grepPool rows that
+// are already reduced to hits/first/last/sample — so compacting that marshaled
+// map would corrupt a structured result rather than shorten a log.
+//
+// The byte cap still runs FIRST and still keeps the TAIL. Logs are read newest-
+// last, so on a stream too large to hold at all the recent end is the half
+// worth keeping; compaction then works on what survived, and its line numbers
+// address that same text.
+func (h *Handler) capOutput(content string, drill bool) (bool, logs.Stream) {
 	limit := normalDrillCap
 	if drill {
 		limit = largeDrillCap
 	}
-	if len(content) <= limit {
-		return content, false
+	capped := false
+	if len(content) > limit {
+		content = content[len(content)-limit:]
+		capped = true
 	}
-	return content[len(content)-limit:], true
+	return capped, logs.Compact(content, logs.Options{Budget: limit}, h.spills, h.recorder)
+}
+
+// attachStream puts one compacted stream's recovery pointer on the result.
+// light_ops returns a single body per verb, so the keys are unprefixed.
+func attachStream(result map[string]any, stream logs.Stream) {
+	if stream.Skipped {
+		if stream.SpillFailed {
+			result["compaction_skipped"] = true
+		}
+		return
+	}
+	if stream.SpillID == "" {
+		return
+	}
+	result["spill_id"] = stream.SpillID
+	result["recover"] = logs.RecoveryHint(stream.SpillID)
 }
 
 func timestampOf(line string) string {
