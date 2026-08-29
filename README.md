@@ -131,17 +131,35 @@ Read [SECURITY.md](SECURITY.md) before treating confinement as a security bounda
 
 ## Measurement
 
-`light-tools` counts its own savings locally: terse output tokens, read-dedup bytes, write bytes versus a full rewrite, and — new in v0.4.0 — the bytes handed to output compaction against the bytes handed back.
+There is a reproducible benchmark in this repository. It measures one thing: for a fixed question, how many bytes have to be delivered into a model's context to answer it — with `light-tools`, and without.
 
-A local measurement over **45 tool calls** in three throwaway sessions on this repository recorded:
+```sh
+go test -tags treesitter ./internal/bench/ -run TestBenchmarkReport -update
+```
 
-| Source | Saved |
-| --- | ---: |
-| Terse output | 12,194 tokens |
-| Read dedup | 164,087 B |
-| Writing vs. full rewrite | 116,363 B |
+Ten scenarios across two tracks, three arms each: `native-naive` (return the whole file, the whole stream), `native-skilled` (grep first, then read a window), and `light-tools` as it ships. Every scenario carries the fact that answers its question, checked against what each arm actually delivered — a saving that deletes the answer fails the suite rather than becoming a headline.
 
-That sample predates the compaction counters and so carries no compaction figure. The compaction ratio is measured from v0.4.0 onward, but is not yet sampled here. A small sample is not a benchmark or an extrapolated rate.
+Against a **naive** baseline the reductions are large: a 2.0 MB access log to 570 B, a 339.9 KB journal to 606 B, a 19.3 KB source file to a 704 B symbol.
+
+Against a **skilled** baseline they are mixed, and that is the honest number:
+
+| | Log reading | Code reading |
+| --- | :---: | :---: |
+| light-tools delivered less | 2 of 5 | 3 of 5 |
+| light-tools delivered more | 2 | 2 |
+| light-tools did not answer | 1 | 0 |
+
+Where a question already names the string it is looking for, `grep` is the right tool and wins. Compaction earns its place in the other case — when you cannot name the string yet, because you do not know what is in the log. Round trips are counted separately: several rows where `light-tools` sends more bytes still answer in one call where the baseline needs two, or six.
+
+The benchmark also reports a case `light-tools` **loses**. Template collapse summarises each variable slot independently, so a rare correlation across two slots is lost: shown 20,000 access-log lines, the view states that a `500` occurred and that several paths exist, but not which path returned it. That row is in the table, marked, with the mechanism explained.
+
+Full results, methodology and limitations — including that the corpora are synthetic and that this measures delivered context, not task success — are in **[docs/BENCHMARK.md](docs/BENCHMARK.md)**.
+
+### Local counters
+
+Separately, `light-tools` counts its own savings locally: terse output tokens, read-dedup bytes, write bytes versus a full rewrite, and — new in v0.4.0 — the bytes handed to output compaction against the bytes handed back.
+
+A local sample over **45 tool calls** in three throwaway sessions on this repository recorded 12,194 terse-output tokens, 164,087 B of read dedup and 116,363 B saved against a full rewrite. Those are self-reported one-sided counters with no baseline arm: they say what was saved relative to this tool's own alternative path, and they cannot support a with/without claim. The benchmark above is the measurement to quote. A small sample is not a benchmark or an extrapolated rate.
 
 For scale, the broader Light stack — a larger, separate deployment using the same targeting and output-reduction approach — delivered about **84% less** of its considered corpus into model context across 319K tool calls, with partial instrumentation: corpus size measured on 36.8% of calls and delivered size on 15.2%. That is a Light-stack measurement, not a `light-tools` one.
 
