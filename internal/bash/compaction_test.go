@@ -37,6 +37,15 @@ func emitLines(count int, format string) string {
 	)
 }
 
+// fixtureNewline is the terminator the FIXTURE emits, which is the shell's and
+// not Go's: PowerShell ends every line with CRLF. A spill stores exactly what
+// the command produced and deliberately does not normalise, so an expectation
+// rebuilt with a bare "\n" fails a byte-for-byte comparison on Windows over a
+// difference that is not a defect. Compaction normalises CRLF only in the
+// DELIVERED view; line counts are identical either way, so rendered ranges
+// still address the same lines in the un-normalised spill.
+func fixtureNewline() string { return shellSource("\n", "\r\n") }
+
 func runCompacted(t *testing.T, runner *Runner, root, command string) map[string]any {
 	t.Helper()
 	result, err := runner.Run(context.Background(), Request{Command: command, Cwd: root})
@@ -268,11 +277,13 @@ func TestAcceptanceOutlineRecoversItsStreamByteForByte(t *testing.T) {
 			got, _ := recovered["content"].(string)
 
 			var want strings.Builder
+			newline := fixtureNewline()
 			for i := 1; i <= count; i++ {
-				fmt.Fprintf(&want, "compiling module %d of %d\n", i, count)
+				fmt.Fprintf(&want, "compiling module %d of %d%s", i, count, newline)
 			}
 			if got != want.String() {
-				t.Fatalf("recovery was not byte-for-byte: got %dB, want %dB", len(got), want.Len())
+				t.Fatalf("recovery was not byte-for-byte: got %dB, want %dB (terminator %q)",
+					len(got), want.Len(), newline)
 			}
 		})
 	}
