@@ -34,10 +34,18 @@ Applied honestly, this rule costs light-tools rows. Where a question names the s
 
 ### Answer preservation
 
-Delivering fewer bytes is trivial if you may delete the answer. Every scenario carries a regexp matching the fact that answers its question, checked against what each arm actually delivered:
+Delivering fewer bytes is trivial if you may delete the answer. Every scenario carries **one regexp per clause of its question, all of which must survive**, checked against what each arm actually delivered. The questions here are compound — *which file broke, and what was the error* — so a single pattern would only ever test half of one.
 
-- If the **light** arm loses the answer, the test suite **fails**. That claim does not ship.
-- If a **baseline** arm loses it, the row is marked ✗ and quotes **no ratio** — a baseline is never credited for bytes it saved by not answering the question.
+The policy the suite enforces has two named exceptions. They are stated here in full, rather than as an absolute that the table below then contradicts:
+
+- An **unmarked** light row that loses any clause **fails the test suite**. That claim does not ship.
+- A row **explicitly marked a known light-tools loss** stays in the report, is quoted with **no ratio**, and must still carry a resolvable pointer to the exact bytes. Its assertion is **inverted** — if it ever starts answering, the suite fails until this document is corrected — so a measured limitation cannot quietly rot into a stale claim.
+- A row marked **carried context** (a repeat read) asserts something stricter than a regexp over the second payload: the FIRST read must have carried the answer, and the repeat must be a stub identifying the exact bytes it stands for.
+- If a **baseline** arm loses a clause, the row is marked ✗ and quotes **no ratio**. A baseline is never credited for bytes it saved by not answering — and, symmetrically, light-tools is never credited with a byte *win* on a row the baseline simply failed.
+
+### Where the skilled baseline is not grep-then-window
+
+One row asks whether a file has changed since it was last read. No grep answers that, so the skilled arm there is a **full re-read** — genuinely what a native agent must pay to confirm unchanged bytes. It is marked ‡ and **held out of the aggregate tally**: a row whose baseline runs a different algorithm should not be folded into a headline built from the grep-then-window rows, however favourable its ratio looks.
 
 ### Reading the marks
 
@@ -45,7 +53,7 @@ Delivering fewer bytes is trivial if you may delete the answer. Every scenario c
 | --- | --- |
 | † | **Adversarial row.** Chosen because light-tools is *not* expected to win it. |
 | ✗ | That arm did **not** deliver the answer. No ratio is quoted against it. |
-| ‡ | **Repeat read.** Measures a second look at unchanged bytes, not first contact. |
+| ‡ | **Repeat read**, measured against a full-re-read baseline. Held out of the tally. |
 | **lost** | **light-tools did not answer this row.** A known limitation, kept in the table. |
 
 ## Log reading
@@ -56,9 +64,13 @@ Delivering fewer bytes is trivial if you may delete the answer. Every scenario c
 | `build-failure` | 13.7 KB | 13.7 KB | 13 B ✗ | 358 B | n/a | 1/2/1 |
 | `restart-loop` | 339.9 KB | 339.9 KB | 1.8 KB | 606 B | 3.0× | 1/2/1 |
 | `short-status` † | 640 B | 640 B | 78 B | 640 B | 0.12× (light 8.2× larger) | 1/2/1 |
-| `test-failure` | 25.0 KB | 25.0 KB | 111 B | 2.8 KB | 0.04× (light 25.7× larger) | 1/2/1 |
+| `test-failure` | 25.0 KB | 25.0 KB | 111 B ✗ | 2.8 KB | n/a | 1/2/1 |
 
-**Against the skilled baseline: light-tools delivered less in 2 of 5 rows, more in 2, and failed to answer 1.**
+**Against the skilled baseline, on the 2 row(s) where both arms answered: light-tools delivered fewer bytes in 1, more in 1, the same in 0.**
+
+2 further row(s) are held out of that count because the **skilled baseline did not answer them at all**. light-tools answered and the baseline did not, which is a capability difference rather than a byte saving — and it is not counted as one in either direction.
+
+1 row(s) are held out because **light-tools** did not answer them. Those are losses. They stay in the table above and are never netted off against a win.
 
 Round trips are counted separately and are not in that tally — several rows where light-tools delivers *more* bytes still answer in one call where the baseline needs two.
 
@@ -93,6 +105,10 @@ Round trips are counted separately and are not in that tally — several rows wh
 **`test-failure`** — Did the suite pass? If not, which test failed and why?
 
 > SYNTHETIC — a verbose Go test run, 360 passes and one failure
+>
+> The question has two clauses — WHICH test and WHY — and that is what exposed this row. Grepping 'FAIL' finds '--- FAIL: TestSpillRecoveryPointerResolves' but NOT the line above it carrying the reason, because that line does not contain the word. So the skilled baseline names the failing test in 111 bytes and still cannot say why it failed. Asserting only the test name would have scored this a baseline win; asserting both clauses shows it is a miss.
+>
+> **The skilled baseline did not find the answer here.** Its pattern was a reasonable guess from the question and it still missed, which is why no ratio is quoted for this row.
 
 ## Code reading
 
@@ -104,7 +120,9 @@ Round trips are counted separately and are not in that tally — several rows wh
 | `symbol-in-medium-file` | 1.8 KB | 1.8 KB | 270 B | 523 B | 0.52× (light 1.9× larger) | 1/2/1 |
 | `tiny-file` † | 270 B | 270 B | 207 B | 358 B | 0.58× (light 1.7× larger) | 1/2/1 |
 
-**Against the skilled baseline: light-tools delivered less in 3 of 5 rows, more in 2, and failed to answer 0.**
+**Against the skilled baseline, on the 4 row(s) where both arms answered: light-tools delivered fewer bytes in 2, more in 2, the same in 0.**
+
+1 row(s) are held out because they measure a repeat read against a full re-read baseline, not the grep-then-window baseline used everywhere else.
 
 Round trips are counted separately and are not in that tally — several rows where light-tools delivers *more* bytes still answer in one call where the baseline needs two.
 
@@ -118,7 +136,7 @@ Round trips are counted separately and are not in that tally — several rows wh
 
 > SYNTHETIC — the ~700-line file, read twice with no edit between
 >
-> The light arm returns a dedup stub rather than the content, which is correct ONLY because the reader already holds it from the first read. Scored accordingly: the first read must have carried the answer and the stub must identify the exact bytes it stands for. This row measures a repeat, so it does not generalise to first contact.
+> The light arm returns a dedup stub rather than the content, which is correct ONLY because the reader already holds it from the first read. Scored accordingly: the first read must have carried the answer and the stub must identify the exact bytes it stands for. This row measures a repeat, so it does not generalise to first contact. READ THE RATIO WITH CARE: no grep answers 'have these bytes changed', so the skilled arm here is a FULL re-read rather than the grep-then-window shape used by every other row. That is the honest native cost for THIS question, but it is a different baseline algorithm, so this row is held out of the aggregate tally and its ratio should not be quoted as though it were comparable to the rows above.
 
 **`symbol-in-large-file`** — I need to change Coordinator.ReconcileExpiredSessions. Show me its current body.
 

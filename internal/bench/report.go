@@ -37,7 +37,7 @@ func (r Row) baselineMissed(arm string) bool {
 	if !ok {
 		return true
 	}
-	return !observation.AnswerSurvives(r.Scenario.Answer)
+	return !observation.AnswerSurvives(r.Scenario.Answers)
 }
 
 func humanBytes(n int) string {
@@ -103,18 +103,37 @@ func writeMethodology(b *strings.Builder) {
 	b.WriteString("requires you to already know what you are looking for, and an outline does not.\n\n")
 
 	b.WriteString("### Answer preservation\n\n")
-	b.WriteString("Delivering fewer bytes is trivial if you may delete the answer. Every scenario carries a ")
-	b.WriteString("regexp matching the fact that answers its question, checked against what each arm ")
-	b.WriteString("actually delivered:\n\n")
-	b.WriteString("- If the **light** arm loses the answer, the test suite **fails**. That claim does not ship.\n")
-	b.WriteString("- If a **baseline** arm loses it, the row is marked ✗ and quotes **no ratio** — a baseline ")
-	b.WriteString("is never credited for bytes it saved by not answering the question.\n\n")
+	b.WriteString("Delivering fewer bytes is trivial if you may delete the answer. Every scenario carries ")
+	b.WriteString("**one regexp per clause of its question, all of which must survive**, checked against what ")
+	b.WriteString("each arm actually delivered. The questions here are compound — *which file broke, and what ")
+	b.WriteString("was the error* — so a single pattern would only ever test half of one.\n\n")
+	b.WriteString("The policy the suite enforces has two named exceptions. They are stated here in full, ")
+	b.WriteString("rather than as an absolute that the table below then contradicts:\n\n")
+	b.WriteString("- An **unmarked** light row that loses any clause **fails the test suite**. That claim ")
+	b.WriteString("does not ship.\n")
+	b.WriteString("- A row **explicitly marked a known light-tools loss** stays in the report, is quoted with ")
+	b.WriteString("**no ratio**, and must still carry a resolvable pointer to the exact bytes. Its assertion is ")
+	b.WriteString("**inverted** — if it ever starts answering, the suite fails until this document is corrected — ")
+	b.WriteString("so a measured limitation cannot quietly rot into a stale claim.\n")
+	b.WriteString("- A row marked **carried context** (a repeat read) asserts something stricter than a regexp ")
+	b.WriteString("over the second payload: the FIRST read must have carried the answer, and the repeat must be ")
+	b.WriteString("a stub identifying the exact bytes it stands for.\n")
+	b.WriteString("- If a **baseline** arm loses a clause, the row is marked ✗ and quotes **no ratio**. A ")
+	b.WriteString("baseline is never credited for bytes it saved by not answering — and, symmetrically, ")
+	b.WriteString("light-tools is never credited with a byte *win* on a row the baseline simply failed.\n\n")
+
+	b.WriteString("### Where the skilled baseline is not grep-then-window\n\n")
+	b.WriteString("One row asks whether a file has changed since it was last read. No grep answers that, so ")
+	b.WriteString("the skilled arm there is a **full re-read** — genuinely what a native agent must pay to ")
+	b.WriteString("confirm unchanged bytes. It is marked ‡ and **held out of the aggregate tally**: a row whose ")
+	b.WriteString("baseline runs a different algorithm should not be folded into a headline built from the ")
+	b.WriteString("grep-then-window rows, however favourable its ratio looks.\n\n")
 
 	b.WriteString("### Reading the marks\n\n")
 	b.WriteString("| Mark | Meaning |\n| --- | --- |\n")
 	b.WriteString("| † | **Adversarial row.** Chosen because light-tools is *not* expected to win it. |\n")
 	b.WriteString("| ✗ | That arm did **not** deliver the answer. No ratio is quoted against it. |\n")
-	b.WriteString("| ‡ | **Repeat read.** Measures a second look at unchanged bytes, not first contact. |\n")
+	b.WriteString("| ‡ | **Repeat read**, measured against a full-re-read baseline. Held out of the tally. |\n")
 	b.WriteString("| **lost** | **light-tools did not answer this row.** A known limitation, kept in the table. |\n\n")
 }
 
@@ -215,27 +234,55 @@ func writeTrack(b *strings.Builder, title, track string, rows []Row) {
 // actually did. A reader who takes only one line from a track should take an
 // accurate one, including when it is unflattering.
 func writeTally(b *strings.Builder, rows []Row) {
-	won, lost, unanswered := 0, 0, 0
+	var less, more, equal, baselineUnanswered, lightUnanswered, carried int
 	for _, row := range rows {
 		skilled, _ := Find(row.Observations, ArmSkilled)
 		light, _ := Find(row.Observations, ArmLight)
 		switch {
+		case row.Scenario.ContextCarried:
+			// Excluded on purpose. This row's baseline is a full re-read, not
+			// the grep-then-window shape every other row uses, so folding it
+			// into the headline would let a different algorithm inflate it.
+			carried++
 		case row.Scenario.LightLosesAnswer:
-			unanswered++
+			lightUnanswered++
 		case row.baselineMissed(ArmSkilled):
-			won++ // the baseline did not answer; light did
+			// A baseline that MISSED is not a byte win for light-tools. Counting
+			// it as one credits us for bytes the BASELINE saved by failing to
+			// answer — the exact move the methodology forbids one paragraph
+			// earlier. It is a capability difference, and it is reported as one.
+			baselineUnanswered++
 		case light.Delivered < skilled.Delivered:
-			won++
+			less++
+		case light.Delivered > skilled.Delivered:
+			more++
 		default:
-			lost++
+			equal++
 		}
 	}
 
-	fmt.Fprintf(b, "**Against the skilled baseline: light-tools delivered less in %d of %d rows, "+
-		"more in %d, and failed to answer %d.**\n\n", won, len(rows), lost, unanswered)
+	fmt.Fprintf(b, "**Against the skilled baseline, on the %d row(s) where both arms answered: "+
+		"light-tools delivered fewer bytes in %d, more in %d, the same in %d.**\n\n",
+		less+more+equal, less, more, equal)
+
+	if baselineUnanswered > 0 {
+		fmt.Fprintf(b, "%d further row(s) are held out of that count because the **skilled baseline "+
+			"did not answer them at all**. light-tools answered and the baseline did not, which is a "+
+			"capability difference rather than a byte saving — and it is not counted as one in either "+
+			"direction.\n\n", baselineUnanswered)
+	}
+	if lightUnanswered > 0 {
+		fmt.Fprintf(b, "%d row(s) are held out because **light-tools** did not answer them. Those are "+
+			"losses. They stay in the table above and are never netted off against a win.\n\n",
+			lightUnanswered)
+	}
+	if carried > 0 {
+		fmt.Fprintf(b, "%d row(s) are held out because they measure a repeat read against a full "+
+			"re-read baseline, not the grep-then-window baseline used everywhere else.\n\n", carried)
+	}
+
 	b.WriteString("Round trips are counted separately and are not in that tally — several rows where ")
 	b.WriteString("light-tools delivers *more* bytes still answer in one call where the baseline needs two.\n\n")
-	return
 }
 
 func writeLimitations(b *strings.Builder) {

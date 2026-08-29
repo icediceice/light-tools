@@ -137,21 +137,26 @@ There is a reproducible benchmark in this repository. It measures one thing: for
 go test -tags treesitter ./internal/bench/ -run TestBenchmarkReport -update
 ```
 
-Ten scenarios across two tracks, three arms each: `native-naive` (return the whole file, the whole stream), `native-skilled` (grep first, then read a window), and `light-tools` as it ships. Every scenario carries the fact that answers its question, checked against what each arm actually delivered — a saving that deletes the answer fails the suite rather than becoming a headline.
+Ten scenarios across two tracks, three arms each: `native-naive` (return the whole file, the whole stream), `native-skilled` (grep first, then read a window), and `light-tools` as it ships. Every scenario carries **one pattern per clause of its question** — *which file broke, and what was the error* is two facts, and both must survive in what the arm delivered. An unmarked row that loses a clause fails the suite rather than becoming a headline. Two exceptions are named explicitly: a row marked a **known loss** must keep failing to answer and must still carry a pointer to the exact bytes, and a **repeat-read** row proves the first read carried the answer instead.
 
 Against a **naive** baseline the reductions are large: a 2.0 MB access log to 570 B, a 339.9 KB journal to 606 B, a 19.3 KB source file to a 704 B symbol.
 
-Against a **skilled** baseline they are mixed, and that is the honest number:
+Against a **skilled** baseline the picture is mixed, and that is the honest number:
 
 | | Log reading | Code reading |
 | --- | :---: | :---: |
-| light-tools delivered less | 2 of 5 | 3 of 5 |
-| light-tools delivered more | 2 | 2 |
+| Rows where **both** arms answered | 2 of 5 | 4 of 5 |
+|  ├ light-tools delivered less | 1 | 2 |
+|  └ light-tools delivered more | 1 | 2 |
+| Skilled baseline did not answer | 2 | 0 |
 | light-tools did not answer | 1 | 0 |
+| Held out (repeat read, different baseline) | 0 | 1 |
+
+Only rows where both arms answered are compared on bytes. A baseline that missed the question is **not** counted as a byte win for `light-tools` — being answered by one tool and not the other is a capability difference, and inflating the byte tally with it would be the same trick this benchmark exists to avoid.
 
 Where a question already names the string it is looking for, `grep` is the right tool and wins. Compaction earns its place in the other case — when you cannot name the string yet, because you do not know what is in the log. Round trips are counted separately: several rows where `light-tools` sends more bytes still answer in one call where the baseline needs two, or six.
 
-The benchmark also reports a case `light-tools` **loses**. Template collapse summarises each variable slot independently, so a rare correlation across two slots is lost: shown 20,000 access-log lines, the view states that a `500` occurred and that several paths exist, but not which path returned it. That row is in the table, marked, with the mechanism explained.
+The benchmark also reports a case `light-tools` **loses**. Template collapse summarises each variable slot independently, so a rare correlation across two slots is lost: shown 20,000 access-log lines, the view states that a `500` occurred and that several paths exist, but not which path returned it. That row is in the table, marked, with the mechanism explained, and its assertion is inverted so the limitation cannot go stale unnoticed.
 
 Full results, methodology and limitations — including that the corpora are synthetic and that this measures delivered context, not task success — are in **[docs/BENCHMARK.md](docs/BENCHMARK.md)**.
 

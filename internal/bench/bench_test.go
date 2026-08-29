@@ -110,7 +110,7 @@ func TestLightArmAlwaysAnswers(t *testing.T) {
 		if row.Scenario.LightLosesAnswer {
 			// The assertion inverts so a documented limitation cannot rot into
 			// a stale claim: if this starts answering, the report is wrong.
-			if light.AnswerSurvives(row.Scenario.Answer) {
+			if light.AnswerSurvives(row.Scenario.Answers) {
 				t.Errorf("%s: marked as a known light-arm loss, but the answer now SURVIVES. "+
 					"The documented limitation is stale — update the scenario note and the report.",
 					row.Scenario.Name)
@@ -125,12 +125,19 @@ func TestLightArmAlwaysAnswers(t *testing.T) {
 			continue
 		}
 
-		if !light.AnswerSurvives(row.Scenario.Answer) {
-			t.Errorf("%s: light arm delivered %d bytes but LOST the answer (%s).\n"+
+		if !light.AnswerSurvives(row.Scenario.Answers) {
+			missing := make([]string, 0, len(row.Scenario.Answers))
+			for _, answer := range row.Scenario.Answers {
+				if !answer.MatchString(light.Text) {
+					missing = append(missing, answer.String())
+				}
+			}
+			t.Errorf("%s: light arm delivered %d bytes but LOST %d of %d answer clauses: %s.\n"+
 				"A saving that deletes the line the question asked for is not a saving.\n"+
 				"If this is a genuine limitation, mark the scenario LightLosesAnswer and document it "+
 				"in the report — do not delete the row.",
-				row.Scenario.Name, light.Delivered, row.Scenario.Answer)
+				row.Scenario.Name, light.Delivered, len(missing), len(row.Scenario.Answers),
+				strings.Join(missing, ", "))
 		}
 	}
 }

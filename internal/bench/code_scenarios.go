@@ -212,8 +212,13 @@ func CodeRereadArms(handler *filetool.Handler, root, path string) ([]Observation
 	naiveText := normalise(string(source), root)
 	naive := Observation{Arm: ArmNaive, Delivered: len(naiveText), Calls: 1, Text: naiveText}
 
-	// A skilled native agent's mitigation is to not re-read at all, but when
-	// it must confirm the content it pays the same window cost as before.
+	// This row's question is "have these bytes changed since I read them", and
+	// no grep answers that — a native agent has to re-read the file in full.
+	// So the full re-read IS the correct skilled arm HERE; it is deliberately
+	// NOT the grep-then-window shape the other code rows use, and the report
+	// marks the row ‡, states the substitution, and holds it out of the
+	// aggregate tally so a different baseline algorithm cannot inflate the
+	// headline (report.go:writeTally).
 	skilled := Observation{Arm: ArmSkilled, Delivered: len(naiveText), Calls: 1, Text: naiveText}
 
 	// The window is wide enough to contain the target symbol, so the FIRST
@@ -251,7 +256,7 @@ func CodeScenarios(root string) ([]Scenario, error) {
 			Track:    TrackCode,
 			Question: "I need to change Coordinator.ReconcileExpiredSessions. Show me its current body.",
 			Corpus:   "SYNTHETIC — a ~700-line Go file holding 61 declarations",
-			Answer:   regexp.MustCompile(`RECONCILE_SENTINEL`),
+			Answers:  []*regexp.Regexp{regexp.MustCompile(`RECONCILE_SENTINEL`)},
 			Note: "The everyday case for an editing agent: the symbol is known, the file is not small, " +
 				"and only the declaration is wanted.",
 			Run: func() ([]Observation, error) {
@@ -263,7 +268,7 @@ func CodeScenarios(root string) ([]Scenario, error) {
 			Track:    TrackCode,
 			Question: "Show me ResolveTransport so I can change its error path.",
 			Corpus:   "SYNTHETIC — a ~70-line Go file holding 8 declarations",
-			Answer:   regexp.MustCompile(`TRANSPORT_SENTINEL`),
+			Answers:  []*regexp.Regexp{regexp.MustCompile(`TRANSPORT_SENTINEL`)},
 			Note: "A moderate file. Included so the track is not built only from the extreme case — " +
 				"a suite of nothing but 700-line files would overstate the everyday result.",
 			Run: func() ([]Observation, error) {
@@ -275,7 +280,14 @@ func CodeScenarios(root string) ([]Scenario, error) {
 			Track:    TrackCode,
 			Question: "Show me ResolveLedger, ResolveTransport and ResolveRegistry — I need all three before I can change any of them.",
 			Corpus:   "SYNTHETIC — three Go files, one wanted declaration in each",
-			Answer:   regexp.MustCompile(`REGISTRY_SENTINEL`),
+			Answers: []*regexp.Regexp{
+				// The question asks for all THREE declarations, so all three
+				// must survive. Asserting only the last one would let an arm
+				// deliver a third of what was asked and still pass.
+				regexp.MustCompile(`LEDGER_SENTINEL`),
+				regexp.MustCompile(`TRANSPORT_SENTINEL`),
+				regexp.MustCompile(`REGISTRY_SENTINEL`),
+			},
 			Note: "The row where ROUND TRIPS, not bytes, are the native path's real cost: three files " +
 				"means three reads, and a grep-first agent pays six. The light arm asks once.",
 			Run: func() ([]Observation, error) {
@@ -289,12 +301,17 @@ func CodeScenarios(root string) ([]Scenario, error) {
 			Track:          TrackCode,
 			Question:       "I read this file earlier and need to confirm it has not changed.",
 			Corpus:         "SYNTHETIC — the ~700-line file, read twice with no edit between",
-			Answer:         regexp.MustCompile(`RECONCILE_SENTINEL`),
+			Answers:        []*regexp.Regexp{regexp.MustCompile(`RECONCILE_SENTINEL`)},
 			ContextCarried: true,
 			Note: "The light arm returns a dedup stub rather than the content, which is correct ONLY " +
 				"because the reader already holds it from the first read. Scored accordingly: the first " +
 				"read must have carried the answer and the stub must identify the exact bytes it stands for. " +
-				"This row measures a repeat, so it does not generalise to first contact.",
+				"This row measures a repeat, so it does not generalise to first contact. " +
+				"READ THE RATIO WITH CARE: no grep answers 'have these bytes changed', so the skilled arm " +
+				"here is a FULL re-read rather than the grep-then-window shape used by every other row. " +
+				"That is the honest native cost for THIS question, but it is a different baseline algorithm, " +
+				"so this row is held out of the aggregate tally and its ratio should not be quoted as though " +
+				"it were comparable to the rows above.",
 			Run: func() ([]Observation, error) {
 				return CodeRereadArms(handler, root, paths["service.go"])
 			},
@@ -304,7 +321,7 @@ func CodeScenarios(root string) ([]Scenario, error) {
 			Track:       TrackCode,
 			Question:    "What does UserAgent return?",
 			Corpus:      "SYNTHETIC — an 11-line Go file",
-			Answer:      regexp.MustCompile(`VERSION_SENTINEL`),
+			Answers:     []*regexp.Regexp{regexp.MustCompile(`VERSION_SENTINEL`)},
 			Adversarial: true,
 			Note: "ADVERSARIAL. Reading the whole file was already the right call, so extraction has almost " +
 				"nothing to remove and the JSON envelope around the result may well make the light arm " +

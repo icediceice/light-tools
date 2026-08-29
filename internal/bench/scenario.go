@@ -6,7 +6,7 @@
 // network, no clock, no randomness: the same checkout always produces the same
 // report, so a number in docs/BENCHMARK.md can be re-derived by anyone.
 //
-// WHAT THIS MEASURES, AND WHAT IT DOES NOT
+// # WHAT THIS MEASURES, AND WHAT IT DOES NOT
 //
 // It measures DELIVERED CONTEXT COST. It does NOT measure task success, wall
 // time, or whether an agent reasoned better. A benchmark that cannot separate
@@ -14,7 +14,7 @@
 // wrong one, so the distinction is stated here, in the report, and in the
 // README.
 //
-// THE HONESTY CONTROL, IN TWO DIRECTIONS
+// # THE HONESTY CONTROL, IN TWO DIRECTIONS
 //
 // Delivering fewer bytes is trivial if you are allowed to delete the answer.
 // So every scenario carries the QUESTION a reader came to the corpus with and
@@ -93,10 +93,24 @@ type Observation struct {
 	Text string
 }
 
-// AnswerSurvives reports whether this observation still contains the fact the
+// AnswerSurvives reports whether this observation still contains every fact the
 // scenario's question asked for.
-func (o Observation) AnswerSurvives(answer *regexp.Regexp) bool {
-	return answer.MatchString(o.Text)
+//
+// All-of, deliberately. These questions are compound — "which file broke, and
+// what was the error" — so a single regexp over one clause would let an arm
+// drop the other half and still pass the control that exists to catch exactly
+// that. An empty set never passes: a scenario that asserts nothing is a
+// scenario that proves nothing.
+func (o Observation) AnswerSurvives(answers []*regexp.Regexp) bool {
+	if len(answers) == 0 {
+		return false
+	}
+	for _, answer := range answers {
+		if !answer.MatchString(o.Text) {
+			return false
+		}
+	}
+	return true
 }
 
 // Scenario is one information need, measured across every arm.
@@ -123,9 +137,14 @@ type Scenario struct {
 	// decides what to deliver.
 	CorpusBytes int
 
-	// Answer matches the fact that answers Question. It must survive in every
-	// arm. See the package comment: this is the honesty control.
-	Answer *regexp.Regexp
+	// Answers matches the facts that answer Question — ALL of them, one entry
+	// per clause. See the package comment: this is the honesty control, and a
+	// compound question given a single regexp only tests half of itself.
+	//
+	// The rule this set enforces is NOT universal; the two marks below name its
+	// exceptions, and the report states them rather than claiming an absolute
+	// it then contradicts.
+	Answers []*regexp.Regexp
 
 	// Adversarial marks a scenario chosen because light-tools is NOT expected
 	// to win it — a corpus under the pass-through floor, or a file small
