@@ -191,7 +191,7 @@ func decodeSymbolPlain(t *testing.T, text string) map[string]any {
 		}
 		extracted["start_line"] = parseMetaNumber(t, start)
 		extracted["end_line"] = parseMetaNumber(t, end)
-		start, end, ok = strings.Cut(fields[6], "-")
+		start, end, ok = strings.Cut(fields[5], "-")
 		if !ok {
 			t.Fatalf("malformed byte range in %q", line)
 		}
