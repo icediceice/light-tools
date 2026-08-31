@@ -50,7 +50,7 @@ func renderWindowText(result map[string]any) string {
 	path := textValue(result, "path")
 	content := textValue(result, "content")
 	var b strings.Builder
-	fmt.Fprintf(&b, "=== %s ===\n", path)
+	b.WriteString(plainHeader(path))
 	b.WriteString(content)
 	// The meta line must start at a line boundary even when the content was
 	// truncated mid-line (the oversized-line case), so pad only when the
