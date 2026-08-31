@@ -156,8 +156,13 @@ func decodeSymbolPlain(t *testing.T, text string) map[string]any {
 	if headerEnd < 0 {
 		t.Fatalf("plain symbol read has no header line: %s", truncate(text))
 	}
+	quoted := strings.TrimSuffix(strings.TrimPrefix(text[:headerEnd], "=== "), " ===")
+	path, err := strconv.Unquote(quoted)
+	if err != nil {
+		t.Fatalf("malformed plain symbol header path %q: %v", quoted, err)
+	}
 	result := map[string]any{
-		"path": strings.TrimSuffix(strings.TrimPrefix(text[:headerEnd], "=== "), " ==="),
+		"path": path,
 	}
 	body := text[headerEnd+1:]
 	if note, ok := strings.CutPrefix(body, "[symbols unavailable] "); ok {
