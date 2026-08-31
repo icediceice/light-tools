@@ -264,7 +264,7 @@ func TestEmptyFileReportsZeroLines(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result := readJSON(t, handler, Request{Path: path, Offset: 0, Limit: 10})
+	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 10})
 	if total, _ := result["total_lines"].(float64); int(total) != 0 {
 		t.Fatalf("empty file should report 0 lines, got %v", result["total_lines"])
 	}
