@@ -252,7 +252,7 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, *rend
 		// for bytes the caller never received. Fold the span into the key here
 		// too — one file, one keying rule for both read lanes.
 		hash: fmt.Sprintf("%s#%d-%d", hash, offset, end),
-		stub: header + fmt.Sprintf("[dedup] sha256:%s lines %d-%d\n", hash, offset, end),
+		stub: header + fmt.Sprintf("[dedup] sha256:%s lines %d-%d (re-run with force:true if you no longer hold these bytes)\n", hash, offset, end),
 	}, nil
 }
 
