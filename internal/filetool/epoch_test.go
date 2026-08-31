@@ -61,6 +61,11 @@ func TestRepeatReadDedupsWithoutAClientSuppliedEpoch(t *testing.T) {
 	if !strings.Contains(second, "[dedup]") {
 		t.Fatalf("an identical repeat read was not deduped: %s", second)
 	}
+	// The stub must name its own escape: a reader who no longer holds the
+	// bytes has to be told that force:true brings them back.
+	if !strings.Contains(second, "force:true") {
+		t.Fatalf("the dedup stub does not name the force:true escape: %s", second)
+	}
 }
 
 // force:true is the documented escape hatch for the case this default creates —
