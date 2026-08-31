@@ -124,8 +124,26 @@ line kind is rendered, INCLUDING one that occurs exactly once: a verdict
 (`BUILD FAILED`, `panic:`, `exit status 1`) is by nature a singleton, and it is
 the line you came for.
 
+Each group names the lines it covers with a `[L…]` line-set span — ascending
+runs, comma-separated: `[L42]` for a singleton, `[L1-16]` for one contiguous
+run, `[L1,16-18,30]` for a scattered set. Grouping is deliberately not
+restricted to consecutive lines, so a `min..max` range would mostly name lines
+that are NOT in the group; the run list names exactly the group. Past eight
+runs the span lists the first ones and folds the rest into a trailing `+N`
+counting the omitted lines, so a 500-line scattered group cannot print 500
+ordinals. Every number remains a real line number the recovery call can
+address.
+
 Compaction runs AFTER your own `head`/`tail`/`grep` filter, so a rendered range
 and the bytes behind it address the same text.
+
+`light_file` groups file windows through the same engine. A read window whose
+lines collapse — a log, a data set, any repetitive text — returns the outline
+instead of the numbered listing, with every `[L…]` ordinal a real file line
+number (offset pages start at their offset), plus `compacted: true`, a
+`spill_id` recovering the exact window bytes, and the ready-made `note`. Source
+code and unique-line windows never outline: the outline must be strictly
+shorter than the raw window or the numbered verbatim page ships as before.
 
 When a stream's view is not the bytes the command produced, that stream gets its
 OWN spill and reports:
@@ -154,9 +172,9 @@ lines, and `truncated: true`. The one deliberate difference is that a failed
 spill still returns the command's output and `exit_code` rather than an error,
 because the command has already run.
 
-Recovery for `light_ssh` and `light_ops` runs through `light_bash`'s
+Recovery for `light_ssh`, `light_ops` and `light_file` runs through `light_bash`'s
 `read_block`, so withholding `light_bash` (via `--disable-tool` or the vault UI)
-also turns compaction off for those two tools: they return exact output rather
+also turns compaction off for those tools: they return exact output rather
 than an outline pointing at a tool that is not registered.
 
 Async:
