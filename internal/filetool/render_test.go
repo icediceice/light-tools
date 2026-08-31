@@ -58,7 +58,7 @@ func TestSymbolSliceComesBackPlainWithEveryField(t *testing.T) {
 		Content: "func ResolveTransport(cfg *Config) (Transport, error) {\n\treturn nil\n}",
 	}
 	plain := renderSymbolText("/fixtures/transport.go", nil, []symbolMatch{one})
-	if !strings.HasPrefix(plain, "=== /fixtures/transport.go ===") {
+	if !strings.HasPrefix(plain, plainHeader("/fixtures/transport.go")) {
 		t.Fatalf("missing header: %s", truncate(plain))
 	}
 	decoded := decodeSymbolPlain(t, plain)
