@@ -333,7 +333,7 @@ func TestOversizedLineIsHandedToTheSpillStore(t *testing.T) {
 	if err := os.WriteFile(path, []byte(huge+"\ntail\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result := readJSON(t, handler, Request{Path: path, Offset: 0, Limit: 5000})
+	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 5000})
 	id, _ := result["spill_id"].(string)
 	if id == "" {
 		t.Fatalf("oversized page was not spilled: %v", result)
