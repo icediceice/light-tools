@@ -48,16 +48,14 @@ func plainHeader(path string) string {
 }
 
 // renderWindowText renders the canonical window result as plain text: the
-// header line, the numbered window content verbatim, and one bracketed meta
-// line carrying every scalar field the JSON envelope would — total_lines,
-// bytes, tokens, sha256, next_offset and continued, plus truncated, spill_id
-// and note when present. The plain form MUST begin with plainHeader —
-// '===" ' + a quoted path + " ===" — and the canonical JSON begins "{".
+// header line, the window content verbatim, and one bracketed meta line
+// carrying every scalar field the JSON envelope would. The plain form MUST
+// begin with plainHeader — '===" ' + a quoted path + " ===" — and the
+// canonical JSON begins "{".
 func renderWindowText(result map[string]any) string {
-	path := textValue(result, "path")
 	content := textValue(result, "content")
 	var b strings.Builder
-	b.WriteString(plainHeader(path))
+	b.WriteString(plainHeader(textValue(result, "path")))
 	b.WriteString(content)
 	// The meta line must start at a line boundary even when the content was
 	// truncated mid-line (the oversized-line case), so pad only when the
@@ -66,20 +64,39 @@ func renderWindowText(result map[string]any) string {
 	if len(content) > 0 && !strings.HasSuffix(content, "\n") {
 		b.WriteByte('\n')
 	}
-	fmt.Fprintf(&b, "[meta total_lines=%d bytes=%d tokens=%d sha256=%s next_offset=%d continued=%t",
-		intValue(result, "total_lines"), intValue(result, "bytes"), intValue(result, "tokens"),
-		textValue(result, "sha256"), intValue(result, "next_offset"), boolValue(result, "continued"))
+	b.WriteString(windowMetaLine(result))
+	b.WriteByte('\n')
+	return b.String()
+}
+
+// windowMetaLine renders the bracketed meta line that terminates both window
+// lanes' plain sections — readWindow's single-path response and renderItem's
+// batch section. It carries every scalar field the JSON envelope would, so
+// chooseDelivery compares like for like. Optional fields appear only when
+// set (the batch lane carries no sha256), and note is free text and always
+// last: everything after "note=" is the note.
+func windowMetaLine(result map[string]any) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "[meta total_lines=%d bytes=%d tokens=%d",
+		intValue(result, "total_lines"), intValue(result, "bytes"), intValue(result, "tokens"))
+	if sha := textValue(result, "sha256"); sha != "" {
+		fmt.Fprintf(&b, " sha256=%s", sha)
+	}
+	fmt.Fprintf(&b, " next_offset=%d continued=%t",
+		intValue(result, "next_offset"), boolValue(result, "continued"))
+	if boolValue(result, "compacted") {
+		b.WriteString(" compacted=true")
+	}
 	if boolValue(result, "truncated") {
 		b.WriteString(" truncated=true")
 	}
 	if id := textValue(result, "spill_id"); id != "" {
 		fmt.Fprintf(&b, " spill_id=%s", id)
 	}
-	// note is free text and always last: everything after "note=" is the note.
 	if note := textValue(result, "note"); note != "" {
 		fmt.Fprintf(&b, " note=%s", note)
 	}
-	b.WriteString("]\n")
+	b.WriteString("]")
 	return b.String()
 }
 
