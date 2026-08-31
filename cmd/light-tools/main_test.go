@@ -843,7 +843,10 @@ func runAllFiveTranscript(t *testing.T, layout state.Layout, configuration confi
 		name      string
 		arguments map[string]any
 	}{
-		{name: "light_file", arguments: map[string]any{"verb": "read", "path": probe, "offset": 0, "limit": 20}},
+		// Reads deliver whichever form is smaller (plain for ordinary windows),
+		// so the terse-vs-raw leg uses an outline over many declarations — still
+		// JSON, and comfortably above the terse floor.
+		{name: "light_file", arguments: map[string]any{"verb": "read", "path": filepath.Join(filepath.Dir(probe), "serve-probe.go")}},
 		{name: "light_bash", arguments: map[string]any{"command": command, "cwd": filepath.Dir(probe), "timeout_ms": 30000}},
 		{name: "light_ops", arguments: map[string]any{"verb": "log_window", "path": probe}},
 		{name: "light_ssh", arguments: map[string]any{"command": "must-not-execute"}},
