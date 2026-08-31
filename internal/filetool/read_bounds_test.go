@@ -41,13 +41,13 @@ func resultText(t *testing.T, value any) string {
 // same map the JSON envelope would have produced: the canonical form begins
 // '{' and the plain render begins '=', so the first byte discriminates.
 func readResult(t *testing.T, handler *Handler, request Request) map[string]any {
-		t.Helper()
-		request.Verb = "read"
-		value, err := handler.read(nil, request)
-		if err != nil {
+	t.Helper()
+	request.Verb = "read"
+	value, err := handler.read(nil, request)
+	if err != nil {
 		t.Fatalf("read: %v", err)
-		}
-		return decodeReadText(t, resultText(t, value))
+	}
+	return decodeReadText(t, resultText(t, value))
 }
 
 // decodeReadText discriminates on the first byte and yields the same typed
