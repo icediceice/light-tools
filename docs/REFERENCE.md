@@ -37,7 +37,9 @@ longer holds them. Dedup is keyed on the window, not the file, so a different
 offset or limit is always served in full.
 
 A read result ships in whichever of two shapes is strictly fewer BYTES: the
-canonical JSON envelope, or a plain render that begins `=== <path> ===`. A tie
+canonical JSON envelope, or a plain render whose header is `=== ` plus the
+Go-quoted path plus ` ===` — quoting keeps every legal path, newline included,
+on one line and round-trips through `strconv.Unquote`. A tie
 keeps the JSON and there is no size floor in either direction, so the envelope
 must earn its delivery. The first byte discriminates the shapes (`{` or `=`).
 The plain window render carries one bracketed meta line with `total_lines`,
