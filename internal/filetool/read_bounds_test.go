@@ -383,7 +383,7 @@ func TestOversizedSingleLineStillMakesProgress(t *testing.T) {
 	if err := os.WriteFile(path, []byte(huge+"\nsecond\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result := readJSON(t, handler, Request{Path: path, Offset: 0, Limit: 5000})
+	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 5000})
 	next, _ := result["next_offset"].(float64)
 	if int(next) < 1 {
 		t.Fatalf("next_offset must advance past the oversized line, got %v", next)
