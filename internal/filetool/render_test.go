@@ -90,18 +90,31 @@ func TestSymbolSliceComesBackPlainWithEveryField(t *testing.T) {
 	}
 }
 
-// The envelope must still earn delivery when it is genuinely smaller: a page
-// of many short lines costs the plain render a line-number prefix per line
-// but the envelope only one escaped newline.
-func TestEnvelopeKeepsDeliveryWhenItIsSmaller(t *testing.T) {
+// Delivered traffic must honor the seam's rule end to end: the response is
+// one of the two forms and it is the smaller one. Both counterfactuals are
+// reconstructed from the delivered payload's own decoded map, so a floor
+// that forced the alternate form (either direction) fails here.
+func TestDeliveryIsAlwaysTheSmallerForm(t *testing.T) {
 	handler, root := newTestHandler(t)
 	path := writeLines(t, root, "narrow.txt", 2000)
 	value, err := handler.read(nil, Request{Verb: "read", Path: path, Offset: 0, Limit: 2000})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := resultText(t, value); !strings.HasPrefix(text, "{") {
-		t.Fatalf("the JSON envelope should win on many short lines, got: %s", truncate(text))
+	delivered := resultText(t, value)
+	result := decodeReadText(t, delivered)
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := renderWindowText(result)
+	best := len(encoded)
+	if len(plain) < best {
+		best = len(plain)
+	}
+	if len(delivered) != best {
+		t.Fatalf("delivered %d bytes; the smaller form is %d (plain %d, json %d)",
+			len(delivered), best, len(plain), len(encoded))
 	}
 }
 
