@@ -35,7 +35,7 @@ light-tools init --client claude
 
 ### Read several files in one go
 
-If the agent needs code from several files, it can read the relevant parts together in one call instead of fetching them one by one. Large files are paged, with an exact `[CONTINUE]` cursor when more content exists.
+If the agent needs code from several files, it can read the relevant parts together in one call instead of fetching them one by one. Large files are paged, with an exact `[CONTINUE]` cursor when more content exists. Each read arrives in whichever shape is smaller: plain text with a one-line summary (hash, next page, size), or the JSON envelope when that wins. Named-symbol reads carry the full declaration — signature, doc comment and exact source span.
 
 ### Change only the code that changed
 
