@@ -97,7 +97,7 @@ type symbolMatch struct {
 // never scans for delimiters inside a body.
 func renderSymbolText(path string, extractErr error, matches []symbolMatch) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "=== %s ===\n", path)
+	b.WriteString(plainHeader(path))
 	if extractErr != nil {
 		fmt.Fprintf(&b, "[symbols unavailable] %s\n", extractErr.Error())
 		return b.String()
