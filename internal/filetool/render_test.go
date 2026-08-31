@@ -57,7 +57,16 @@ func TestSymbolSliceComesBackPlainWithEveryField(t *testing.T) {
 		},
 		Content: "func ResolveTransport(cfg *Config) (Transport, error) {\n\treturn nil\n}",
 	}
-	plain := renderSymbolText("/fixtures/transport.go", nil, []symbolMatch{one})
+	// A whitespace-bearing extractor-legal name — the round-3 acceptance
+	// fixture, retained as permanent coverage of the quoted-field grammar.
+	heading := symbolMatch{
+		Symbol: symbol.Symbol{
+			Name: "Install Guide", Kind: "md_heading",
+			StartLine: 1, EndLine: 1, StartByte: 0, EndByte: 16,
+		},
+		Content: "# Install Guide",
+	}
+	plain := renderSymbolText("/fixtures/transport.go", nil, []symbolMatch{one, heading})
 	if !strings.HasPrefix(plain, plainHeader("/fixtures/transport.go")) {
 		t.Fatalf("missing header: %s", truncate(plain))
 	}
