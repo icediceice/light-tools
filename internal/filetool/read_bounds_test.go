@@ -308,11 +308,11 @@ func TestPlainWindowDecodeReconstructsCanonicalContentByteForByte(t *testing.T) 
 			"total_lines": 2, "bytes": 200*1024 + 5, "tokens": 51200, "sha256": "ghi", "next_offset": 0, "continued": false,
 			"truncated": true, "spill_id": "spill-1", "note": "read_block offsets 0-204800",
 		}},
-			{"compacted-outline", map[string]any{
-				"path": "/w/repeat.log", "content": "[L1-60] worker ▪1 polling queue  ×60\n    ▪1: 0..59  (60 values, +1 each)\n",
-				"total_lines": 60, "bytes": 1380, "tokens": 346, "sha256": "jkl", "next_offset": 60, "continued": false,
-				"compacted": true, "spill_id": "spill-9", "note": "recover exact lines: light_bash{output_mode:\"read_block\", spill:\"spill-9\", line_range:\"N-M\"}",
-			}},
+		{"compacted-outline", map[string]any{
+			"path": "/w/repeat.log", "content": "[L1-60] worker ▪1 polling queue  ×60\n    ▪1: 0..59  (60 values, +1 each)\n",
+			"total_lines": 60, "bytes": 1380, "tokens": 346, "sha256": "jkl", "next_offset": 60, "continued": false,
+			"compacted": true, "spill_id": "spill-9", "note": "recover exact lines: light_bash{output_mode:\"read_block\", spill:\"spill-9\", line_range:\"N-M\"}",
+		}},
 	}
 	for _, tc := range cases {
 		decoded := decodeWindowPlain(t, renderWindowText(tc.result))
