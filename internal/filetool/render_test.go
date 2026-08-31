@@ -107,6 +107,11 @@ func TestDeliveryIsAlwaysTheSmallerForm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// decodeReadText yields JSON-typed float64 numbers; renderWindowText takes
+	// the canonical int-typed map, so coerce before reconstructing.
+	for _, key := range []string{"total_lines", "bytes", "tokens", "next_offset"} {
+		result[key] = int(result[key].(float64))
+	}
 	plain := renderWindowText(result)
 	best := len(encoded)
 	if len(plain) < best {
