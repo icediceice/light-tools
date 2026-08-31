@@ -27,30 +27,233 @@ func boundsHandler(t *testing.T) (*Handler, string) {
 	return handler, root
 }
 
-func readJSON(t *testing.T, handler *Handler, request Request) map[string]any {
-	t.Helper()
-	request.Verb = "read"
-	value, err := handler.read(nil, request)
-	if err != nil {
+// resultText extracts the single text block of a read result.
+func resultText(t *testing.T, value any) string {
+		t.Helper()
+		result, ok := value.(mcp.Result)
+		if !ok || len(result.Content) != 1 {
+		t.Fatalf("unexpected result %#v", value)
+		}
+		return result.Content[0].Text
+}
+
+// readResult drives one read and decodes EITHER delivered shape into the
+// same map the JSON envelope would have produced: the canonical form begins
+// '{' and the plain render begins '=', so the first byte discriminates.
+func readResult(t *testing.T, handler *Handler, request Request) map[string]any {
+		t.Helper()
+		request.Verb = "read"
+		value, err := handler.read(nil, request)
+		if err != nil {
 		t.Fatalf("read: %v", err)
+		}
+		return decodeReadText(t, resultText(t, value))
+}
+
+// decodeReadText discriminates on the first byte and yields the same typed
+// value from either shape: numbers as float64 and booleans as bool, exactly
+// as encoding/json decodes them, so a test cannot tell which shape it got.
+func decodeReadText(t *testing.T, text string) map[string]any {
+		t.Helper()
+		switch {
+		case strings.HasPrefix(text, "{"):
+		var result map[string]any
+		if err := json.Unmarshal([]byte(text), &result); err != nil {
+			t.Fatalf("envelope JSON: %v: %s", err, truncate(text))
+		}
+		return result
+		case strings.HasPrefix(text, "=== "):
+		return decodeWindowPlain(t, text)
+		default:
+		t.Fatalf("read is neither JSON nor a plain render: %s", truncate(text))
+		return nil
+		}
+}
+
+// decodeWindowPlain recovers the canonical window map from the plain render:
+// header line, verbatim content, and the final bracketed meta line. Content
+// lines are always number-prefixed, so no content byte can forge the meta
+// line, and the renderer pads a mid-line-truncated page with exactly one
+// newline, which decoding strips — the content is byte-exact either way.
+func decodeWindowPlain(t *testing.T, text string) map[string]any {
+		t.Helper()
+	headerEnd := strings.Index(text, "\n")
+	if headerEnd < 0 {
+		t.Fatalf("plain read has no header line: %s", truncate(text))
 	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		t.Fatal(err)
+	metaStart := strings.LastIndex(text, "\n[meta ")
+	if metaStart < headerEnd {
+		t.Fatalf("plain read has no meta line: %s", truncate(text))
 	}
-	var envelope struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
+	meta := strings.TrimSuffix(text[metaStart+1:], "\n")
+	if !strings.HasSuffix(meta, "]") {
+		t.Fatalf("malformed meta line: %q", meta)
 	}
-	if err := json.Unmarshal(encoded, &envelope); err != nil || len(envelope.Content) == 0 {
-		t.Fatalf("unexpected result shape: %s", encoded)
+	content := ""
+	if metaStart > headerEnd {
+		content = strings.TrimSuffix(text[headerEnd+1:metaStart], "\n")
 	}
-	var result map[string]any
-	if err := json.Unmarshal([]byte(envelope.Content[0].Text), &result); err != nil {
-		t.Fatalf("content was not JSON: %s", envelope.Content[0].Text)
+	result := map[string]any{
+		"path":    strings.TrimSuffix(strings.TrimPrefix(text[:headerEnd], "=== "), " ==="),
+		"content": content,
+	}
+	fields := strings.TrimSuffix(strings.TrimPrefix(meta, "[meta "), "]")
+	for fields != "" {
+		if note, ok := strings.CutPrefix(fields, "note="); ok {
+			result["note"] = note // free text: the note consumes the rest of the line
+			break
+		}
+		var field string
+		if index := strings.Index(fields, " "); index >= 0 {
+			field, fields = fields[:index], fields[index+1:]
+		} else {
+			field, fields = fields, ""
+		}
+		name, value, found := strings.Cut(field, "=")
+		if !found {
+			t.Fatalf("malformed meta field %q", field)
+		}
+		switch name {
+		case "total_lines", "bytes", "tokens", "next_offset":
+			result[name] = parseMetaNumber(t, value)
+		case "continued", "truncated":
+			result[name] = value == "true"
+		case "sha256", "spill_id":
+			result[name] = value
+		default:
+			t.Fatalf("unknown meta field %q", name)
+		}
 	}
 	return result
+}
+
+// decodeSymbolResult decodes either shape of a named-symbol read.
+func decodeSymbolResult(t *testing.T, text string) map[string]any {
+		t.Helper()
+		switch {
+		case strings.HasPrefix(text, "{"):
+		var result map[string]any
+		if err := json.Unmarshal([]byte(text), &result); err != nil {
+			t.Fatalf("symbol JSON: %v: %s", err, truncate(text))
+		}
+		return result
+		case strings.HasPrefix(text, "=== "):
+		return decodeSymbolPlain(t, text)
+		default:
+		t.Fatalf("symbol read is neither JSON nor a plain render: %s", truncate(text))
+		return nil
+		}
+}
+
+// decodeSymbolPlain walks renderSymbolText's format arithmetically: quoted
+// string fields and a "content N bytes" body consumed by exact length, so
+// no byte inside a body can forge the next section.
+func decodeSymbolPlain(t *testing.T, text string) map[string]any {
+		t.Helper()
+	headerEnd := strings.Index(text, "\n")
+	if headerEnd < 0 {
+		t.Fatalf("plain symbol read has no header line: %s", truncate(text))
+	}
+	result := map[string]any{
+		"path": strings.TrimSuffix(strings.TrimPrefix(text[:headerEnd], "=== "), " ==="),
+	}
+	body := text[headerEnd+1:]
+	if note, ok := strings.CutPrefix(body, "[symbols unavailable] "); ok {
+		result["tree_sitter"] = false
+		result["matches"] = []any{}
+		result["note"] = strings.TrimSuffix(note, "\n")
+		return result
+	}
+	if strings.HasPrefix(body, "[no symbol matches]") {
+		result["matches"] = []any{}
+		return result
+	}
+	matches := []any{}
+	for body != "" {
+		line, rest, found := strings.Cut(body, "\n")
+		if !found || !strings.HasPrefix(line, "--- ") {
+			t.Fatalf("malformed symbol section: %q", line)
+		}
+		extracted := map[string]any{}
+		match := map[string]any{"symbol": extracted}
+		// --- <kind> <name> lines <start>-<end> bytes <start>-<end>
+		fields := strings.Fields(strings.TrimPrefix(line, "--- "))
+		if len(fields) != 7 || fields[2] != "lines" || fields[5] != "bytes" {
+			t.Fatalf("malformed symbol section header: %q", line)
+		}
+		extracted["kind"] = fields[0]
+		extracted["name"] = fields[1]
+		start, end, ok := strings.Cut(fields[3], "-")
+		if !ok {
+			t.Fatalf("malformed line range in %q", line)
+		}
+		extracted["start_line"] = parseMetaNumber(t, start)
+		extracted["end_line"] = parseMetaNumber(t, end)
+		start, end, ok = strings.Cut(fields[6], "-")
+		if !ok {
+			t.Fatalf("malformed byte range in %q", line)
+		}
+		extracted["start_byte"] = parseMetaNumber(t, start)
+		extracted["end_byte"] = parseMetaNumber(t, end)
+		for {
+			field, fieldRest, found := strings.Cut(rest, "\n")
+			if !found {
+				t.Fatalf("unterminated symbol section: %s", truncate(rest))
+			}
+			if value, ok := quotedField(field, "signature "); ok {
+				extracted["signature"] = value
+				rest = fieldRest
+				continue
+			}
+			if value, ok := quotedField(field, "comment "); ok {
+				extracted["comment"] = value
+				rest = fieldRest
+				continue
+			}
+			if value, ok := quotedField(field, "parent "); ok {
+				extracted["parent"] = value
+				rest = fieldRest
+				continue
+			}
+			var length int
+			if _, err := fmt.Sscanf(field, "content %d bytes", &length); err != nil {
+				t.Fatalf("malformed symbol field line: %q", field)
+			}
+			if len(rest) < length {
+				t.Fatalf("symbol content declares %d bytes but only %d remain", length, len(rest))
+			}
+			match["content"] = rest[:length]
+			rest = rest[length:]
+			if !strings.HasPrefix(rest, "\n") {
+				t.Fatalf("symbol content body is not newline-terminated")
+			}
+			rest = rest[1:]
+			break
+		}
+		matches = append(matches, match)
+		body = rest
+	}
+	result["matches"] = matches
+	return result
+}
+
+// quotedField unquotes a prefix-quoted field line such as
+// `signature "func X()"`.
+func quotedField(field, prefix string) (string, bool) {
+	if !strings.HasPrefix(field, prefix) {
+		return "", false
+	}
+	value, err := strconv.Unquote(strings.TrimPrefix(field, prefix))
+	return value, err == nil
+}
+
+func parseMetaNumber(t *testing.T, value string) float64 {
+	t.Helper()
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		t.Fatalf("malformed number %q", value)
+	}
+	return number
 }
 
 func writeLines(t *testing.T, root, name string, count int) string {
