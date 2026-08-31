@@ -41,6 +41,12 @@ type Options struct {
 	MinBytes int
 	// Indent prefixes every rendered outline row.
 	Indent string
+	// FirstLine is the 1-based line number of the stream's first line. Streams
+	// are compacted alone and start at 1; a file window compacted in place
+	// starts at its offset, and passing that offset here is what keeps every
+	// [L…] ordinal a real line number the reader can act on directly.
+	// 0 → 1.
+	FirstLine int
 }
 
 func (o Options) withDefaults() Options {
@@ -55,6 +61,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.MinBytes == 0 {
 		o.MinBytes = defaultMinBytes
+	}
+	if o.FirstLine == 0 {
+		o.FirstLine = 1
 	}
 	return o
 }
@@ -130,7 +139,7 @@ func Analyze(raw string, opts Options) Result {
 	bounded, _ := ClampLines(norm, opts.LineMax)
 	bounded, boundedDropped := BudgetCap(bounded, opts.Budget)
 
-	groups := GroupTemplates(lines, 1)
+	groups := GroupTemplates(lines, opts.FirstLine)
 	res.Groups = len(groups)
 
 	rows := make([]string, 0, len(groups)*2)
