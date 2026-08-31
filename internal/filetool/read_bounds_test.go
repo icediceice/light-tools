@@ -510,7 +510,7 @@ func TestContinuationPageSurvivesTheDedupCache(t *testing.T) {
 	if content, _ := first["content"].(string); !strings.Contains(content, "line 1") {
 		t.Fatalf("page 1 missing content: %v", first)
 	}
-	second := readJSON(t, handler, Request{Path: path, Offset: 3, Limit: 3, ContextEpoch: epoch})
+	second := readResult(t, handler, Request{Path: path, Offset: 3, Limit: 3, ContextEpoch: epoch})
 	content, _ := second["content"].(string)
 	if !strings.Contains(content, "line 4") {
 		t.Fatalf("page 2 was elided by the dedup cache instead of returning content: %v", second)
