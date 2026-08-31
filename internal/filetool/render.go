@@ -35,7 +35,6 @@ func chooseDelivery(value any, plain string) (mcp.Result, error) {
 		return mcp.Result{Content: []mcp.Content{mcp.Text(plain)}}, nil
 	}
 	return mcp.Result{Content: []mcp.Content{mcp.Text(string(canonical))}}, nil
-	return mcp.Result{Content: []mcp.Content{mcp.Text(string(canonical))}}, nil
 }
 
 // plainHeader emits the first line of a plain render. The path is Go-quoted
