@@ -70,7 +70,7 @@ func TestSymbolSliceComesBackPlainWithEveryField(t *testing.T) {
 	extracted := match["symbol"].(map[string]any)
 	for field, want := range map[string]any{
 		"name": "ResolveTransport", "kind": "function",
-		"signature": one.Signature, "comment": one.Comment, "parent": "Service",
+		"signature": one.Symbol.Signature, "comment": one.Symbol.Comment, "parent": "Service",
 		"start_line": float64(9), "end_line": float64(38),
 		"start_byte": float64(150), "end_byte": float64(980),
 	} {
