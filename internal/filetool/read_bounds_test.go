@@ -149,7 +149,7 @@ func decodeSymbolResult(t *testing.T, text string) map[string]any {
 // string fields and a "content N bytes" body consumed by exact length, so
 // no byte inside a body can forge the next section.
 func decodeSymbolPlain(t *testing.T, text string) map[string]any {
-		t.Helper()
+	t.Helper()
 	headerEnd := strings.Index(text, "\n")
 	if headerEnd < 0 {
 		t.Fatalf("plain symbol read has no header line: %s", truncate(text))
