@@ -119,7 +119,6 @@ func GroupTemplates(lines []string, firstLine int) []TemplateGroup {
 			at[key] = j
 			out = append(out, TemplateGroup{Template: tmpl})
 		}
-
 		out[j].Rows = append(out[j].Rows, slots)
 		out[j].Lines = append(out[j].Lines, firstLine+i)
 	}
