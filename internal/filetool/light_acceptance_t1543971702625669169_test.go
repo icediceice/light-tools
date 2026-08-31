@@ -79,3 +79,30 @@ func TestVerifyPlainReadRoundTripsNewlinePath(t *testing.T) {
 		t.Fatalf("plain path = %q, want %q", got, path)
 	}
 }
+
+// A legal symbol name containing whitespace must survive the plain grammar and
+// decode to the same value as the canonical JSON envelope.
+func TestVerifyPlainSymbolRoundTripsWhitespaceName(t *testing.T) {
+	handler, root := newTestHandler(t)
+	path := filepath.Join(root, "guide.md")
+	if err := os.WriteFile(path, []byte("## Install Guide\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := handler.read(nil, Request{Verb: "read", Path: path, Name: "Install Guide"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivered := resultText(t, value)
+	if !strings.HasPrefix(delivered, "=== ") {
+		t.Fatalf("fixture did not exercise the plain renderer: %q", truncate(delivered))
+	}
+	decoded := decodeSymbolPlain(t, delivered)
+	matches := decoded["matches"].([]any)
+	if len(matches) != 1 {
+		t.Fatalf("matches = %d, want 1", len(matches))
+	}
+	got := matches[0].(map[string]any)["symbol"].(map[string]any)["name"]
+	if got != "Install Guide" {
+		t.Fatalf("plain symbol name = %q, want %q", got, "Install Guide")
+	}
+}
