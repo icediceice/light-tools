@@ -54,20 +54,20 @@ func readResult(t *testing.T, handler *Handler, request Request) map[string]any 
 // value from either shape: numbers as float64 and booleans as bool, exactly
 // as encoding/json decodes them, so a test cannot tell which shape it got.
 func decodeReadText(t *testing.T, text string) map[string]any {
-		t.Helper()
-		switch {
-		case strings.HasPrefix(text, "{"):
+	t.Helper()
+	switch {
+	case strings.HasPrefix(text, "{"):
 		var result map[string]any
 		if err := json.Unmarshal([]byte(text), &result); err != nil {
 			t.Fatalf("envelope JSON: %v: %s", err, truncate(text))
 		}
 		return result
-		case strings.HasPrefix(text, "=== "):
+	case strings.HasPrefix(text, "=== "):
 		return decodeWindowPlain(t, text)
-		default:
+	default:
 		t.Fatalf("read is neither JSON nor a plain render: %s", truncate(text))
 		return nil
-		}
+	}
 }
 
 // decodeWindowPlain recovers the canonical window map from the plain render:
