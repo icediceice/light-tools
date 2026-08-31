@@ -213,9 +213,10 @@ func TestExtractionFailureStaysDistinctFromZeroMatches(t *testing.T) {
 	}
 }
 
-// A tie keeps the canonical JSON; only a strictly smaller plain render wins.
-// There is no floor: a floor that forced the alternate could deliver more
-// bytes than the envelope it replaced.
+// The seam must be unbiased in BOTH directions: a tie keeps the canonical
+// JSON, a strictly smaller plain render wins, and a strictly smaller
+// canonical envelope wins. There is no floor: a floor that forced the
+// alternate could deliver more bytes than the form it replaced.
 func TestChooseDeliveryKeepsCanonicalOnATie(t *testing.T) {
 	result, err := chooseDelivery(map[string]any{"a": 1}, "1234567") // exactly len("{\"a\":1}")
 	if err != nil {
@@ -230,5 +231,12 @@ func TestChooseDeliveryKeepsCanonicalOnATie(t *testing.T) {
 	}
 	if text := result.Content[0].Text; text != "123456" {
 		t.Fatalf("a strictly smaller plain render must win, got %q", truncate(text))
+	}
+	result, err = chooseDelivery(map[string]any{"a": 1}, "12345678")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := result.Content[0].Text; text[0] != '{' {
+		t.Fatalf("a strictly smaller canonical envelope must win, got %q", truncate(text))
 	}
 }
