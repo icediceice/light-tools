@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/icediceice/light-tools/internal/logs"
 	"github.com/icediceice/light-tools/internal/mcp"
 	"github.com/icediceice/light-tools/internal/telemetry"
 
@@ -252,10 +253,28 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, *rend
 	end := min(len(lines), offset+limit)
 	var builder strings.Builder
 	builder.WriteString(header)
-	for index := offset; index < end; index++ {
-		fmt.Fprintf(&builder, "%6d\t%s\n", index+1, lines[index])
+	// Same stream rule as readWindow: a repetitive window collapses into an
+	// outline whose ordinals are real file line numbers; a source-code window
+	// never outlines and ships numbered verbatim as before.
+	stream, compacted := h.compactWindow(lines[offset:end], offset+1)
+	if compacted {
+		builder.WriteString(stream.Text)
+	} else {
+		for index := offset; index < end; index++ {
+			fmt.Fprintf(&builder, "%6d\t%s\n", index+1, lines[index])
+		}
 	}
-	fmt.Fprintf(&builder, "[meta total_lines=%d bytes=%d tokens=%d next_offset=%d continued=%t]\n", len(lines), len(data), estimateTokens(data), end, end < len(lines))
+	meta := map[string]any{
+		"total_lines": len(lines), "bytes": len(data), "tokens": estimateTokens(data),
+		"next_offset": end, "continued": end < len(lines),
+	}
+	if compacted {
+		meta["compacted"] = true
+		meta["spill_id"] = stream.SpillID
+		meta["note"] = logs.RecoveryHint(stream.SpillID)
+	}
+	builder.WriteString(windowMetaLine(meta))
+	builder.WriteByte('\n')
 	return builder.String(), &renderedWindow{
 		path: path,
 		// Mirror readWindow's key (see the comment above its ShouldElide call):
@@ -266,6 +285,34 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, *rend
 		hash: fmt.Sprintf("%s#%d-%d", hash, offset, end),
 		stub: header + fmt.Sprintf("[dedup] sha256:%s lines %d-%d (re-run with force:true if you no longer hold these bytes)\n", hash, offset, end),
 	}, nil
+}
+
+// compactWindow runs one read window through the shared compaction engine,
+// the same one that collapses light_bash output. FirstLine makes every [L…]
+// ordinal a real file line number. Analyze is consulted first so a spill slot
+// is spent only when an outline actually ships — Compact would also spill the
+// elided-but-not-outlined raw form, which this handler never delivers — and
+// Compact then owns elision-implies-recovery: fail-open on a refused store,
+// exact bytes recoverable through the shared read_block spill. compacted is
+// false unless an outline backed by a live spill_id was produced, in which
+// case Text is the canonical window content, terminal LF included.
+func (h *Handler) compactWindow(window []string, firstLine int) (logs.Stream, bool) {
+	if len(window) == 0 {
+		return logs.Stream{}, false
+	}
+	raw := strings.Join(window, "\n") + "\n"
+	opts := logs.Options{FirstLine: firstLine}
+	if res := logs.Analyze(raw, opts); !res.Outlined {
+		return logs.Stream{}, false
+	}
+	stream := logs.Compact(raw, opts, h.spills, h.recorder)
+	if !stream.Outlined || stream.SpillID == "" {
+		return logs.Stream{}, false
+	}
+	if !strings.HasSuffix(stream.Text, "\n") {
+		stream.Text += "\n"
+	}
+	return stream, true
 }
 
 func (h *Handler) readWindow(path string, offset, limit int, epoch string, force bool, expectedSHA string) (any, error) {
@@ -305,20 +352,33 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 	}
 	end := min(len(lines), offset+limit)
 
+	// The window is a stream like any command's output: shared compaction
+	// groups repetitive lines BEFORE any %6d numbering exists, so every [L…]
+	// ordinal is a real file line number. Source code never outlines — the
+	// outline must earn its place against the raw window, and unique lines
+	// only grow — so the numbered verbatim listing below ships byte-for-byte
+	// as before, and the oversized-line geometry further down stays the sole
+	// owner of pages a lone huge line dominates.
+	stream, compacted := h.compactWindow(lines[offset:end], offset+1)
+
 	// The first line is always emitted even if it alone exceeds the budget, so
 	// a page ALWAYS makes progress. Never advancing would loop the caller
 	// forever; advancing without emitting would lose bytes silently.
 	var builder strings.Builder
-	for index := offset; index < end; index++ {
-		line := fmt.Sprintf("%6d\t%s\n", index+1, lines[index])
-		if builder.Len() > 0 && builder.Len()+len(line) > readBudget {
-			end = index
-			break
-		}
-		builder.WriteString(line)
-		if builder.Len() >= readBudget {
-			end = index + 1
-			break
+	if compacted {
+		builder.WriteString(stream.Text)
+	} else {
+		for index := offset; index < end; index++ {
+			line := fmt.Sprintf("%6d\t%s\n", index+1, lines[index])
+			if builder.Len() > 0 && builder.Len()+len(line) > readBudget {
+				end = index
+				break
+			}
+			builder.WriteString(line)
+			if builder.Len() >= readBudget {
+				end = index + 1
+				break
+			}
 		}
 	}
 	content := builder.String()
@@ -331,6 +391,11 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 	result := map[string]any{
 		"path": path, "content": content, "total_lines": len(lines), "bytes": len(data),
 		"tokens": estimateTokens(data), "sha256": hash, "continued": end < len(lines), "next_offset": end,
+	}
+	if compacted {
+		result["compacted"] = true
+		result["spill_id"] = stream.SpillID
+		result["note"] = logs.RecoveryHint(stream.SpillID)
 	}
 	if len(content) > readBudget {
 		result["truncated"] = true
