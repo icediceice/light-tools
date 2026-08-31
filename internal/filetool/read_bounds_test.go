@@ -810,7 +810,8 @@ func TestBatchLaneCompactsRepetitiveItems(t *testing.T) {
 	spills := &fakeSpills{}
 	handler := compactionHandler(t, root, spills)
 	repeat := writeRepeated(t, root, "repeat.log", 60)
-	source := writeLines(t, root, "source.txt", 50)
+	source := writeSourceLike(t, root, "source.txt", 50)
+@count 1
 
 	value, err := handler.read(nil, Request{Verb: "read", Items: []Item{{Path: repeat, Offset: 0, Limit: 5000}}})
 	if err != nil {
