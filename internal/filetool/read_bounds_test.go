@@ -274,7 +274,7 @@ func TestEmptyFileReportsZeroLines(t *testing.T) {
 func TestChangedFileBetweenPagesIsRefused(t *testing.T) {
 	handler, root := boundsHandler(t)
 	path := writeLines(t, root, "paged.txt", 10)
-	first := readJSON(t, handler, Request{Path: path, Offset: 0, Limit: 2})
+	first := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 2})
 	sha, _ := first["sha256"].(string)
 	if sha == "" {
 		t.Fatal("sha256 missing from the page")
