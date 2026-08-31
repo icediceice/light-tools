@@ -60,11 +60,11 @@ One row asks whether a file has changed since it was last read. No grep answers 
 
 | Scenario | Corpus | naive | skilled | light | light vs skilled | Calls (n/s/l) |
 | --- | ---: | ---: | ---: | ---: | ---: | :---: |
-| `access-log-500s` | 2.0 MB | 2.0 MB | 732 B | 570 B ✗ | **lost** | 1/2/1 |
-| `build-failure` | 13.7 KB | 13.7 KB | 13 B ✗ | 358 B | n/a | 1/2/1 |
-| `restart-loop` | 339.9 KB | 339.9 KB | 1.8 KB | 606 B | 3.0× | 1/2/1 |
+| `access-log-500s` | 2.0 MB | 2.0 MB | 732 B | 572 B ✗ | **lost** | 1/2/1 |
+| `build-failure` | 13.7 KB | 13.7 KB | 13 B ✗ | 364 B | n/a | 1/2/1 |
+| `restart-loop` | 339.9 KB | 339.9 KB | 1.8 KB | 716 B | 2.5× | 1/2/1 |
 | `short-status` † | 640 B | 640 B | 78 B | 640 B | 0.12× (light 8.2× larger) | 1/2/1 |
-| `test-failure` | 25.0 KB | 25.0 KB | 111 B ✗ | 2.8 KB | n/a | 1/2/1 |
+| `test-failure` | 25.0 KB | 25.0 KB | 111 B ✗ | 3.2 KB | n/a | 1/2/1 |
 
 **Against the skilled baseline, on the 2 row(s) where both arms answered: light-tools delivered fewer bytes in 1, more in 1, the same in 0.**
 
