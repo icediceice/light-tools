@@ -116,9 +116,14 @@ func renderSymbolText(path string, extractErr error, matches []symbolMatch) stri
 	}
 	for _, match := range matches {
 		extracted := match.Symbol
-		fmt.Fprintf(&b, "--- %s %s lines %d-%d bytes %d-%d\n",
-			extracted.Kind, extracted.Name, extracted.StartLine, extracted.EndLine,
+		fmt.Fprintf(&b, "--- symbol lines %d-%d bytes %d-%d\n",
+			extracted.StartLine, extracted.EndLine,
 			extracted.StartByte, extracted.EndByte)
+		// Name and kind are quoted field lines, never raw header tokens:
+		// extractor-legal names carry whitespace (a Markdown heading), and a
+		// whitespace-separated header cannot encode them unambiguously.
+		fmt.Fprintf(&b, "name %s\n", strconv.Quote(extracted.Name))
+		fmt.Fprintf(&b, "kind %s\n", strconv.Quote(extracted.Kind))
 		if extracted.Signature != "" {
 			fmt.Fprintf(&b, "signature %s\n", strconv.Quote(extracted.Signature))
 		}
