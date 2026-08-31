@@ -20,9 +20,9 @@ and objects are never invented from scalars.
 
 `LIGHT_TERSE_OUTPUT=1` allows deterministic terse text for large successful JSON
 results. Off by default; every value other than exactly `1` preserves raw JSON.
-It touches only `content[0]` when it is text and the result is not an error, and
-only when the result gets strictly smaller in both bytes and items. Images,
-later content blocks, plain text, malformed JSON and errors are untouched.
+It compacts EVERY text block of a successful result, not just the first, and
+only when the result gets strictly smaller in bytes and estimated tokens.
+Images, plain text, malformed JSON and errors are untouched.
 
 ## `light_file`
 
