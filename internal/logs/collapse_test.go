@@ -222,7 +222,6 @@ func TestRenderLineSet(t *testing.T) {
 		{"one contiguous run", []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, "[L1-16]"},
 		{"discontiguous set", []int{1, 5, 9, 10, 11, 40}, "[L1,5,9-11,40]"},
 		{"unordered input still renders ascending", []int{40, 1, 9, 5, 10, 11}, "[L1,5,9-11,40]"},
-@count 1
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
