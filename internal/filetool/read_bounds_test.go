@@ -227,9 +227,9 @@ func decodeSymbolPlain(t *testing.T, text string) map[string]any {
 			}
 			match["content"] = rest[:length]
 			rest = rest[length:]
-				if !strings.HasPrefix(rest, "\n") {
-					t.Fatalf("symbol content body is not newline-terminated (declared %d bytes; next bytes %q)", length, truncate(rest))
-				}
+			if !strings.HasPrefix(rest, "\n") {
+				t.Fatalf("symbol content body is not newline-terminated (declared %d bytes; next bytes %q)", length, truncate(rest))
+			}
 			rest = rest[1:]
 			break
 		}
