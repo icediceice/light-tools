@@ -35,17 +35,25 @@ func chooseDelivery(value any, plain string) (mcp.Result, error) {
 		return mcp.Result{Content: []mcp.Content{mcp.Text(plain)}}, nil
 	}
 	return mcp.Result{Content: []mcp.Content{mcp.Text(string(canonical))}}, nil
+	return mcp.Result{Content: []mcp.Content{mcp.Text(string(canonical))}}, nil
+}
+
+// plainHeader emits the first line of a plain render. The path is Go-quoted
+// so every legal path — one containing a newline, a quote, or any other
+// control byte — stays on exactly one physical line and round-trips through
+// strconv.Unquote; a raw path would let a filename byte terminate the header
+// and masquerade as the content that follows. The '=' first byte the dual
+// decoder discriminates on is unchanged.
+func plainHeader(path string) string {
+	return "=== " + strconv.Quote(path) + " ===\n"
 }
 
 // renderWindowText renders the canonical window result as plain text: the
 // header line, the numbered window content verbatim, and one bracketed meta
 // line carrying every scalar field the JSON envelope would — total_lines,
 // bytes, tokens, sha256, next_offset and continued, plus truncated, spill_id
-// and note when present. The plain form MUST begin "=== <path> ===" and the
-// canonical JSON begins "{", so a consumer can discriminate the two shapes on
-// the first byte; nothing inside the content can forge the meta line because
-// every content line is number-prefixed and the meta line is anchored at the
-// end.
+// and note when present. The plain form MUST begin with plainHeader —
+// '===" ' + a quoted path + " ===" — and the canonical JSON begins "{".
 func renderWindowText(result map[string]any) string {
 	path := textValue(result, "path")
 	content := textValue(result, "content")
