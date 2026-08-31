@@ -188,20 +188,19 @@ func decodeSymbolPlain(t *testing.T, text string) map[string]any {
 		}
 		extracted := map[string]any{}
 		match := map[string]any{"symbol": extracted}
-		// --- <kind> <name> lines <start>-<end> bytes <start>-<end>
+		// --- symbol lines <start>-<end> bytes <start>-<end> — structural
+		// only; name and kind arrive as quoted field lines below.
 		fields := strings.Fields(strings.TrimPrefix(line, "--- "))
-		if len(fields) != 6 || fields[2] != "lines" || fields[4] != "bytes" {
+		if len(fields) != 5 || fields[0] != "symbol" || fields[1] != "lines" || fields[3] != "bytes" {
 			t.Fatalf("malformed symbol section header: %q", line)
 		}
-		extracted["kind"] = fields[0]
-		extracted["name"] = fields[1]
-		start, end, ok := strings.Cut(fields[3], "-")
+		start, end, ok := strings.Cut(fields[2], "-")
 		if !ok {
 			t.Fatalf("malformed line range in %q", line)
 		}
 		extracted["start_line"] = parseMetaNumber(t, start)
 		extracted["end_line"] = parseMetaNumber(t, end)
-		start, end, ok = strings.Cut(fields[5], "-")
+		start, end, ok = strings.Cut(fields[4], "-")
 		if !ok {
 			t.Fatalf("malformed byte range in %q", line)
 		}
