@@ -114,11 +114,11 @@ Round trips are counted separately and are not in that tally — several rows wh
 
 | Scenario | Corpus | naive | skilled | light | light vs skilled | Calls (n/s/l) |
 | --- | ---: | ---: | ---: | ---: | ---: | :---: |
-| `batch-across-files` | 5.2 KB | 5.2 KB | 794 B | 748 B | 1.1× | 3/6/1 |
+| `batch-across-files` | 5.2 KB | 5.2 KB | 794 B | 754 B | 1.1× | 3/6/1 |
 | `repeat-read-unchanged` ‡ | 19.3 KB | 19.3 KB | 19.3 KB | 168 B | 117.9× | 1/1/1 |
-| `symbol-in-large-file` | 19.3 KB | 19.3 KB | 1.6 KB | 593 B | 2.8× | 1/2/1 |
-| `symbol-in-medium-file` | 1.8 KB | 1.8 KB | 270 B | 430 B | 0.63× (light 1.6× larger) | 1/2/1 |
-| `tiny-file` † | 270 B | 270 B | 207 B | 277 B | 0.75× (light 1.3× larger) | 1/2/1 |
+| `symbol-in-large-file` | 19.3 KB | 19.3 KB | 1.6 KB | 595 B | 2.8× | 1/2/1 |
+| `symbol-in-medium-file` | 1.8 KB | 1.8 KB | 270 B | 432 B | 0.62× (light 1.6× larger) | 1/2/1 |
+| `tiny-file` † | 270 B | 270 B | 207 B | 279 B | 0.74× (light 1.3× larger) | 1/2/1 |
 
 **Against the skilled baseline, on the 4 row(s) where both arms answered: light-tools delivered fewer bytes in 2, more in 2, the same in 0.**
 
