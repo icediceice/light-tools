@@ -36,19 +36,27 @@ line range — and `force:true`, the way back to the bytes if the caller no
 longer holds them. Dedup is keyed on the window, not the file, so a different
 offset or limit is always served in full.
 
-A read result ships in whichever of two shapes is strictly fewer BYTES: the
+A materialized single-path result — one file window, or one named-symbol
+read — ships in whichever of two shapes is strictly fewer BYTES: the
 canonical JSON envelope, or a plain render whose header is `=== ` plus the
 Go-quoted path plus ` ===` — quoting keeps every legal path, newline included,
 on one line and round-trips through `strconv.Unquote`. A tie
 keeps the JSON and there is no size floor in either direction, so the envelope
 must earn its delivery. The first byte discriminates the shapes (`{` or `=`).
+A leading `[` is the dedup control stub, not a third delivery shape: it
+replaces unchanged bytes and names `force:true` as the way back to them.
 The plain window render carries one bracketed meta line with `total_lines`,
 `bytes`, `tokens`, `sha256`, `next_offset`, `continued` and, when present,
 `truncated`, `spill_id` and `note`. The plain symbol render carries one
-section per match with every symbol field — signature, comment and parent as
-quoted strings, the body after a `content N bytes` line consumed by exact
-byte length — so source bytes cannot forge a section delimiter, and
-`[symbols unavailable]` stays distinct from `[no symbol matches]`.
+section per match: a structural `--- symbol lines A-B bytes C-D` header, then
+name, kind, signature, comment and parent each as quoted strings on their own
+line, then the body after a `content N bytes` line consumed by exact
+byte length — so no legal symbol name and no source byte can forge a section
+delimiter, and `[symbols unavailable]` stays distinct from `[no symbol
+matches]`. This two-shape contract does NOT govern multi-file batch reads:
+`items[]` uses a shared-budget plain batch grammar whose named-symbol
+sections stay compact (kind, name, line range, parent, content — no
+signature/comment/byte-span fields) and never invoke the size comparison.
 
 Dedup needs no client cooperation: the server mints one epoch per process at
 startup and uses it whenever a request omits `context_epoch`, which scopes the
