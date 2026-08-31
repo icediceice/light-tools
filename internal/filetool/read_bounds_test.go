@@ -211,6 +211,16 @@ func decodeSymbolPlain(t *testing.T, text string) map[string]any {
 			if !found {
 				t.Fatalf("unterminated symbol section: %s", truncate(rest))
 			}
+			if value, ok := quotedField(field, "name "); ok {
+				extracted["name"] = value
+				rest = fieldRest
+				continue
+			}
+			if value, ok := quotedField(field, "kind "); ok {
+				extracted["kind"] = value
+				rest = fieldRest
+				continue
+			}
 			if value, ok := quotedField(field, "signature "); ok {
 				extracted["signature"] = value
 				rest = fieldRest
