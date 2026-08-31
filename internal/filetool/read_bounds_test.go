@@ -740,7 +740,7 @@ func TestRepetitiveLogWindowCollapsesAndSpills(t *testing.T) {
 		t.Fatalf("compacted content does not name the full contiguous run: %q", content)
 	}
 	if strings.Contains(content, "\t") {
-		t.Fatalf("compacted content still carries %6d numbering: %q", content)
+		t.Fatalf("compacted content still carries per-line number prefixes: %q", content)
 	}
 	if id, _ := result["spill_id"].(string); id == "" {
 		t.Fatalf("compacted window carries no spill_id: %v", result)
