@@ -770,7 +770,8 @@ func TestSourceLikeWindowStaysNumberedVerbatim(t *testing.T) {
 		t.Fatalf("unique-line window must not compact: %v", result)
 	}
 	content, _ := result["content"].(string)
-	if !strings.Contains(content, "     1\tline 1\n") || !strings.Contains(content, "    50\tline 50\n") {
+	if !strings.Contains(content, "     1\tthe aa protocol") || !strings.Contains(content, "    50\tthe bx protocol") {
+@count 1
 		t.Fatalf("verbatim window lost its numbered form: %q", content)
 	}
 }
