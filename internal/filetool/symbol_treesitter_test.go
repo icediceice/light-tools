@@ -36,17 +36,17 @@ func TestOutlineAndNamedSymbolUseDedicatedTSXGrammar(t *testing.T) {
 		t.Fatalf("TSX outline = %#v", outline.Symbols)
 	}
 
+	// The symbol lane delivers whichever of the JSON envelope and the plain
+	// render is smaller, so the decode discriminates on the first byte.
 	symbolText := invokeRequest(t, handler, map[string]any{"verb": "symbol", "path": path, "name": "Badge"})
-	var result struct {
-		Matches []struct {
-			Content string `json:"content"`
-		} `json:"matches"`
+	symbolResult := decodeSymbolResult(t, symbolText)
+	matches, ok := symbolResult["matches"].([]any)
+	if !ok || len(matches) != 1 {
+		t.Fatalf("Badge matches = %#v", symbolResult["matches"])
 	}
-	if err := json.Unmarshal([]byte(symbolText), &result); err != nil {
-		t.Fatalf("symbol JSON: %v: %s", err, symbolText)
-	}
-	if len(result.Matches) != 1 || result.Matches[0].Content == "" {
-		t.Fatalf("Badge matches = %#v", result.Matches)
+	match, ok := matches[0].(map[string]any)
+	if !ok || match["content"] == "" {
+		t.Fatalf("Badge match lost its content: %#v", matches[0])
 	}
 }
 
