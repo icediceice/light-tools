@@ -420,9 +420,10 @@ func (h *Handler) symbol(request Request) (any, error) {
 	}
 	symbols, err := symbol.Extract(path, data)
 	if err != nil {
-		return textJSON(map[string]any{"path": path, "tree_sitter": false, "matches": []any{}, "note": err.Error()})
+		value := map[string]any{"path": path, "tree_sitter": false, "matches": []any{}, "note": err.Error()}
+		return chooseDelivery(value, renderSymbolText(path, err, nil))
 	}
-	var matches []map[string]any
+	var matches []symbolMatch
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	for _, candidate := range symbols {
 		if candidate.Name != request.Name {
@@ -432,9 +433,9 @@ func (h *Handler) symbol(request Request) (any, error) {
 		if start < 0 || end > len(lines) || start >= end {
 			continue
 		}
-		matches = append(matches, map[string]any{"symbol": candidate, "content": strings.Join(lines[start:end], "\n")})
+		matches = append(matches, symbolMatch{Symbol: candidate, Content: strings.Join(lines[start:end], "\n")})
 	}
-	return textJSON(map[string]any{"path": path, "matches": matches})
+	return chooseDelivery(map[string]any{"path": path, "matches": matches}, renderSymbolText(path, nil, matches))
 }
 
 func (h *Handler) identity(request Request) (any, error) {
