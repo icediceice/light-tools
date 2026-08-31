@@ -607,3 +607,11 @@ func TestOversizedSingleLineStillMakesProgress(t *testing.T) {
 		t.Fatalf("oversized line was returned unbounded: %d bytes", len(content))
 	}
 }
+
+// truncate shortens a payload for inclusion in an error message.
+func truncate(value string) string {
+	if len(value) > 120 {
+		return value[:120] + "…"
+	}
+	return value
+}
