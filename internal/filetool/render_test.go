@@ -72,8 +72,8 @@ func TestSymbolSliceComesBackPlainWithEveryField(t *testing.T) {
 	}
 	decoded := decodeSymbolPlain(t, plain)
 	matches := decoded["matches"].([]any)
-	if len(matches) != 1 {
-		t.Fatalf("one match in, %d out", len(matches))
+	if len(matches) != 2 {
+		t.Fatalf("two matches in, %d out", len(matches))
 	}
 	match := matches[0].(map[string]any)
 	extracted := match["symbol"].(map[string]any)
