@@ -129,20 +129,20 @@ func decodeWindowPlain(t *testing.T, text string) map[string]any {
 
 // decodeSymbolResult decodes either shape of a named-symbol read.
 func decodeSymbolResult(t *testing.T, text string) map[string]any {
-		t.Helper()
-		switch {
-		case strings.HasPrefix(text, "{"):
+	t.Helper()
+	switch {
+	case strings.HasPrefix(text, "{"):
 		var result map[string]any
 		if err := json.Unmarshal([]byte(text), &result); err != nil {
 			t.Fatalf("symbol JSON: %v: %s", err, truncate(text))
 		}
 		return result
-		case strings.HasPrefix(text, "=== "):
+	case strings.HasPrefix(text, "=== "):
 		return decodeSymbolPlain(t, text)
-		default:
+	default:
 		t.Fatalf("symbol read is neither JSON nor a plain render: %s", truncate(text))
 		return nil
-		}
+	}
 }
 
 // decodeSymbolPlain walks renderSymbolText's format arithmetically: quoted
