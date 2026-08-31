@@ -205,7 +205,7 @@ func TestAliasesAndSamePathPayloadBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(read, "=== "+resolvedTarget+" ===") || !strings.Contains(read, "ONE") {
+	if !strings.Contains(read, plainHeader(resolvedTarget)) || !strings.Contains(read, "ONE") {
 		t.Fatalf("reads alias did not materialize: %s", read)
 	}
 }
