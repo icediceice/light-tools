@@ -221,7 +221,7 @@ func strPtr(value string) *string { return &value }
 func TestHugeLimitIsClampedAndContinues(t *testing.T) {
 	handler, root := boundsHandler(t)
 	path := writeLines(t, root, "big.txt", 12000)
-	result := readJSON(t, handler, Request{Path: path, Offset: 0, Limit: 999999})
+	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 999999})
 
 	if total, _ := result["total_lines"].(float64); int(total) != 12000 {
 		t.Fatalf("total_lines should be 12000, got %v", result["total_lines"])
