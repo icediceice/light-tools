@@ -221,6 +221,7 @@ func decodeSymbolPlain(t *testing.T, text string) map[string]any {
 			if _, err := fmt.Sscanf(field, "content %d bytes", &length); err != nil {
 				t.Fatalf("malformed symbol field line: %q", field)
 			}
+			rest = fieldRest // the body follows the content line itself
 			if len(rest) < length {
 				t.Fatalf("symbol content declares %d bytes but only %d remain", length, len(rest))
 			}
