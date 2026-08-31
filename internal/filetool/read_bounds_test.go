@@ -762,7 +762,8 @@ func TestRepetitiveLogWindowCollapsesAndSpills(t *testing.T) {
 func TestSourceLikeWindowStaysNumberedVerbatim(t *testing.T) {
 	root := t.TempDir()
 	handler := compactionHandler(t, root, &fakeSpills{})
-	path := writeLines(t, root, "source.txt", 50)
+	path := writeSourceLike(t, root, "source.txt", 50)
+@count 1
 
 	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 5000, ContextEpoch: "s1"})
 	if _, ok := result["compacted"]; ok {
