@@ -778,11 +778,9 @@ func writeSourceLike(t *testing.T, root, name string, count int) string {
 // prefix bytes to every row and groups nothing, so it cannot earn its place,
 // and the numbered verbatim page ships byte-for-byte as before.
 func TestSourceLikeWindowStaysNumberedVerbatim(t *testing.T) {
-@count 1
 	root := t.TempDir()
 	handler := compactionHandler(t, root, &fakeSpills{})
 	path := writeSourceLike(t, root, "source.txt", 50)
-@count 1
 
 	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 5000, ContextEpoch: "s1"})
 	if _, ok := result["compacted"]; ok {
@@ -790,7 +788,6 @@ func TestSourceLikeWindowStaysNumberedVerbatim(t *testing.T) {
 	}
 	content, _ := result["content"].(string)
 	if !strings.Contains(content, "     1\tthe aa protocol") || !strings.Contains(content, "    50\tthe bx protocol") {
-@count 1
 		t.Fatalf("verbatim window lost its numbered form: %q", content)
 	}
 }
@@ -831,7 +828,6 @@ func TestBatchLaneCompactsRepetitiveItems(t *testing.T) {
 	handler := compactionHandler(t, root, spills)
 	repeat := writeRepeated(t, root, "repeat.log", 60)
 	source := writeSourceLike(t, root, "source.txt", 50)
-@count 1
 
 	value, err := handler.read(nil, Request{Verb: "read", Items: []Item{{Path: repeat, Offset: 0, Limit: 5000}}})
 	if err != nil {
@@ -854,7 +850,6 @@ func TestBatchLaneCompactsRepetitiveItems(t *testing.T) {
 		t.Fatalf("source item must not compact: %s", truncate(text))
 	}
 	if !strings.Contains(text, "     1\tthe aa protocol") {
-@count 1
 		t.Fatalf("source item lost its numbered form: %s", truncate(text))
 	}
 }
