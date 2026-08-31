@@ -131,7 +131,7 @@ func decodeWindowPlain(t *testing.T, text string) map[string]any {
 		switch name {
 		case "total_lines", "bytes", "tokens", "next_offset":
 			result[name] = parseMetaNumber(t, value)
-		case "continued", "truncated":
+		case "continued", "truncated", "compacted":
 			result[name] = value == "true"
 		case "sha256", "spill_id":
 			result[name] = value
@@ -308,6 +308,11 @@ func TestPlainWindowDecodeReconstructsCanonicalContentByteForByte(t *testing.T) 
 			"total_lines": 2, "bytes": 200*1024 + 5, "tokens": 51200, "sha256": "ghi", "next_offset": 0, "continued": false,
 			"truncated": true, "spill_id": "spill-1", "note": "read_block offsets 0-204800",
 		}},
+			{"compacted-outline", map[string]any{
+				"path": "/w/repeat.log", "content": "[L1-60] worker ▪1 polling queue  ×60\n    ▪1: 0..59  (60 values, +1 each)\n",
+				"total_lines": 60, "bytes": 1380, "tokens": 346, "sha256": "jkl", "next_offset": 60, "continued": false,
+				"compacted": true, "spill_id": "spill-9", "note": "recover exact lines: light_bash{output_mode:\"read_block\", spill:\"spill-9\", line_range:\"N-M\"}",
+			}},
 	}
 	for _, tc := range cases {
 		decoded := decodeWindowPlain(t, renderWindowText(tc.result))
@@ -684,4 +689,149 @@ func truncate(value string) string {
 		return value[:120] + "…"
 	}
 	return value
+}
+
+// writeRepeated writes a file of count lines that share one template —
+// "worker N polling queue", N the only varying token — the file-lane twin of
+// a noisy service log.
+func writeRepeated(t *testing.T, root, name string, count int) string {
+	t.Helper()
+	path := filepath.Join(root, name)
+	var b strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&b, "worker %d polling queue\n", i)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func compactionHandler(t *testing.T, root string, spills *fakeSpills) *Handler {
+	t.Helper()
+	confiner, err := security.NewConfiner([]string{root}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler, err := New(Options{
+		Confiner: confiner, SnapshotRoot: filepath.Join(root, ".snap"), Spills: spills,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handler
+}
+
+// A repetitive log window collapses into an outline whose ordinals are real
+// file line numbers, with the exact window bytes recoverable through the
+// shared spill store.
+func TestRepetitiveLogWindowCollapsesAndSpills(t *testing.T) {
+	root := t.TempDir()
+	spills := &fakeSpills{}
+	handler := compactionHandler(t, root, spills)
+	path := writeRepeated(t, root, "repeat.log", 60)
+
+	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 5000, ContextEpoch: "s1"})
+	if compacted, _ := result["compacted"].(bool); !compacted {
+		t.Fatalf("repetitive log window did not compact: %v", result)
+	}
+	content, _ := result["content"].(string)
+	if !strings.Contains(content, "[L1-60]") {
+		t.Fatalf("compacted content does not name the full contiguous run: %q", content)
+	}
+	if strings.Contains(content, "\t") {
+		t.Fatalf("compacted content still carries %6d numbering: %q", content)
+	}
+	if id, _ := result["spill_id"].(string); id == "" {
+		t.Fatalf("compacted window carries no spill_id: %v", result)
+	}
+	if note, _ := result["note"].(string); !strings.Contains(note, "read_block") {
+		t.Fatalf("compacted window carries no recovery note: %v", result)
+	}
+	if len(spills.stored) != 1 {
+		t.Fatalf("expected exactly one spill of the window bytes, got %d", len(spills.stored))
+	}
+	if !strings.Contains(string(spills.stored[0]), "worker 30 polling queue") {
+		t.Fatal("the spill does not hold the exact window bytes")
+	}
+}
+
+// A window of unique lines never compacts: the outline only adds prefix bytes
+// to every row, so it cannot earn its place, and the numbered verbatim page
+// ships byte-for-byte as before.
+func TestSourceLikeWindowStaysNumberedVerbatim(t *testing.T) {
+	root := t.TempDir()
+	handler := compactionHandler(t, root, &fakeSpills{})
+	path := writeLines(t, root, "source.txt", 50)
+
+	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 5000, ContextEpoch: "s1"})
+	if _, ok := result["compacted"]; ok {
+		t.Fatalf("unique-line window must not compact: %v", result)
+	}
+	content, _ := result["content"].(string)
+	if !strings.Contains(content, "     1\tline 1\n") || !strings.Contains(content, "    50\tline 50\n") {
+		t.Fatalf("verbatim window lost its numbered form: %q", content)
+	}
+}
+
+// Compacted windows participate in the dedup ledger like any other page, and
+// the second page's ordinals follow the offset — [L81-120], not [L1-40] —
+// which is the whole point of FirstLine.
+func TestCompactedWindowStillPagesThroughTheDedupLedger(t *testing.T) {
+	root := t.TempDir()
+	handler := compactionHandler(t, root, &fakeSpills{})
+	path := writeRepeated(t, root, "repeat.log", 120)
+
+	first := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 80, ContextEpoch: "s1"})
+	firstContent, _ := first["content"].(string)
+	if !strings.Contains(firstContent, "[L1-80]") {
+		t.Fatalf("page 1 did not compact to its own span: %v", first)
+	}
+	second := readResult(t, handler, Request{Path: path, Offset: 80, Limit: 40, ContextEpoch: "s1"})
+	secondContent, _ := second["content"].(string)
+	if !strings.Contains(secondContent, "[L81-120]") {
+		t.Fatalf("page 2 did not compact with offset ordinals: %v", second)
+	}
+	value, err := handler.read(nil, Request{Verb: "read", Path: path, Offset: 0, Limit: 80, ContextEpoch: "s1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := resultText(t, value); !strings.Contains(text, "[dedup]") {
+		t.Fatalf("third identical read did not come back as the dedup stub: %s", truncate(text))
+	}
+}
+
+// The batch lane gets the same compaction: a repetitive item collapses in its
+// section, a source-code item stays numbered, and the meta line carries the
+// same spill metadata the single-path envelope would.
+func TestBatchLaneCompactsRepetitiveItems(t *testing.T) {
+	root := t.TempDir()
+	spills := &fakeSpills{}
+	handler := compactionHandler(t, root, spills)
+	repeat := writeRepeated(t, root, "repeat.log", 60)
+	source := writeLines(t, root, "source.txt", 50)
+
+	value, err := handler.read(nil, Request{Verb: "read", Items: []Item{{Path: repeat, Offset: 0, Limit: 5000}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := resultText(t, value)
+	if !strings.Contains(text, "[L1-60]") || !strings.Contains(text, "compacted=true") {
+		t.Fatalf("batch item did not compact: %s", truncate(text))
+	}
+	if !strings.Contains(text, "spill_id=spill-1") || !strings.Contains(text, "note=recover exact lines") {
+		t.Fatalf("batch item lost the spill metadata: %s", truncate(text))
+	}
+
+	value, err = handler.read(nil, Request{Verb: "read", Items: []Item{{Path: source, Offset: 0, Limit: 5000}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text = resultText(t, value)
+	if strings.Contains(text, "compacted=true") {
+		t.Fatalf("source item must not compact: %s", truncate(text))
+	}
+	if !strings.Contains(text, "     1\tline 1\n") {
+		t.Fatalf("source item lost its numbered form: %s", truncate(text))
+	}
 }
