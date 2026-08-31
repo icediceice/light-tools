@@ -20,7 +20,7 @@ func TestDerivedEpochPreservesBatchContinuation(t *testing.T) {
 	}
 
 	request := map[string]any{
-		"verb": "read",
+		"verb":  "read",
 		"items": []map[string]any{{"path": path, "offset": 0, "limit": 12000}},
 	}
 	first := invokeRequest(t, handler, request)
