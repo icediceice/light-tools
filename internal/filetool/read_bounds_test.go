@@ -95,8 +95,13 @@ func decodeWindowPlain(t *testing.T, text string) map[string]any {
 	if metaStart > headerEnd {
 		content = strings.TrimSuffix(text[headerEnd+1:metaStart], "\n")
 	}
+	quoted := strings.TrimSuffix(strings.TrimPrefix(text[:headerEnd], "=== "), " ===")
+	path, err := strconv.Unquote(quoted)
+	if err != nil {
+		t.Fatalf("malformed plain header path %q: %v", quoted, err)
+	}
 	result := map[string]any{
-		"path":    strings.TrimSuffix(strings.TrimPrefix(text[:headerEnd], "=== "), " ==="),
+		"path":    path,
 		"content": content,
 	}
 	fields := strings.TrimSuffix(strings.TrimPrefix(meta, "[meta "), "]")
