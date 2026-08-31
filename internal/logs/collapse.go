@@ -8,12 +8,13 @@ package logs
 // every group it finds is rendered.
 //
 // It is a NAVIGATION aid, never storage. The verbatim spill is written before
-// any rendering, so every [lo-hi] here still addresses raw lines that
+// any rendering, so every [L…] span here still addresses raw lines that
 // read_block returns byte-for-byte.
 
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -28,6 +29,12 @@ const (
 
 	// slotWidth bounds one slot's rendered value list.
 	slotWidth = 96
+
+	// spanRunCap caps how many ascending runs one line-set span lists before
+	// the remainder collapses into a +N marker. GroupTemplates groups
+	// non-consecutive lines on purpose, so a scattered 500-line group must
+	// not print 500 ordinals to name its coverage.
+	spanRunCap = 8
 )
 
 // varTokenRE captures the tokens that vary between otherwise-identical lines.
@@ -117,6 +124,58 @@ func GroupTemplates(lines []string, firstLine int) []TemplateGroup {
 	}
 	return out
 }
+// renderLineSet compresses a group's raw line numbers into ascending runs and
+// renders them as one bracketed span: [L42] for a singleton, [L1-16] for one
+// contiguous run, [L1,16,17-30] for a scattered set. GroupTemplates groups
+// non-consecutive lines on purpose, so a min..max span would name a range
+// that is mostly NOT the group — the run list is the honest shape.
+//
+// Past spanRunCap runs the span lists the first ones and folds the rest into
+// a trailing +N counting the omitted lines. Every number named is still a
+// real raw line number that read_block resolves byte-for-byte against the
+// spill.
+func renderLineSet(lines []int) string {
+	sorted := append([]int(nil), lines...)
+	sort.Ints(sorted)
+
+	type run struct{ lo, hi int }
+	runs := []run{}
+	for _, n := range sorted {
+		if last := len(runs) - 1; last >= 0 && runs[last].hi+1 == n {
+			runs[last].hi = n
+			continue
+		}
+		runs = append(runs, run{n, n})
+	}
+
+	listed, overflow := runs, 0
+	if len(runs) > spanRunCap {
+		listed = runs[:spanRunCap]
+		for _, r := range runs[spanRunCap:] {
+			overflow += r.hi - r.lo + 1
+		}
+	}
+
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, r := range listed {
+		if i == 0 {
+			b.WriteByte('L')
+		} else {
+			b.WriteByte(',')
+		}
+		if r.lo == r.hi {
+			fmt.Fprintf(&b, "%d", r.lo)
+		} else {
+			fmt.Fprintf(&b, "%d-%d", r.lo, r.hi)
+		}
+	}
+	if overflow > 0 {
+		fmt.Fprintf(&b, " +%d", overflow)
+	}
+	b.WriteByte(']')
+	return b.String()
+}
 
 // RenderTemplateGroup renders one group as its template plus one row per
 // genuinely-varying slot.
@@ -171,21 +230,9 @@ func RenderTemplateGroup(g TemplateGroup, indent string) []string {
 		}
 	}
 
-	lo, hi := g.Lines[0], g.Lines[0]
-	for _, n := range g.Lines {
-		if n < lo {
-			lo = n
-		}
-		if n > hi {
-			hi = n
-		}
-	}
-	span := fmt.Sprintf("[%d]", lo)
-	if lo != hi {
-		span = fmt.Sprintf("[%d-%d]", lo, hi)
-	}
+		span := renderLineSet(g.Lines)
 
-	line := fmt.Sprintf("%s%-11s %s", indent, span, strings.TrimSpace(head.String()))
+	line := fmt.Sprintf("%s%-13s %s", indent, span, strings.TrimSpace(head.String()))
 	if len(g.Rows) > 1 {
 		line += fmt.Sprintf("  ×%d", len(g.Rows))
 	}
