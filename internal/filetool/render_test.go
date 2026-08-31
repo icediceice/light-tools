@@ -90,7 +90,15 @@ func TestSymbolSliceComesBackPlainWithEveryField(t *testing.T) {
 	if match["content"] != one.Content {
 		t.Fatalf("content did not round-trip: %q", match["content"])
 	}
-	encoded, err := json.Marshal(map[string]any{"path": "/fixtures/transport.go", "matches": []symbolMatch{one}})
+	headingMatch := matches[1].(map[string]any)
+	headingSymbol := headingMatch["symbol"].(map[string]any)
+	if headingSymbol["name"] != "Install Guide" || headingSymbol["kind"] != "md_heading" {
+		t.Fatalf("whitespace name did not round-trip: %#v", headingSymbol)
+	}
+	if headingMatch["content"] != heading.Content {
+		t.Fatalf("heading content did not round-trip: %q", headingMatch["content"])
+	}
+	encoded, err := json.Marshal(map[string]any{"path": "/fixtures/transport.go", "matches": []symbolMatch{one, heading}})
 	if err != nil {
 		t.Fatal(err)
 	}
