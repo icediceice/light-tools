@@ -321,12 +321,10 @@ func TestPlainWindowDecodeReconstructsCanonicalContentByteForByte(t *testing.T) 
 	// terminal LF and every numbered line intact.
 	handler, root := boundsHandler(t)
 	path := writeLines(t, root, "e2e.txt", 3)
-	decoded := readResult(t, handler, Request{Path: path})
-	handler, root := boundsHandler(t)
-	path := writeLines(t, root, "e2e.txt", 3)
 	decoded := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 3})
 	content, _ := decoded["content"].(string)
 	if !strings.HasSuffix(content, "\n") || !strings.Contains(content, "line 3") {
+		t.Fatalf("end-to-end decode lost the canonical terminator: %q", content)
 	}
 }
 
