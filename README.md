@@ -60,7 +60,7 @@ Sixteen service restarts, buried in lines that differ only by a counter:
 becomes:
 
 ```text
-[1-16]      light-edge.service: Scheduled restart job, restart counter is at ▪1.  ×16
+[L1-16]       light-edge.service: Scheduled restart job, restart counter is at ▪1.  ×16
     ▪1: 599..614  (16 values, +1 each)
 ```
 
@@ -69,9 +69,9 @@ No two of those lines are byte-identical, so deduplication collapses nothing. Gr
 Whatever occurred only once is still there. 500 compile lines and a verdict:
 
 ```text
-[1-500]     compiling module ▪1 of 500  ×500
+[L1-500]      compiling module ▪1 of 500  ×500
     ▪1: 0..499  (500 values, +1 each)
-[501]       BUILD FAILED
+[L501]        BUILD FAILED
 ```
 
 A verdict is a singleton by nature — it is the line you came for, and it survives verbatim.
