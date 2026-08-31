@@ -45,7 +45,7 @@ Every file mutation is snapshotted first, so a bad edit can be restored.
 
 ### Do not send the same file twice
 
-If the agent reads a file again and the content has not changed, `light_file` returns a short dedup notice instead of the same bytes. If the file changed, it is sent normally.
+If the agent reads a file again and the content has not changed, `light_file` returns a short dedup notice instead of the same bytes — and the notice names `force:true`, the one-call way back to the bytes if the agent no longer holds them. If the file changed, it is sent normally.
 
 ### Collapse repetitive command output
 
