@@ -327,14 +327,18 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 	}
 	// The dedup ledger keys on the whole-file hash, so paging an unchanged file
 	// would elide page 2 as an already-seen read. Fold the span into the key.
-	if h.cache.ShouldElide(epoch, path, fmt.Sprintf("%s#%d-%d", hash, offset, end), force) {
+	ledgerKey := fmt.Sprintf("%s#%d-%d", hash, offset, end)
+	if h.cache.ShouldElide(epoch, path, ledgerKey, force) {
 		stub := fmt.Sprintf("[dedup] %s sha256:%s lines %d-%d (re-run with force:true if you no longer hold these bytes)", path, hash, offset, end)
-		// Credit exactly the delivery the hit suppressed — whichever form
-		// chooseDelivery picked — not the JSON envelope, which the plain
-		// render may have beaten. force:true reproduces that delivery
-		// byte-for-byte, so the credit stays checkable against it.
-		if wouldHave, err := chooseDelivery(result, renderWindowText(result)); err == nil {
-			if saved := len(wouldHave.Content[0].Text) - len(stub); saved > 0 {
+		// Credit the bytes the ledger saw delivered for this key — whichever
+		// form chooseDelivery picked when that response was materialized.
+		// Rebuilding the delivery here cannot reproduce it: the oversized-line
+		// branch below mints spill_id and a recovery note only on the miss
+		// path, so a pre-spill reconstruction understates every spill-bearing
+		// hit by exactly that metadata. With no live recording, credit
+		// nothing rather than guess.
+		if prior, ok := h.cache.PriorDelivery(epoch, path, ledgerKey); ok {
+			if saved := prior - len(stub); saved > 0 {
 				h.observe(func(recorder telemetry.Recorder) { recorder.RecordDedupBytes(saved) })
 			}
 		}
@@ -349,7 +353,16 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 			result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget; full page stored — recover it with light_bash output_mode:read_block spill:" + id
 		}
 	}
-	return chooseDelivery(result, renderWindowText(result))
+	delivery, err := chooseDelivery(result, renderWindowText(result))
+	if err != nil {
+		return nil, err
+	}
+	// Record only now that the response is final: the recorded size must
+	// include whatever the branches above added, because it is exactly what
+	// a hit will be credited against — force:true reproduces this delivery
+	// byte-for-byte.
+	h.cache.RecordDelivery(epoch, path, ledgerKey, len(delivery.Content[0].Text))
+	return delivery, nil
 }
 
 func (h *Handler) list(request Request) (any, error) {
