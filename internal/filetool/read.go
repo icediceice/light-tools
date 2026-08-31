@@ -119,6 +119,7 @@ func (h *Handler) readItems(request Request) (any, error) {
 		// so consulting the ledger here can only swap the remainder for a stub
 		// shorter than the cursor and strand the caller on a cursor this tool
 		// issued itself. Only a fresh item is eligible for elision.
+		elided := false
 		if window != nil && startByte == 0 && h.cache.ShouldElide(request.ContextEpoch, window.path, window.hash, request.Force) {
 			remaining := readBudget - builder.Len()
 			prospective := budgetSlice(section[startByte:], remaining)
@@ -127,6 +128,7 @@ func (h *Handler) readItems(request Request) (any, error) {
 				h.observe(func(recorder telemetry.Recorder) { recorder.RecordDedupBytes(saved) })
 			}
 			section = window.stub
+			elided = true
 		}
 		if startByte > len(section) {
 			return nil, fmt.Errorf("continuation cursor exceeds item content")
@@ -135,7 +137,14 @@ func (h *Handler) readItems(request Request) (any, error) {
 		remaining := readBudget - builder.Len()
 		if len(section) > remaining {
 			if remaining > 0 {
-				builder.WriteString(section[:safeUTF8Boundary(section, remaining)])
+				written := section[:safeUTF8Boundary(section, remaining)]
+				builder.WriteString(written)
+				// A fresh window records the bytes its first page actually
+				// contributed, so a later hit — here or through readWindow —
+				// credits what was really shipped, not the unbounded section.
+				if window != nil && !elided {
+					h.cache.RecordDelivery(request.ContextEpoch, window.path, window.hash, len(written))
+				}
 			}
 			next := readCursor{Item: index, Byte: startByte + safeUTF8Boundary(section, remaining)}
 			encoded, _ := json.Marshal(next)
@@ -143,6 +152,9 @@ func (h *Handler) readItems(request Request) (any, error) {
 			return mcp.Result{Content: []mcp.Content{mcp.Text(builder.String())}}, nil
 		}
 		builder.WriteString(section)
+		if window != nil && !elided {
+			h.cache.RecordDelivery(request.ContextEpoch, window.path, window.hash, len(section))
+		}
 		cursor.Byte = 0
 	}
 	return mcp.Result{Content: []mcp.Content{mcp.Text(builder.String())}}, nil
