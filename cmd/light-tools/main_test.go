@@ -782,6 +782,15 @@ func TestAllFiveToolsThroughServeRawAndTerse(t *testing.T) {
 	if err := os.WriteFile(probe, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	goProbe := filepath.Join(root, "serve-probe.go")
+	var source strings.Builder
+	source.WriteString("package serve\n\n")
+	for index := 0; index < 30; index++ {
+		fmt.Fprintf(&source, "// ServeProbe%d is a fixture declaration.\nfunc ServeProbe%d() int { return %d }\n\n", index, index, index)
+	}
+	if err := os.WriteFile(goProbe, []byte(source.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	configuration := config.Config{
 		AllowedRoots: []string{root},
 		LogRoots:     []string{root},
