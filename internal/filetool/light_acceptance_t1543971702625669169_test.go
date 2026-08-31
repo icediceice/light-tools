@@ -57,3 +57,25 @@ func TestVerifyOversizedLineDedupCreditUsesDeliveredSpillForm(t *testing.T) {
 			got, want, len(resultText(t, forced)), len(resultText(t, stub)))
 	}
 }
+
+// A plain result must preserve a legal path containing a newline instead of
+// letting that byte terminate the header and become apparent file content.
+func TestVerifyPlainReadRoundTripsNewlinePath(t *testing.T) {
+	handler, root := newTestHandler(t)
+	path := filepath.Join(root, "line\nbreak.txt")
+	if err := os.WriteFile(path, []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := handler.read(nil, Request{Verb: "read", Path: path, Offset: 0, Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivered := resultText(t, value)
+	if !strings.HasPrefix(delivered, "=== ") {
+		t.Fatalf("fixture did not exercise the plain renderer: %q", truncate(delivered))
+	}
+	decoded := decodeReadText(t, delivered)
+	if got := decoded["path"]; got != path {
+		t.Fatalf("plain path = %q, want %q", got, path)
+	}
+}
