@@ -124,6 +124,7 @@ func GroupTemplates(lines []string, firstLine int) []TemplateGroup {
 	}
 	return out
 }
+
 // renderLineSet compresses a group's raw line numbers into ascending runs and
 // renders them as one bracketed span: [L42] for a singleton, [L1-16] for one
 // contiguous run, [L1,16,17-30] for a scattered set. GroupTemplates groups
