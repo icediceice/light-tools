@@ -151,7 +151,7 @@ func TestDifferingArityNeverMerges(t *testing.T) {
 }
 
 // TestGroupedRangesStillAddressRawLines guards the property every drill
-// depends on: a rendered [lo-hi] must name real raw line numbers, because
+// depends on: a rendered [L…] span must name real raw line numbers, because
 // read_block resolves them against the verbatim spill.
 func TestGroupedRangesStillAddressRawLines(t *testing.T) {
 	var b strings.Builder
@@ -190,7 +190,7 @@ func TestRenderTemplateGroupKeepsASingletonVerbatim(t *testing.T) {
 	if strings.Contains(out[0], "×") {
 		t.Fatalf("a group of one carried a repeat count: %q", out[0])
 	}
-	if !strings.Contains(out[0], "[42]") {
+	if !strings.Contains(out[0], "[L42]") {
 		t.Fatalf("singleton lost its raw line number: %q", out[0])
 	}
 }
@@ -205,5 +205,44 @@ func TestStripLinePrefixNeutralisesTimestamps(t *testing.T) {
 	}
 	if got := stripLinePrefix("2026-08-21 01:08:36.123 starting up"); got != "starting up" {
 		t.Fatalf("bare timestamp prefix survived stripping: %q", got)
+	}
+}
+
+// TestRenderLineSet compresses a group's raw line numbers into ascending runs.
+// GroupTemplates groups non-consecutive lines on purpose, so the min..max span
+// this replaces named a range that mostly was NOT the group; the run list
+// names exactly the lines the group covers.
+func TestRenderLineSet(t *testing.T) {
+	cases := []struct {
+		name  string
+		lines []int
+		want  string
+	}{
+		{"single line", []int{42}, "[L42]"},
+		{"one contiguous run", []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, "[L1-16]"},
+		{"discontiguous set", []int{1, 16, 17, 18, 30}, "[L1,16,17-18,30]"},
+		{"unordered input still renders ascending", []int{30, 1, 17, 16, 18}, "[L1,16,17-18,30]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := renderLineSet(c.lines); got != c.want {
+				t.Fatalf("renderLineSet(%v) = %q, want %q", c.lines, got, c.want)
+			}
+		})
+	}
+}
+
+// TestRenderLineSetCapsScatteredGroups — a 500-line scattered group must not
+// print 500 ordinals. Past spanRunCap runs the span lists the first runs and
+// folds the remaining LINES into a +N marker, keeping the span a single
+// readable token that still opens with real line numbers.
+func TestRenderLineSetCapsScatteredGroups(t *testing.T) {
+	lines := make([]int, 0, 500)
+	for i := 0; i < 500; i++ {
+		lines = append(lines, 1+2*i) // every other line: 500 runs of one
+	}
+	want := "[L1,3,5,7,9,11,13,15 +492]"
+	if got := renderLineSet(lines); got != want {
+		t.Fatalf("renderLineSet(500 scattered) = %q, want %q", got, want)
 	}
 }
