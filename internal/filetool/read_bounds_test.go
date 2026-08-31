@@ -756,10 +756,29 @@ func TestRepetitiveLogWindowCollapsesAndSpills(t *testing.T) {
 	}
 }
 
-// A window of unique lines never compacts: the outline only adds prefix bytes
-// to every row, so it cannot earn its place, and the numbered verbatim page
-// ships byte-for-byte as before.
+// writeSourceLike writes a file of count lines with NO shared template: each
+// line embeds a unique alphabetic tag (digits would be masked into one shared
+// template), so grouping has nothing to collapse and the outline cannot earn
+// its place. It is the file-lane twin of source code.
+func writeSourceLike(t *testing.T, root, name string, count int) string {
+	t.Helper()
+	path := filepath.Join(root, name)
+	var b strings.Builder
+	for i := 0; i < count; i++ {
+		tag := string(rune('a'+i/26)) + string(rune('a'+i%26))
+		fmt.Fprintf(&b, "the %s protocol staggers its retries across the window before line %d ends\n", tag, i)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A window of structurally unique lines never compacts: the outline adds
+// prefix bytes to every row and groups nothing, so it cannot earn its place,
+// and the numbered verbatim page ships byte-for-byte as before.
 func TestSourceLikeWindowStaysNumberedVerbatim(t *testing.T) {
+@count 1
 	root := t.TempDir()
 	handler := compactionHandler(t, root, &fakeSpills{})
 	path := writeSourceLike(t, root, "source.txt", 50)
