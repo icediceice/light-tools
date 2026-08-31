@@ -324,8 +324,10 @@ func CodeScenarios(root string) ([]Scenario, error) {
 			Answers:     []*regexp.Regexp{regexp.MustCompile(`VERSION_SENTINEL`)},
 			Adversarial: true,
 			Note: "ADVERSARIAL. Reading the whole file was already the right call, so extraction has almost " +
-				"nothing to remove and the JSON envelope around the result may well make the light arm " +
-				"LARGER than the naive one. A negative row here is the suite working.",
+				"nothing to remove. Reads ship the smaller of the JSON envelope and a plain render, which " +
+				"removed the envelope penalty — but the structured symbol section still costs more than a " +
+				"grep window over an 11-line file, so this ratio is expected to stay under 1×. A negative " +
+				"row here is the suite working.",
 			Run: func() ([]Observation, error) {
 				return CodeArms(handler, root, paths["version.go"], "UserAgent")
 			},
