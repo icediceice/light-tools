@@ -834,7 +834,8 @@ func TestBatchLaneCompactsRepetitiveItems(t *testing.T) {
 	if strings.Contains(text, "compacted=true") {
 		t.Fatalf("source item must not compact: %s", truncate(text))
 	}
-	if !strings.Contains(text, "     1\tline 1\n") {
+	if !strings.Contains(text, "     1\tthe aa protocol") {
+@count 1
 		t.Fatalf("source item lost its numbered form: %s", truncate(text))
 	}
 }
