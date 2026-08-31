@@ -32,8 +32,21 @@ Verbs: `read`, `list`, `symbol`, `outline`, `locate`, `diff`, `identity`,
 Reads are windowed and paginated under a shared budget, returning an exact
 `[CONTINUE]` cursor rather than truncating. A repeat read of the same window of
 unchanged content returns a `[dedup]` stub naming the path, content hash and
-line range instead of the bytes. Dedup is keyed on the window, not the file, so
-a different offset or limit is always served in full.
+line range — and `force:true`, the way back to the bytes if the caller no
+longer holds them. Dedup is keyed on the window, not the file, so a different
+offset or limit is always served in full.
+
+A read result ships in whichever of two shapes is strictly fewer BYTES: the
+canonical JSON envelope, or a plain render that begins `=== <path> ===`. A tie
+keeps the JSON and there is no size floor in either direction, so the envelope
+must earn its delivery. The first byte discriminates the shapes (`{` or `=`).
+The plain window render carries one bracketed meta line with `total_lines`,
+`bytes`, `tokens`, `sha256`, `next_offset`, `continued` and, when present,
+`truncated`, `spill_id` and `note`. The plain symbol render carries one
+section per match with every symbol field — signature, comment and parent as
+quoted strings, the body after a `content N bytes` line consumed by exact
+byte length — so source bytes cannot forge a section delimiter, and
+`[symbols unavailable]` stays distinct from `[no symbol matches]`.
 
 Dedup needs no client cooperation: the server mints one epoch per process at
 startup and uses it whenever a request omits `context_epoch`, which scopes the
