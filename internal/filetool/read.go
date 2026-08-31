@@ -175,7 +175,7 @@ func (h *Handler) renderItem(item Item, epoch string, force bool) (string, *rend
 	if err != nil {
 		return "", nil, err
 	}
-	header := fmt.Sprintf("=== %s ===\n", path)
+	header := plainHeader(path)
 	if isImage(path) {
 		info, err := os.Stat(path)
 		if err != nil {
