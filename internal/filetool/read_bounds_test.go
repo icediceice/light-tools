@@ -29,12 +29,12 @@ func boundsHandler(t *testing.T) (*Handler, string) {
 
 // resultText extracts the single text block of a read result.
 func resultText(t *testing.T, value any) string {
-		t.Helper()
-		result, ok := value.(mcp.Result)
-		if !ok || len(result.Content) != 1 {
+	t.Helper()
+	result, ok := value.(mcp.Result)
+	if !ok || len(result.Content) != 1 {
 		t.Fatalf("unexpected result %#v", value)
-		}
-		return result.Content[0].Text
+	}
+	return result.Content[0].Text
 }
 
 // readResult drives one read and decodes EITHER delivered shape into the
