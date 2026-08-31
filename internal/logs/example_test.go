@@ -24,9 +24,9 @@ func ExampleAnalyze_climbingCounter() {
 		fmt.Fprintf(&b, "Aug 21 03:26:59 ice-server systemd[2158]: light-edge.service: Scheduled restart job, restart counter is at %d.\n", i)
 	}
 	fmt.Println(Analyze(b.String(), noFloor()).Text)
-	// Output:
-	// [1-16]      light-edge.service: Scheduled restart job, restart counter is at ▪1.  ×16
-	//     ▪1: 599..614  (16 values, +1 each)
+		// Output:
+		// [L1-16]       light-edge.service: Scheduled restart job, restart counter is at ▪1.  ×16
+		//     ▪1: 599..614  (16 values, +1 each)
 }
 
 // ExampleAnalyze_loneVerdict is the property that makes a collapsed view
@@ -40,8 +40,8 @@ func ExampleAnalyze_loneVerdict() {
 	}
 	b.WriteString("BUILD FAILED\n")
 	fmt.Println(Analyze(b.String(), noFloor()).Text)
-	// Output:
-	// [1-500]     compiling module ▪1 of 500  ×500
-	//     ▪1: 0..499  (500 values, +1 each)
-	// [501]       BUILD FAILED
+		// Output:
+		// [L1-500]      compiling module ▪1 of 500  ×500
+		//     ▪1: 0..499  (500 values, +1 each)
+		// [L501]        BUILD FAILED
 }
