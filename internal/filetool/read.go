@@ -345,7 +345,7 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 			result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget; full page stored — recover it with light_bash output_mode:read_block spill:" + id
 		}
 	}
-	return textJSON(result)
+	return chooseDelivery(result, renderWindowText(result))
 }
 
 func (h *Handler) list(request Request) (any, error) {
