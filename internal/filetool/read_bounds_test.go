@@ -180,7 +180,7 @@ func decodeSymbolPlain(t *testing.T, text string) map[string]any {
 		match := map[string]any{"symbol": extracted}
 		// --- <kind> <name> lines <start>-<end> bytes <start>-<end>
 		fields := strings.Fields(strings.TrimPrefix(line, "--- "))
-		if len(fields) != 7 || fields[2] != "lines" || fields[5] != "bytes" {
+		if len(fields) != 6 || fields[2] != "lines" || fields[4] != "bytes" {
 			t.Fatalf("malformed symbol section header: %q", line)
 		}
 		extracted["kind"] = fields[0]
