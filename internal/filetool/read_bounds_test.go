@@ -246,7 +246,7 @@ func TestHugeLimitIsClampedAndContinues(t *testing.T) {
 func TestTerminalNewlineIsADelimiterNotALine(t *testing.T) {
 	handler, root := boundsHandler(t)
 	path := writeLines(t, root, "four-hundred.txt", 400)
-	result := readJSON(t, handler, Request{Path: path, Offset: 0, Limit: 5000})
+	result := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 5000})
 	if total, _ := result["total_lines"].(float64); int(total) != 400 {
 		t.Fatalf("a 400-line file must report 400, got %v", result["total_lines"])
 	}
