@@ -286,6 +286,48 @@ func parseMetaNumber(t *testing.T, value string) float64 {
 	return number
 }
 
+// The window decoder is a semantic contract witness: for EVERY result
+// renderWindowText emits, decodeWindowPlain must reconstruct result["content"]
+// byte-for-byte — the ordinary page keeps its terminal LF, and a mid-line
+// truncation keeps only its synthetic separator out. Round-4 peer verify G1.
+func TestPlainWindowDecodeReconstructsCanonicalContentByteForByte(t *testing.T) {
+	cases := []struct {
+		name   string
+		result map[string]any
+	}{
+		{"ordinary-complete", map[string]any{
+			"path": "/w/ordinary.txt", "content": "     1\tline 1\n     2\tline 2\n     3\tline 3\n",
+			"total_lines": 3, "bytes": 21, "tokens": 9, "sha256": "abc", "next_offset": 0, "continued": false,
+		}},
+		{"paged", map[string]any{
+			"path": "/w/paged.txt", "content": "     1\tline 1\n     2\tline 2\n",
+			"total_lines": 40, "bytes": 14, "tokens": 6, "sha256": "def", "next_offset": 10, "continued": true,
+		}},
+		{"truncated-mid-line", map[string]any{
+			"path": "/w/huge.txt", "content": strings.Repeat("y", 200*1024),
+			"total_lines": 2, "bytes": 200*1024 + 5, "tokens": 51200, "sha256": "ghi", "next_offset": 0, "continued": false,
+			"truncated": true, "spill_id": "spill-1", "note": "read_block offsets 0-204800",
+		}},
+	}
+	for _, tc := range cases {
+		decoded := decodeWindowPlain(t, renderWindowText(tc.result))
+		got, _ := decoded["content"].(string)
+		want, _ := tc.result["content"].(string)
+		if got != want {
+			t.Fatalf("%s: decoded content is not byte-for-byte: got %d bytes, want %d", tc.name, len(got), len(want))
+		}
+	}
+	// End to end: a complete handler read delivered plain decodes with its
+	// terminal LF and every numbered line intact.
+	handler, root := boundsHandler(t)
+	path := writeLines(t, root, "e2e.txt", 3)
+	decoded := readResult(t, handler, Request{Path: path})
+	content, _ := decoded["content"].(string)
+	if !strings.HasSuffix(content, "\n") || !strings.Contains(content, "line 3") {
+		t.Fatalf("end-to-end decode lost the canonical terminator: %q", content)
+	}
+}
+
 func writeLines(t *testing.T, root, name string, count int) string {
 	t.Helper()
 	path := filepath.Join(root, name)
