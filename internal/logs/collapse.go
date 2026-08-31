@@ -119,6 +119,7 @@ func GroupTemplates(lines []string, firstLine int) []TemplateGroup {
 			at[key] = j
 			out = append(out, TemplateGroup{Template: tmpl})
 		}
+
 		out[j].Rows = append(out[j].Rows, slots)
 		out[j].Lines = append(out[j].Lines, firstLine+i)
 	}
@@ -230,7 +231,7 @@ func RenderTemplateGroup(g TemplateGroup, indent string) []string {
 		}
 	}
 
-		span := renderLineSet(g.Lines)
+	span := renderLineSet(g.Lines)
 
 	line := fmt.Sprintf("%s%-13s %s", indent, span, strings.TrimSpace(head.String()))
 	if len(g.Rows) > 1 {
