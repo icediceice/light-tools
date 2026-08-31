@@ -97,7 +97,9 @@ func recorderHandler(t *testing.T) (*Handler, *captureRecorder, string) {
 }
 
 // A repeated bounded read records ONLY the bounded delta: the response it
-// suppressed, never the size of the whole source file.
+// suppressed, never the size of the whole source file. The credit is EXACT —
+// the selected delivery's bytes minus the stub — and force:true reproduces
+// that delivery byte-for-byte, so the test can hold the credit to the penny.
 func TestDedupRecordsOnlyTheBoundedDelta(t *testing.T) {
 	handler, recorder, root := recorderHandler(t)
 	path := writeLines(t, root, "wide.txt", 5000)
@@ -125,15 +127,20 @@ func TestDedupRecordsOnlyTheBoundedDelta(t *testing.T) {
 	if saved <= 0 {
 		t.Fatalf("delta = %d", saved)
 	}
-	encoded, err := json.Marshal(stub)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if saved >= int(info.Size()) {
 		t.Fatalf("delta %d credits the whole %d-byte file rather than the bounded response", saved, info.Size())
 	}
-	if saved+200 < len(encoded) { // stub + modest response overhead must cover the credit
-		t.Fatalf("delta %d is implausibly larger than a stubbed response", saved)
+	// force:true returns exactly the delivery the hit suppressed, so the
+	// credit must equal that delivery minus the stub — not an estimate, and
+	// not the JSON envelope the plain render may have beaten.
+	forced, err := handler.readWindow(path, 0, 10, "epoch-1", true, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := len(resultText(t, forced)) - len(resultText(t, stub))
+	if saved != want {
+		t.Fatalf("dedup credit %d, want exactly %d (forced delivery %d - stub %d)",
+			saved, want, len(resultText(t, forced)), len(resultText(t, stub)))
 	}
 }
 
