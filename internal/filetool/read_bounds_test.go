@@ -75,8 +75,10 @@ func decodeReadText(t *testing.T, text string) map[string]any {
 // decodeWindowPlain recovers the canonical window map from the plain render:
 // header line, verbatim content, and the final bracketed meta line. Content
 // lines are always number-prefixed, so no content byte can forge the meta
-// line, and the renderer pads a mid-line-truncated page with exactly one
-// newline, which decoding strips — the content is byte-exact either way.
+// line. The renderer writes content verbatim and pads exactly one newline
+// ONLY when it truncated a page mid-line; for an ordinary page the LF before
+// [meta is the content's own final byte and is restored here, so the decoded
+// content is byte-exact either way.
 func decodeWindowPlain(t *testing.T, text string) map[string]any {
 	t.Helper()
 	headerEnd := strings.Index(text, "\n")
@@ -91,9 +93,15 @@ func decodeWindowPlain(t *testing.T, text string) map[string]any {
 	if !strings.HasSuffix(meta, "]") {
 		t.Fatalf("malformed meta line: %q", meta)
 	}
+	truncatedMeta := strings.Contains(meta, "truncated=true")
 	content := ""
 	if metaStart > headerEnd {
-		content = strings.TrimSuffix(text[headerEnd+1:metaStart], "\n")
+		content = text[headerEnd+1 : metaStart]
+		if !truncatedMeta && content != "" {
+			// Ordinary page: readWindow terminates every emitted line, so
+			// that LF belongs to the content, not to the meta delimiter.
+			content += "\n"
+		}
 	}
 	quoted := strings.TrimSuffix(strings.TrimPrefix(text[:headerEnd], "=== "), " ===")
 	path, err := strconv.Unquote(quoted)
