@@ -294,7 +294,7 @@ func TestContinuationPageSurvivesTheDedupCache(t *testing.T) {
 	handler, root := boundsHandler(t)
 	path := writeLines(t, root, "epoch.txt", 10)
 	const epoch = "session-1"
-	first := readJSON(t, handler, Request{Path: path, Offset: 0, Limit: 3, ContextEpoch: epoch})
+	first := readResult(t, handler, Request{Path: path, Offset: 0, Limit: 3, ContextEpoch: epoch})
 	if content, _ := first["content"].(string); !strings.Contains(content, "line 1") {
 		t.Fatalf("page 1 missing content: %v", first)
 	}
