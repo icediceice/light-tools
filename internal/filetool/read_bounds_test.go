@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	fileop "github.com/icediceice/light-tools/internal/file"
+	"github.com/icediceice/light-tools/internal/mcp"
 	"github.com/icediceice/light-tools/internal/security"
 )
 
