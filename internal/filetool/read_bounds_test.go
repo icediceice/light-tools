@@ -76,7 +76,7 @@ func decodeReadText(t *testing.T, text string) map[string]any {
 // line, and the renderer pads a mid-line-truncated page with exactly one
 // newline, which decoding strips — the content is byte-exact either way.
 func decodeWindowPlain(t *testing.T, text string) map[string]any {
-		t.Helper()
+	t.Helper()
 	headerEnd := strings.Index(text, "\n")
 	if headerEnd < 0 {
 		t.Fatalf("plain read has no header line: %s", truncate(text))
