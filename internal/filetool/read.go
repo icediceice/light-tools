@@ -328,13 +328,17 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 	// The dedup ledger keys on the whole-file hash, so paging an unchanged file
 	// would elide page 2 as an already-seen read. Fold the span into the key.
 	if h.cache.ShouldElide(epoch, path, fmt.Sprintf("%s#%d-%d", hash, offset, end), force) {
-		stub := mcp.Result{Content: []mcp.Content{mcp.Text(fmt.Sprintf("[dedup] %s sha256:%s lines %d-%d", path, hash, offset, end))}}
-		if prospective, err := json.Marshal(result); err == nil {
-			if saved := len(prospective) - len(stub.Content[0].Text); saved > 0 {
+		stub := fmt.Sprintf("[dedup] %s sha256:%s lines %d-%d (re-run with force:true if you no longer hold these bytes)", path, hash, offset, end)
+		// Credit exactly the delivery the hit suppressed — whichever form
+		// chooseDelivery picked — not the JSON envelope, which the plain
+		// render may have beaten. force:true reproduces that delivery
+		// byte-for-byte, so the credit stays checkable against it.
+		if wouldHave, err := chooseDelivery(result, renderWindowText(result)); err == nil {
+			if saved := len(wouldHave.Content[0].Text) - len(stub); saved > 0 {
 				h.observe(func(recorder telemetry.Recorder) { recorder.RecordDedupBytes(saved) })
 			}
 		}
-		return stub, nil
+		return mcp.Result{Content: []mcp.Content{mcp.Text(stub)}}, nil
 	}
 	// An oversized single line is handed to the SAME spill store light_bash
 	// uses, rather than a bespoke error: the caller recovers it verbatim with
