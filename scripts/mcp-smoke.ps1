@@ -116,8 +116,13 @@ function ConvertFrom-PlainSymbolSections {
                 break
             }
             if ($field.Text -match '^(name|kind|signature|comment|parent) (.+)$') {
-                $fields[$Matches[1]] = ConvertFrom-GoQuoted $Matches[2] $Label
+                # $Matches is PowerShell's automatic regex variable: capture
+                # both groups before any call that could re-run a match.
+                $fieldName = $Matches[1]
+                $fieldValue = $Matches[2]
+                $fields[$fieldName] = ConvertFrom-GoQuoted $fieldValue $Label
                 continue
+            }
             }
             throw "$Label has an unexpected plain symbol field: $($field.Text)"
         }
