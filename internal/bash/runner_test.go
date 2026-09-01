@@ -145,6 +145,19 @@ func TestModeledMutatorCaptureContract(t *testing.T) {
 	}
 }
 
+// gnuSed reports whether the sed on PATH is GNU sed.
+//
+// It matters because -i is where the two seds diverge: GNU sed takes an
+// OPTIONAL suffix attached to the flag, so `sed -i -e s/a/b/` edits in place,
+// while BSD sed (macOS) takes a MANDATORY separate suffix argument and
+// therefore consumes the following "-e" as that suffix, leaving the target
+// untouched. Only the resulting bytes differ — the capture contract these
+// tests are actually about behaves identically on both.
+func gnuSed() bool {
+	out, err := exec.Command("sed", "--version").Output()
+	return err == nil && strings.Contains(string(out), "GNU sed")
+}
+
 func TestSedMultipleExpressionsKeepsScriptsOutOfGlobSurface(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("acceptance case uses POSIX sed")
@@ -164,16 +177,27 @@ func TestSedMultipleExpressionsKeepsScriptsOutOfGlobSurface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The property under test: the -e SCRIPTS must not be mistaken for paths
+	// and pulled into the captured glob surface. That holds on every POSIX
+	// platform and is asserted unconditionally.
 	if result["protection"] != "capture-backed" {
 		t.Fatalf("sed scripts leaked into the path surface: %#v", result)
 	}
-	if data, err := os.ReadFile(path); err != nil || string(data) != "c\n" {
-		t.Fatalf("sed did not edit the captured file: data=%q err=%v", data, err)
+	// The edited bytes are GNU-specific (see gnuSed), so assert them only
+	// where this command's -i semantics actually apply. Skipping the whole
+	// test on darwin instead would drop macOS coverage of the capture
+	// contract above, which is the part that can regress.
+	if gnuSed() {
+		if data, err := os.ReadFile(path); err != nil || string(data) != "c\n" {
+			t.Fatalf("sed did not edit the captured file: data=%q err=%v", data, err)
+		}
 	}
 	captureID, _ := result["capture_id"].(string)
 	if _, err := vault.RestoreCapture(captureID, false); err != nil {
 		t.Fatalf("sed capture did not restore: %v", err)
 	}
+	// Restore returns the preimage on both seds: GNU edited it to "c\n" and
+	// BSD left it at "a\n", and either way the captured preimage is "a\n".
 	if data, err := os.ReadFile(path); err != nil || string(data) != "a\n" {
 		t.Fatalf("sed restore returned data=%q err=%v", data, err)
 	}
