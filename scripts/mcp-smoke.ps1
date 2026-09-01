@@ -123,7 +123,6 @@ function ConvertFrom-PlainSymbolSections {
                 $fields[$fieldName] = ConvertFrom-GoQuoted $fieldValue $Label
                 continue
             }
-            }
             throw "$Label has an unexpected plain symbol field: $($field.Text)"
         }
         if ($null -eq $content) {
