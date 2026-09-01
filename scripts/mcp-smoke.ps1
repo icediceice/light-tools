@@ -455,7 +455,10 @@ if ($rawTerseResponses.Count -ne 2 -or $rawTerseResponses[1].result.isError) {
     throw "raw formatter probe failed"
 }
 $rawTerseText = [string]$rawTerseResponses[1].result.content[0].text
-$null = ConvertFrom-Json -InputObject $rawTerseText
+# The raw (non-terse) shape is whichever canonical delivery won on bytes, so
+# assert it decodes as one of the two documented shapes rather than as JSON
+# specifically -- a small read legitimately ships as the plain render.
+$null = ConvertFrom-ToolText $rawTerseText "raw formatter probe"
 
 try {
     $env:LIGHT_TERSE_OUTPUT = "1"
