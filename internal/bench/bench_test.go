@@ -217,7 +217,32 @@ func TestBenchmarkReport(t *testing.T) {
 	rendered := Render(rows)
 
 	path := filepath.Join("..", "..", "docs", "BENCHMARK.md")
+
+	// The report's numbers are DELIVERED bytes, and delivered text embeds the
+	// file path. Where the separator is not '/', every quoted path costs one
+	// EXTRA byte per separator, because strconv.Quote (render.go:plainHeader)
+	// and JSON both escape '\' as '\\'. That is a real difference in what
+	// light-tools delivers on Windows, not a normalisation gap: measured on
+	// windows-2022, the 3-file `batch-across-files` row delivers 757 B against
+	// the committed 754 B — exactly one byte per path (CI run 33493548919).
+	//
+	// So this is deliberately NOT normalised away. Doing so would make the
+	// committed report assert a Windows byte count that Windows does not
+	// actually deliver, in a benchmark whose entire currency is delivered
+	// bytes. The artifact is instead generated and verified where its
+	// separator assumption holds.
+	posixSeparators := os.PathSeparator == '/'
+
 	if *update {
+		if !posixSeparators {
+			// Symmetric with TestSymbolExtractionAvailability's -update guard:
+			// refuse to PUBLISH numbers this platform measures differently,
+			// rather than silently committing a report that fails elsewhere.
+			t.Fatalf("refusing to regenerate the report on a %c-separated platform: "+
+				"every quoted path carries an extra escaped byte, so the published "+
+				"byte counts would be wrong everywhere else. Regenerate on a POSIX host.",
+				os.PathSeparator)
+		}
 		if err := os.WriteFile(path, []byte(rendered), 0o644); err != nil {
 			t.Fatalf("write report: %v", err)
 		}
@@ -225,6 +250,14 @@ func TestBenchmarkReport(t *testing.T) {
 		return
 	}
 
+	if !posixSeparators {
+		// The measurement above still RAN on this platform, so a panic, an
+		// error, or a scenario that stops answering is still caught here; only
+		// the byte-exact artifact comparison is skipped.
+		t.Skipf("docs/BENCHMARK.md records delivered bytes measured with '/' separators; "+
+			"on a %c-separated platform each quoted path costs an extra escaped byte. "+
+			"Measurement ran; byte-exact comparison is POSIX-only.", os.PathSeparator)
+	}
 	existing, err := os.ReadFile(path)
 	if err != nil {
 		t.Skipf("no generated report yet (%v); run: %s", err, ReproduceCommand)
