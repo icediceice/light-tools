@@ -90,8 +90,40 @@ func callFileTool(handler *filetool.Handler, request map[string]any) (string, er
 // filetool returns absolute paths, so without this the byte counts would move
 // with the temp directory and the report would differ per machine. It is
 // applied to EVERY arm identically, so it cannot tilt a comparison.
+//
+// A single literal ReplaceAll of the raw root is NOT enough, and both gaps it
+// left showed up as cross-platform drift in docs/BENCHMARK.md — the report
+// regenerated green on Linux and then failed as "stale" on macOS and Windows:
+//
+//   - macOS: t.TempDir() hands back /var/folders/..., but /var is a symlink to
+//     /private/var, so the path filetool resolves and echoes back is
+//     /private/var/folders/.... Replacing only the unresolved root strands a
+//     stray "/private" in the delivered text.
+//   - Windows: both the JSON envelope and render.go's plainHeader put the path
+//     through Go/JSON quoting, so separators arrive escaped (C:\\Users\\...)
+//     and never match the raw root at all.
+//
+// Longest-first ordering is load-bearing: the resolved root CONTAINS the raw
+// root as a substring on macOS, and replacing the shorter one first would
+// strand exactly the prefix this exists to remove.
 func normalise(text, root string) string {
-	return strings.ReplaceAll(text, root, "<root>")
+	variants := []string{root}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil && resolved != root {
+		variants = append(variants, resolved)
+	}
+	for _, variant := range append([]string(nil), variants...) {
+		// The same path also reaches us Go-quoted (plainHeader) and
+		// JSON-escaped (the envelope); both escape a separator identically,
+		// so the quoted body covers each shape.
+		if quoted := strings.Trim(strconv.Quote(variant), `"`); quoted != variant {
+			variants = append(variants, quoted)
+		}
+	}
+	sort.SliceStable(variants, func(i, j int) bool { return len(variants[i]) > len(variants[j]) })
+	for _, variant := range variants {
+		text = strings.ReplaceAll(text, variant, "<root>")
+	}
+	return text
 }
 
 // grepWindow models the skilled baseline: locate the pattern, then read a
