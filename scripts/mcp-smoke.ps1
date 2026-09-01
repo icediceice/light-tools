@@ -56,6 +56,171 @@ function Invoke-McpTranscript {
     }
 }
 
+# The read lanes ship a materialized single-path result in whichever of two
+# shapes is strictly fewer BYTES (docs/REFERENCE.md; internal/filetool/
+# render.go:chooseDelivery): the canonical JSON envelope, or a plain render.
+# The FIRST BYTE discriminates them -- '{' is the envelope, '=' is the plain
+# render -- and a leading '[' is the dedup control stub, not a third shape.
+# Assuming JSON unconditionally is what broke this smoke once the plain render
+# started winning on small reads. These decoders mirror the reference
+# implementations in internal/filetool/read_bounds_test.go (decodeReadText,
+# decodeWindowPlain, decodeSymbolPlain); keep them in step with that file.
+
+function ConvertFrom-GoQuoted {
+    param([string]$Quoted, [string]$Label)
+    # strconv.Quote and JSON agree on every escape a real path produces
+    # (\" \\ \n \r \t plus printable ASCII). Go can additionally emit \xNN for
+    # exotic control bytes, which JSON cannot express; no path this transcript
+    # reads contains one, and this fails loudly rather than silently if that
+    # ever changes.
+    try {
+        return ConvertFrom-Json -InputObject $Quoted
+    }
+    catch {
+        throw "$Label has an undecodable quoted path in its plain header: $Quoted"
+    }
+}
+
+function Read-PlainLine {
+    param([byte[]]$Bytes, [int]$Index)
+    $end = [Array]::IndexOf($Bytes, [byte]10, $Index)
+    if ($end -lt 0) { $end = $Bytes.Length }
+    return [pscustomobject]@{
+        Text = [Text.Encoding]::UTF8.GetString($Bytes, $Index, $end - $Index)
+        Next = $end + 1
+    }
+}
+
+function ConvertFrom-PlainSymbolSections {
+    param([byte[]]$Bytes, [int]$Index, [string]$Label)
+    # Every variable-length field is delimited by its exact byte length, so the
+    # walk is arithmetic and source bytes can never forge a section delimiter.
+    $found = @()
+    while ($Index -lt $Bytes.Length) {
+        $line = Read-PlainLine $Bytes $Index
+        if ([string]::IsNullOrEmpty($line.Text)) { break }
+        if (-not $line.Text.StartsWith("--- symbol lines ")) {
+            throw "$Label has an unexpected plain symbol section: $($line.Text)"
+        }
+        $Index = $line.Next
+        $fields = @{}
+        $content = $null
+        while ($Index -lt $Bytes.Length) {
+            $field = Read-PlainLine $Bytes $Index
+            $Index = $field.Next
+            if ($field.Text -match '^content (\d+) bytes$') {
+                $length = [int]$Matches[1]
+                $content = [Text.Encoding]::UTF8.GetString($Bytes, $Index, $length)
+                # The renderer writes exactly one LF after the body.
+                $Index += $length + 1
+                break
+            }
+            if ($field.Text -match '^(name|kind|signature|comment|parent) (.+)$') {
+                $fields[$Matches[1]] = ConvertFrom-GoQuoted $Matches[2] $Label
+                continue
+            }
+            throw "$Label has an unexpected plain symbol field: $($field.Text)"
+        }
+        if ($null -eq $content) {
+            throw "$Label plain symbol section ended before its content"
+        }
+        $found += [pscustomobject]@{ symbol = [pscustomobject]$fields; content = $content }
+    }
+    return $found
+}
+
+function ConvertFrom-PlainWindow {
+    param([string]$Body, [string]$Path, [string]$Label)
+    $metaOpen = "[meta "
+    if ($Body.StartsWith($metaOpen)) {
+        $content = ""
+        $meta = $Body.TrimEnd("`n")
+    }
+    else {
+        $metaStart = $Body.LastIndexOf("`n" + $metaOpen)
+        if ($metaStart -lt 0) {
+            throw "$Label plain read has no meta line"
+        }
+        $meta = $Body.Substring($metaStart + 1).TrimEnd("`n")
+        $content = $Body.Substring(0, $metaStart)
+        if ($meta -notmatch "truncated=true" -and $content.Length -gt 0) {
+            # Ordinary page: readWindow terminates every emitted line, so that
+            # final LF belongs to the content, not to the meta delimiter.
+            $content += "`n"
+        }
+    }
+    if (-not $meta.EndsWith("]")) {
+        throw "$Label has a malformed meta line: $meta"
+    }
+    $result = [ordered]@{ path = $Path; content = $content }
+    $fields = $meta.Substring($metaOpen.Length, $meta.Length - $metaOpen.Length - 1)
+    while ($fields -ne "") {
+        if ($fields.StartsWith("note=")) {
+            # Free text, always last: everything after note= is the note.
+            $result["note"] = $fields.Substring(5)
+            break
+        }
+        $space = $fields.IndexOf(" ")
+        if ($space -lt 0) {
+            $pair = $fields
+            $fields = ""
+        }
+        else {
+            $pair = $fields.Substring(0, $space)
+            $fields = $fields.Substring($space + 1)
+        }
+        $equals = $pair.IndexOf("=")
+        if ($equals -lt 0) {
+            throw "$Label has a malformed meta field: $pair"
+        }
+        $result[$pair.Substring(0, $equals)] = $pair.Substring($equals + 1)
+    }
+    return [pscustomobject]$result
+}
+
+function ConvertFrom-ToolText {
+    param([string]$Text, [string]$Label)
+    if ($Text.StartsWith("{")) {
+        return ConvertFrom-Json -InputObject $Text
+    }
+    if ($Text.StartsWith("[")) {
+        throw "$Label returned the dedup control stub, not a materialized read: $Text"
+    }
+    if (-not $Text.StartsWith("=== ")) {
+        throw "$Label is neither JSON nor a plain render: $Text"
+    }
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+    $header = Read-PlainLine $bytes 0
+    if (-not $header.Text.EndsWith(" ===")) {
+        throw "$Label has a malformed plain header: $($header.Text)"
+    }
+    $quoted = $header.Text.Substring(4, $header.Text.Length - 8)
+    $path = ConvertFrom-GoQuoted $quoted $Label
+    $body = [Text.Encoding]::UTF8.GetString($bytes, $header.Next, $bytes.Length - $header.Next)
+
+    # "symbols unavailable" and "no symbol matches" stay distinct states,
+    # mirroring the envelope's note branch and its empty-matches branch.
+    $unavailable = "[symbols unavailable] "
+    if ($body.StartsWith($unavailable)) {
+        return [pscustomobject]@{
+            path        = $path
+            tree_sitter = $false
+            matches     = @()
+            note        = $body.Substring($unavailable.Length).TrimEnd("`n")
+        }
+    }
+    if ($body.StartsWith("[no symbol matches]")) {
+        return [pscustomobject]@{ path = $path; matches = @() }
+    }
+    if ($body.StartsWith("--- symbol lines ")) {
+        return [pscustomobject]@{
+            path    = $path
+            matches = @(ConvertFrom-PlainSymbolSections $bytes $header.Next $Label)
+        }
+    }
+    return ConvertFrom-PlainWindow $body $path $Label
+}
+
 function Get-ToolValue {
     param($Response, [string]$Label)
     if ($null -ne $Response.error) {
@@ -64,7 +229,7 @@ function Get-ToolValue {
     if ($Response.result.isError) {
         throw "$Label returned a tool error: $($Response.result.content[0].text)"
     }
-    return ConvertFrom-Json -InputObject $Response.result.content[0].text
+    return ConvertFrom-ToolText ([string]$Response.result.content[0].text) $Label
 }
 
 $version = (& $Binary version).Trim()
