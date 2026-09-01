@@ -444,13 +444,30 @@ if ($enabledResponses[9].result.isError -or $imageContent.type -ne "image" -or
     throw "installed light_file image response was not preserved"
 }
 
+# The terse probe must exercise a result that STAYS canonical JSON, because
+# terse/encode.go:Format calls decodeJSONDocument and declines anything that is
+# not a JSON document. A single-path light_file read can no longer satisfy that:
+# chooseDelivery (internal/filetool/render.go) ships whichever shape is fewer
+# bytes, and for a read the plain render beats the envelope by a roughly
+# constant margin -- it spends "=== " and " ===" around the quoted path where
+# the envelope pays a path key, a content key and two quotes -- so the plain
+# render effectively always wins and terse is then STRUCTURALLY impossible, not
+# merely declined. The old fixture (verb:read, limit 20, on 120 words)
+# consequently returned byte-identical output with and without the gate, which
+# presents as "the installed binary ignored LIGHT_TERSE_OUTPUT" when the real
+# cause is that there was no JSON document to transcode.
+#
+# verb:locate is the correct probe: internal/filetool/locate.go returns
+# textJSON on BOTH engine branches, so it is canonical JSON whether or not
+# ripgrep is on PATH, and this fixture clears Format's 100-token floor.
+# Measured on both engines: 903 raw bytes -> 878 terse, deterministic.
 $terseRequests = @(
     [ordered]@{ jsonrpc = "2.0"; id = 1; method = "initialize"; params = @{} },
     [ordered]@{
         jsonrpc = "2.0"; id = 2; method = "tools/call"
         params = [ordered]@{
             name = "light_file"
-            arguments = [ordered]@{ verb = "read"; path = $tersePath; offset = 0; limit = 20 }
+            arguments = [ordered]@{ verb = "locate"; path = $tersePath; pattern = "word" }
         }
     }
 )
@@ -459,9 +476,11 @@ if ($rawTerseResponses.Count -ne 2 -or $rawTerseResponses[1].result.isError) {
     throw "raw formatter probe failed"
 }
 $rawTerseText = [string]$rawTerseResponses[1].result.content[0].text
-# The raw (non-terse) shape is whichever canonical delivery won on bytes, so
-# assert it decodes as one of the two documented shapes rather than as JSON
-# specifically -- a small read legitimately ships as the plain render.
+# Guard the fixture itself, so a future dual-delivery change reports the real
+# cause here instead of surfacing as a confusing "gate ignored" failure below.
+if (-not $rawTerseText.StartsWith("{")) {
+    throw "terse probe fixture no longer ships canonical JSON, so LIGHT_TERSE_OUTPUT cannot engage: $($rawTerseText.Substring(0, [Math]::Min(40, $rawTerseText.Length)))"
+}
 $null = ConvertFrom-ToolText $rawTerseText "raw formatter probe"
 
 try {
