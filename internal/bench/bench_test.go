@@ -229,8 +229,19 @@ func TestBenchmarkReport(t *testing.T) {
 	if err != nil {
 		t.Skipf("no generated report yet (%v); run: %s", err, ReproduceCommand)
 	}
-	if string(existing) != rendered {
-		line, want, got := firstDivergence(string(existing), rendered)
+	// Git may translate the committed report's line endings on checkout — this
+	// repo pins none (no .gitattributes) and the Windows CI runner checks out
+	// CRLF — so the bytes on disk are not necessarily the bytes committed. That
+	// translation is NOT report drift, and drift is the only thing this test
+	// exists to catch, so normalise line endings before comparing. Without this
+	// the report is byte-identical in substance yet fails on Windows at line 1
+	// with a lone trailing "\r" (CI run 33491850488, then 33493027969).
+	//
+	// The fixtures themselves are unaffected: writeFixtures writes synthetic
+	// content from Go string literals, so the MEASURED side is always LF.
+	committed := strings.ReplaceAll(string(existing), "\r\n", "\n")
+	if committed != rendered {
+		line, want, got := firstDivergence(committed, rendered)
 		t.Errorf("docs/BENCHMARK.md is stale. Regenerate with:\n  %s\n"+
 			"first divergence at line %d:\n  committed: %q\n  measured:  %q",
 			ReproduceCommand, line, truncate(want), truncate(got))
