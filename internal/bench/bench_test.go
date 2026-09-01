@@ -230,8 +230,49 @@ func TestBenchmarkReport(t *testing.T) {
 		t.Skipf("no generated report yet (%v); run: %s", err, ReproduceCommand)
 	}
 	if string(existing) != rendered {
-		t.Errorf("docs/BENCHMARK.md is stale. Regenerate with:\n  %s", ReproduceCommand)
+		line, want, got := firstDivergence(string(existing), rendered)
+		t.Errorf("docs/BENCHMARK.md is stale. Regenerate with:\n  %s\n"+
+			"first divergence at line %d:\n  committed: %q\n  measured:  %q",
+			ReproduceCommand, line, truncate(want), truncate(got))
 	}
+}
+
+// firstDivergence returns the 1-based line where the committed report and the
+// freshly measured one first disagree, plus both versions of that line.
+//
+// A bare "is stale" names no cause, which is worthless precisely when it is
+// needed most: when the staleness reproduces ONLY on another operating
+// system's CI runner and cannot be reproduced on the machine that regenerates
+// the report. Printing the differing row turns one CI round into a diagnosis
+// instead of a guess.
+func firstDivergence(committed, measured string) (int, string, string) {
+	want := strings.Split(committed, "\n")
+	got := strings.Split(measured, "\n")
+	limit := len(want)
+	if len(got) > limit {
+		limit = len(got)
+	}
+	for index := 0; index < limit; index++ {
+		wantLine, gotLine := "<past end>", "<past end>"
+		if index < len(want) {
+			wantLine = want[index]
+		}
+		if index < len(got) {
+			gotLine = got[index]
+		}
+		if wantLine != gotLine {
+			return index + 1, wantLine, gotLine
+		}
+	}
+	// Equal line-by-line but unequal as strings: a trailing-byte difference.
+	return 0, committed[maxInt(0, len(committed)-40):], measured[maxInt(0, len(measured)-40):]
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func truncate(value string) string {
