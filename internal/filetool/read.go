@@ -421,13 +421,19 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 		}
 		return mcp.Result{Content: []mcp.Content{mcp.Text(stub)}}, nil
 	}
-	// An oversized single line is handed to the SAME spill store light_bash
-	// uses, rather than a bespoke error: the caller recovers it verbatim with
-	// output_mode:read_block.
-	if len(content) > readBudget && h.spills != nil {
-		if id, spillErr := h.spills.Store([]byte(content)); spillErr == nil {
-			result["spill_id"] = id
-			result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget; full page stored — recover it with light_bash output_mode:read_block spill:" + id
+	// A compacted window already has a spill for its exact bytes. For an
+	// oversized line, try the shared store before offering batch cursor recovery.
+	if truncated && !compacted {
+		lineNumber := strconv.Itoa(offset + 1)
+		if h.spills != nil {
+			if id, spillErr := h.spills.Store([]byte(content)); spillErr == nil && id != "" {
+				result["spill_id"] = id
+				result["note"] = "line " + lineNumber + " exceeds the read budget; full page stored — recover it with light_bash output_mode:read_block spill:" + id
+			}
+		}
+		if _, spilled := result["spill_id"]; !spilled {
+			quotedPath, _ := json.Marshal(path)
+			result["note"] = fmt.Sprintf(`line %s exceeds the read budget and was truncated. While the file is unchanged, call light_file with {"verb":"read","items":[{"path":%s,"offset":%d,"limit":1}],"force":true}. Repeat with the cursor from [CONTINUE <cursor>] until it is absent.`, lineNumber, quotedPath, offset)
 		}
 	}
 	delivery, err := chooseDelivery(result, renderWindowText(result))
