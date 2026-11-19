@@ -137,13 +137,16 @@ address.
 Compaction runs AFTER your own `head`/`tail`/`grep` filter, so a rendered range
 and the bytes behind it address the same text.
 
-`light_file` groups file windows through the same engine. A read window whose
-lines collapse — a log, a data set, any repetitive text — returns the outline
-instead of the numbered listing, with every `[L…]` ordinal a real file line
-number (offset pages start at their offset), plus `compacted: true`, a
-`spill_id` recovering the exact window bytes, and the ready-made `note`. Source
-code and unique-line windows never outline: the outline must be strictly
-shorter than the raw window or the numbered verbatim page ships as before.
+`light_file` uses the same engine for file windows. A window returns a compact
+outline when the outline is shorter than the numbered listing and the spill
+store accepts the window. Each `[L…]` ordinal is a file line number. The result
+includes `compacted: true`, a `spill_id` for the exact window bytes, and a `note`
+with the recovery call. Other windows return numbered lines.
+
+If a single-path read clips an oversized line and cannot return a spill, its
+`note` gives a batch read with `force:true`. While the file is unchanged,
+repeat the batch request with the value from each `[CONTINUE <cursor>]` marker
+as the `cursor` argument to recover the full line.
 
 When a stream's view is not the bytes the command produced, that stream gets its
 OWN spill and reports:
