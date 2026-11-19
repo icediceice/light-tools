@@ -80,9 +80,9 @@ A verdict is a singleton by nature — it is the line you came for, and it survi
 
 ### Keep oversized output out of context
 
-When a stream is compacted, or is too large to return whole, the exact bytes go to an indexed spill and the result carries a ready-made `read_block` call to recover them.
+Compacted output uses an indexed spill when `light_bash` is registered and the spill can be stored. The result includes a `read_block` call to recover the exact bytes. Without a spill, stream compaction returns the original output. `LIGHT_NO_COMPACT=1` disables compaction.
 
-Elision always implies recovery: if no spill can back a view, the exact output comes back instead. `LIGHT_NO_COMPACT=1` restores the pre-compaction result shape exactly.
+An oversized line in a single `light_file` read window is clipped to the read budget. When `light_bash` is disabled, follow the result's `light_file` batch read with `force:true` and pass each `[CONTINUE <cursor>]` value as `cursor`. This recovers the line while the file is unchanged.
 
 The goal is not to hide information. It is to stop paying the context cost before the agent knows whether it needs that information.
 
