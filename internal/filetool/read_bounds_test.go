@@ -557,6 +557,55 @@ func TestEmptyFileReportsZeroLines(t *testing.T) {
 	}
 }
 
+func TestOutlineChunksCountLogicalLines(t *testing.T) {
+	handler, root := boundsHandler(t)
+	for _, test := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{"terminal-newline", strings.Repeat("record\n", 80), `[{"end_line":80,"start_line":1}]`},
+		{"empty", "", `[]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(root, test.name+".txt")
+			if err := os.WriteFile(path, []byte(test.data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			text := invokeRequest(t, handler, map[string]any{"verb": "read", "path": path})
+			var outline struct {
+				Chunks json.RawMessage `json:"chunks"`
+			}
+			if err := json.Unmarshal([]byte(text), &outline); err != nil {
+				t.Fatal(err)
+			}
+			if string(outline.Chunks) != test.want {
+				t.Fatalf("outline chunks = %s, want %s", outline.Chunks, test.want)
+			}
+		})
+	}
+}
+
+func TestEditNumbersOnlyLogicalLines(t *testing.T) {
+	handler, root := boundsHandler(t)
+	path := filepath.Join(root, "numbered.txt")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	text := invokeRequest(t, handler, map[string]any{
+		"verb": "edit", "path": path, "start_line": 1, "end_line": 1, "new_string": "new",
+	})
+	var response struct {
+		Numbered string `json:"numbered"`
+	}
+	if err := json.Unmarshal([]byte(text), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Numbered != "     1\tnew\n" {
+		t.Fatalf("numbered edit = %q, want one numbered line", response.Numbered)
+	}
+}
+
 // Paging is only safe if the file's identity is checked between pages.
 func TestChangedFileBetweenPagesIsRefused(t *testing.T) {
 	handler, root := boundsHandler(t)
