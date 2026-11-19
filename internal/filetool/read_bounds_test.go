@@ -649,6 +649,44 @@ func (f *fakeSpills) Store(data []byte) (string, error) {
 	return fmt.Sprintf("spill-%d", len(f.stored)), nil
 }
 
+func TestOversizedLineWithoutSpillsRecoversThroughBatchCursor(t *testing.T) {
+	handler, root := boundsHandler(t)
+	path := filepath.Join(root, "long.txt")
+	const tail = "END-OF-OVERSIZED-LINE"
+	line := strings.Repeat("x", 200*1024) + tail
+	if err := os.WriteFile(path, []byte("first\n"+line+"\nfollowing line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const epoch = "recovery-session"
+	result := readResult(t, handler, Request{Path: path, Offset: 1, Limit: 1, ContextEpoch: epoch})
+	note, _ := result["note"].(string)
+	content, _ := result["content"].(string)
+	if result["truncated"] != true || strings.Contains(content, tail) {
+		t.Fatal("the initial read should clip the line before its tail")
+	}
+	if _, spilled := result["spill_id"]; spilled || strings.Contains(note, "light_bash") {
+		t.Fatalf("unavailable spill recovery advertised: %q", note)
+	}
+	_, recipe, found := strings.Cut(note, "call light_file with ")
+	recipe, _, delimited := strings.Cut(recipe, ". Repeat")
+	var batch map[string]any
+	if !found || !delimited || json.Unmarshal([]byte(recipe), &batch) != nil {
+		t.Fatalf("missing callable batch recovery: %q", note)
+	}
+	batch["context_epoch"] = epoch
+	first := invokeRequest(t, handler, batch)
+	first, marker, found := strings.Cut(first, "\n[CONTINUE ")
+	cursor, closed := strings.CutSuffix(marker, "]")
+	if !found || !closed || cursor == "" {
+		t.Fatal("batch recovery should return a continuation cursor")
+	}
+	batch["cursor"] = cursor
+	second := invokeRequest(t, handler, batch)
+	if recovered := first + second; !strings.Contains(recovered, "     2\t"+line+"\n") || strings.Contains(recovered, "following line") {
+		t.Fatal("batch recovery should reconstruct the entire clipped line only")
+	}
+}
+
 // An oversized line's FULL page must reach the shared spill store, so the
 // caller can recover it verbatim through light_bash read_block.
 func TestOversizedLineIsHandedToTheSpillStore(t *testing.T) {
