@@ -337,7 +337,7 @@ func (h *Handler) rename(mutation fileop.Mutation) (any, error) {
 }
 
 func numbered(data []byte) string {
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	lines := splitLines(data)
 	var builder strings.Builder
 	for index, line := range lines {
 		fmt.Fprintf(&builder, "%6d\t%s\n", index+1, line)
