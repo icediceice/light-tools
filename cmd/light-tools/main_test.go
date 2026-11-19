@@ -340,6 +340,39 @@ func TestWithholdingLightBashKeepsSSHAndOpsRegistered(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("tools/list = %v, want %v", got, want)
 	}
+
+	path := filepath.Join(root, "oversized.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", 200*1024)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+		"params": map[string]any{
+			"name": "light_file", "arguments": map[string]any{"verb": "read", "path": path, "limit": 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	if err := server.Serve(context.Background(), strings.NewReader(string(request)+"\n"), &output); err != nil {
+		t.Fatal(err)
+	}
+	var read struct {
+		Result mcp.Result `json:"result"`
+		Error  any        `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(output.String()), &read); err != nil {
+		t.Fatal(err)
+	}
+	if read.Error != nil || read.Result.IsError || len(read.Result.Content) != 1 {
+		t.Fatalf("oversized read failed: protocol error %v, tool error %t, blocks %d", read.Error, read.Result.IsError, len(read.Result.Content))
+	}
+	text := read.Result.Content[0].Text
+	if !strings.Contains(text, "was truncated") || !strings.Contains(text, "[CONTINUE") ||
+		strings.Contains(text, "spill_id") || strings.Contains(text, "light_bash") {
+		t.Fatal("oversized read should advertise batch cursor recovery when light_bash is withheld")
+	}
 }
 
 func captureStdout(t *testing.T, run func() error) string {
