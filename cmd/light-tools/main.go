@@ -160,15 +160,9 @@ func resolveConfinement(configuration config.Config, uiConfine bool, workingDire
 	return configuration
 }
 
-// recoveryStore decides whether light_ssh and light_ops may compact at all.
-//
-// Elision implies recovery, and every recovery pointer those two tools publish
-// names light_bash — read_block is the only verb that reads a spill. So in the
-// supported posture where the operator withholds light_bash but keeps light_ssh
-// or light_ops, an outline would advertise a call the client cannot make and
-// the exact bytes it points at become unreachable. Withholding the store
-// instead costs those two tools their compaction in that posture and keeps the
-// invariant: both fail open to exact output when this is nil.
+// recoveryStore shares the spill store only when clients can read it through
+// light_bash. With a nil store, stream compaction returns exact output and
+// light_file can page through an oversized line using its batch read cursor.
 //
 // The return type is load-bearing. A nil *bash.SpillStore boxed in a non-nil
 // interface would pass every `spills == nil` check downstream and then hand out
