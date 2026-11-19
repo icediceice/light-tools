@@ -225,13 +225,7 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	if err != nil {
 		return err
 	}
-	// One spill store and one recorder across all three shell tools. Sharing
-	// the store is what lets an outline from light_ssh or light_ops be
-	// recovered through light_bash read_block; sharing the recorder is what
-	// keeps the compaction ratio a whole-process number instead of one tool's.
-	//
-	// The store is withheld when light_bash is: see recoveryStore.
-	recovery := recoveryStore(opts, bashRunner.Spills())
+	// The shared recorder keeps the compaction ratio a whole-process number.
 	remoteTransport := remote.New(configuration.Remote, confiner, secretVault, recovery, recorder)
 	opsHandler, err := ops.New(policy, configuration.LogRoots, recovery, recorder)
 	if err != nil {
