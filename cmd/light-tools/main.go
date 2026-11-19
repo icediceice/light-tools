@@ -199,8 +199,8 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	if err != nil {
 		return err
 	}
-	// The runner is built first so light_file can share its spill store: an
-	// oversized read then comes back as a spill_id readable via light_bash.
+	// Build the runner first so tools can share its spill store when light_bash
+	// is registered and can serve read_block requests.
 	bashRunner, err := bash.NewRunner(policy, layout.Spills, secretVault, snapshotVault, recorder)
 	if err != nil {
 		return err
