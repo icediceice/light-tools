@@ -562,10 +562,10 @@ func TestOutlineChunksCountLogicalLines(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		data string
-		want string
+		end  int
 	}{
-		{"terminal-newline", strings.Repeat("record\n", 80), `[{"end_line":80,"start_line":1}]`},
-		{"empty", "", `[]`},
+		{"terminal-newline", strings.Repeat("record\n", 80), 80},
+		{"empty", "", 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(root, test.name+".txt")
