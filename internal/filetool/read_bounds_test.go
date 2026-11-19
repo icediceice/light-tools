@@ -574,13 +574,22 @@ func TestOutlineChunksCountLogicalLines(t *testing.T) {
 			}
 			text := invokeRequest(t, handler, map[string]any{"verb": "read", "path": path})
 			var outline struct {
-				Chunks json.RawMessage `json:"chunks"`
+				Chunks []struct {
+					Start int `json:"start_line"`
+					End   int `json:"end_line"`
+				} `json:"chunks"`
 			}
 			if err := json.Unmarshal([]byte(text), &outline); err != nil {
 				t.Fatal(err)
 			}
-			if string(outline.Chunks) != test.want {
-				t.Fatalf("outline chunks = %s, want %s", outline.Chunks, test.want)
+			if test.end == 0 {
+				if len(outline.Chunks) != 0 {
+					t.Fatalf("empty file should have no chunks, got %v", outline.Chunks)
+				}
+				return
+			}
+			if len(outline.Chunks) != 1 || outline.Chunks[0].Start != 1 || outline.Chunks[0].End != test.end {
+				t.Fatalf("want one chunk from line 1 through %d, got %v", test.end, outline.Chunks)
 			}
 		})
 	}
