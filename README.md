@@ -82,7 +82,7 @@ A verdict is a singleton by nature — it is the line you came for, and it survi
 
 Compacted output uses an indexed spill when `light_bash` is registered and the spill can be stored. The result includes a `read_block` call to recover the exact bytes. Without a spill, stream compaction returns the original output. `LIGHT_NO_COMPACT=1` disables compaction.
 
-An oversized line in a single `light_file` read window is clipped to the read budget. With `light_bash` enabled, the full line can be recovered from the spill. If `light_bash` is disabled, follow the result's `light_file` batch read with `force:true` and pass each `[CONTINUE <cursor>]` value as `cursor`. This recovers the line while the file is unchanged.
+An oversized line in a single `light_file` read window is clipped to the read budget. If the result includes a spill ID, recover the full line with `read_block`. If `light_bash` is disabled or the store cannot save the spill, follow the result's `light_file` batch read with `force:true` and pass each `[CONTINUE <cursor>]` value as `cursor`. This recovers the line while the file is unchanged.
 
 The goal is not to hide information. It is to stop paying the context cost before the agent knows whether it needs that information.
 
