@@ -111,8 +111,8 @@ ordinary non-zero exit is never relabelled as a timeout.
 
 Output modes: `auto`, `head`, `tail`, `grep`, `read_block`. Oversized combined
 output is still stored whole behind an opaque `source_spill_id`; recover exact
-ranges with `read_block` plus `line_range`. `light_file` shares the same spill
-store.
+ranges with `read_block` plus `line_range`. When `light_bash` is registered,
+`light_file` shares its spill store.
 
 ### Output compaction
 
