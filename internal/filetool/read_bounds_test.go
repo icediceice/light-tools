@@ -658,8 +658,30 @@ func (f *fakeSpills) Store(data []byte) (string, error) {
 	return fmt.Sprintf("spill-%d", len(f.stored)), nil
 }
 
-func TestOversizedLineWithoutSpillsRecoversThroughBatchCursor(t *testing.T) {
+type rejectingSpills struct{}
+
+func (rejectingSpills) Store([]byte) (string, error) {
+	return "", fmt.Errorf("spill limit reached")
+}
+
+func TestOversizedLineRecoversThroughBatchCursorWhenSpillUnavailable(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		spills spillStore
+	}{
+		{"absent", nil},
+		{"refused", rejectingSpills{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertOversizedLineRecoversThroughBatchCursor(t, test.spills)
+		})
+	}
+}
+
+func assertOversizedLineRecoversThroughBatchCursor(t *testing.T, spills spillStore) {
+	t.Helper()
 	handler, root := boundsHandler(t)
+	handler.spills = spills
 	path := filepath.Join(root, "long.txt")
 	const tail = "END-OF-OVERSIZED-LINE"
 	line := strings.Repeat("x", 200*1024) + tail
