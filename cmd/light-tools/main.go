@@ -216,9 +216,10 @@ func registerTools(server *mcp.Server, opts options, layout state.Layout, config
 	if _, randErr := rand.Read(epochSeed); randErr == nil {
 		defaultEpoch = hex.EncodeToString(epochSeed)
 	}
+	recovery := recoveryStore(opts, bashRunner.Spills())
 	fileHandler, err := filetool.New(filetool.Options{
 		Confiner: confiner, SnapshotRoot: layout.Snapshots, Vault: snapshotVault,
-		Spills: bashRunner.Spills(), Recorder: recorder,
+		Spills: recovery, Recorder: recorder,
 		DefaultEpoch: defaultEpoch,
 	})
 	if err != nil {
