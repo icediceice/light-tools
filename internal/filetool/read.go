@@ -495,7 +495,7 @@ func (h *Handler) outline(request Request) (any, error) {
 	if extractionErr == nil && len(symbols) > 0 {
 		return textJSON(map[string]any{"path": path, "symbols": symbols})
 	}
-	lines := strings.Count(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") + 1
+	lines := len(splitLines(data))
 	chunks := make([]map[string]int, 0, (lines+79)/80)
 	for start := 1; start <= lines; start += 80 {
 		end := min(lines, start+79)
