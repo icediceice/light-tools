@@ -400,7 +400,12 @@ func (h *Handler) readWindow(path string, offset, limit int, epoch string, force
 	if len(content) > readBudget {
 		result["truncated"] = true
 		result["content"] = content[:safeUTF8Boundary(content, readBudget)]
-		result["note"] = "line " + strconv.Itoa(offset+1) + " exceeds the read budget and was truncated"
+		note := "line " + strconv.Itoa(offset+1) + " exceeds the read budget and was truncated"
+		if h.spills == nil {
+			quotedPath, _ := json.Marshal(path)
+			note += fmt.Sprintf(`. While the file is unchanged, call light_file with {"verb":"read","items":[{"path":%s,"offset":%d,"limit":1}],"force":true}. Repeat with the cursor from [CONTINUE <cursor>] until it is absent.`, quotedPath, offset)
+		}
+		result["note"] = note
 	}
 	// The dedup ledger keys on the whole-file hash, so paging an unchanged file
 	// would elide page 2 as an already-seen read. Fold the span into the key.
